@@ -1,0 +1,22 @@
+{
+  "name": "elden-cube-infra",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "build": "tsc",
+    "synth": "cdk synth --profile elden-personal",
+    "diff": "cdk diff --profile elden-personal",
+    "deploy": "cdk deploy --profile elden-personal",
+    "destroy": "cdk destroy --profile elden-personal"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "2.273.0",
+    "constructs": "10.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.1",
+    "aws-cdk": "2.1145.0",
+    "ts-node": "10.9.2",
+    "typescript": "6.0.3"
+  }
+}
