@@ -379,14 +379,13 @@ The **coding agent sets up this environment itself** (it asks for approval befor
 
 ### 13.1 Required tools
 
-| Tool | Check | Install (macOS, via Homebrew) |
+| Tool | Check | Install (macOS, official installers; Homebrew is not required) |
 |---|---|---|
-| Homebrew | `brew --version` | If missing, ask the user to install it from brew.sh (it needs their password) |
-| Node.js LTS + npm | `node -v` (an LTS major), `npm -v` | `brew install node@24` (the LTS line in late 2026; use whichever line is LTS at the time), then make sure it is on `PATH` |
-| git | `git --version` | `brew install git` |
-| AWS CLI v2 | `aws --version` | `brew install awscli` |
-| uv (runs the AWS MCP servers) | `uv --version` | `brew install uv` |
-| Google Chrome | Installed in `/Applications` | `brew install --cask google-chrome` |
+| Node.js LTS + npm | `node -v` (an LTS major), `npm -v` | Official installer from nodejs.org, or nvm (`nvm install --lts`). Use whichever line is LTS at the time (24 in late 2026), and make sure it is on `PATH` |
+| git | `git --version` | Apple Command Line Tools (`xcode-select --install`) |
+| AWS CLI v2 | `aws --version` | Official `AWSCLIV2.pkg` from aws.amazon.com/cli (the "Install for me only" option works without admin rights). If `aws` is not on `PATH` afterwards, symlink `aws` and `aws_completer` from the install folder into `~/.local/bin` |
+| uv (runs the AWS MCP servers) | `uv --version`, `uvx --version` | Official installer: `curl -LsSf https://astral.sh/uv/install.sh \| sh` (installs to `~/.local/bin`) |
+| Google Chrome | Installed in `/Applications` | Official installer from google.com/chrome |
 
 The AWS CDK CLI is **not** installed globally. It is a dev dependency of `infra/` and is run with `npx cdk`.
 
@@ -427,6 +426,7 @@ After creating the file, the user restarts `kiro-cli` (from `eldenCube/`) and ru
 
 - **`app/`:** `three`, `@fontsource/cinzel`; dev: `vite`, `typescript`, `vitest`, `@types/three` (if the `three` version needs it).
 - **`infra/`:** `aws-cdk-lib`, `constructs`; dev: `aws-cdk`, `typescript`, `ts-node`, `@types/node`.
+- infra/ pins TypeScript 6.0.3 because ts-node does not support TypeScript 7's compiler yet.
 - Use `npm ci` once the lock files exist.
 
 ### 13.4 AWS credentials (done by the user, never by the agent)
