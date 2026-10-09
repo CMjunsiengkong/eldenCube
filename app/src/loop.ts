@@ -14,6 +14,12 @@ export const MAX_STEPS_PER_FRAME = 5;
 /** Long frames (tab switch) are clamped to this (s). */
 export const MAX_FRAME_DT = 0.1;
 
+/** What gameplay code may ask of the loop. */
+export interface TimeControl {
+  hitStop(seconds: number): void;
+  setTimeScale(scale: number, seconds: number): void;
+}
+
 export interface LoopTarget {
   update(dt: number): void;
   realUpdate(frameDt: number): void;
@@ -22,7 +28,7 @@ export interface LoopTarget {
 
 type Scheduler = (cb: (now: number) => void) => unknown;
 
-export class Loop {
+export class Loop implements TimeControl {
   /** While true, only `realUpdate` and `render` run. */
   paused = false;
 

@@ -125,6 +125,7 @@ const RAW = {
       flashDuration: 0.1, // s white emissive
       squash: { x: 1.15, y: 0.85, z: 1.15 },
       squashReturn: 0.25, // s spring back to (1,1,1)
+      squashWobbles: 1, // damped oscillations while springing back (tune, agent-chosen)
       knockback: 0.3, // m away from the player (skipped during a Charge dash)
       shake: { amplitude: 0.15, duration: 0.2 } as Shake,
     },
@@ -147,7 +148,7 @@ const RAW = {
       bodySize: 4, // m cube
       bodyCenterY: 2,
       crownBand: { radius: 1.4, height: 0.4, sides: 5, y: 4.2, metalness: 0.6, roughness: 0.3 },
-      crownPoint: { radius: 0.3, height: 0.8, y: 4.8, count: 5 },
+      crownPoint: { radius: 0.3, height: 0.8, y: 4.8, count: 5, segments: 8 }, // segments: tessellation (tune, agent-chosen)
       eye: { size: { x: 0.7, y: 0.7, z: 0.1 }, position: { x: 0.8, y: 2.6, z: 2.01 } }, // ±x
       pupil: { size: { x: 0.3, y: 0.3, z: 0.1 }, position: { x: 0.8, y: 2.5, z: 2.06 } }, // ±x
       eyebrow: { size: { x: 1.0, y: 0.18, z: 0.1 }, position: { x: 0.8, y: 3.15, z: 2.06 }, tilt: deg(20) },
