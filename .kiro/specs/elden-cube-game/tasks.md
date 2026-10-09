@@ -33,13 +33,13 @@ Rules: follow `requirements.md` and `design.md`; git per `.kiro/steering/git.md`
 
 ## Milestone 1.2 — Player (`feat/1.2-player`)
 
-- [ ] 1.2.1 `systems/collision.ts` (all 5 helpers) + `tests/collision.test.ts`. _Req 21.1_
-- [ ] 1.2.2 `PlayerMotor` — movement (accel/decel, normalized, camera-relative), turning, wall clamp, boss pushback, roll (locked dir, ease-out displacement, i-frames, 3× turn, dizzy, cooldown), action gating (D1), events. _Req 2.3–2.6, 3.1–3.7_
-- [ ] 1.2.3 `tests/playerMotor.test.ts` — roll timing part (i-frames [0.05, 0.40), direction locked, gating incl. D1). _Req 21.8_
-- [ ] 1.2.4 `Player` view — 7-part model per GD §4.1, roll somersault, wobble springs and walk cycle, head spring, lean, dizzy sway, hit spheres, debug invincible tint. _Req 2.1, 2.2, 2.7, 3.8, 3.10, 4_
-- [ ] 1.2.5 `systems/camera.ts` — lock-on follow (aimed at a static placeholder cube at the origin), smoothing, Y ≥ 1, shake, `forwardXZ`. _Req 5.1, 5.5_
-- [ ] 1.2.6 Wire into `Game` (FIGHT-only for now); temporary `roll`/`roll_end` hooks as no-op audio calls. _Req 3.9 (sound wired in 1.5)_
-- [ ] 1.2.7 Verify: tests; Chrome — move, slide, roll, wall; screenshots; console clean; debug shows roll phase/i-frames. Report. **Ask to merge.**
+- [x] 1.2.1 `systems/collision.ts` (all 5 helpers) + `tests/collision.test.ts`. _Req 21.1_
+- [x] 1.2.2 `PlayerMotor` — movement (accel/decel, normalized, camera-relative), turning, wall clamp, boss pushback, roll (locked dir, ease-out displacement, i-frames, 3× turn, dizzy, cooldown), action gating (D1), events. _Req 2.3–2.6, 3.1–3.7_
+- [x] 1.2.3 `tests/playerMotor.test.ts` — roll timing part (i-frames [0.05, 0.40), direction locked, gating incl. D1). _Req 21.8_
+- [x] 1.2.4 `Player` view — 7-part model per GD §4.1, roll somersault, wobble springs and walk cycle, head spring, lean, dizzy sway, hit spheres, debug invincible tint. _Req 2.1, 2.2, 2.7, 3.8, 3.10, 4_
+- [x] 1.2.5 `systems/camera.ts` — lock-on follow (aimed at a static placeholder cube at the origin), smoothing, Y ≥ 1, shake, `forwardXZ`. _Req 5.1, 5.5_
+- [x] 1.2.6 Wire into `Game` (FIGHT-only for now); temporary `roll`/`roll_end` hooks as no-op audio calls. _Req 3.9 (sound wired in 1.5)_
+- [x] 1.2.7 Verify: tests; Chrome — move, slide, roll, wall; screenshots; console clean; debug shows roll phase/i-frames. Report. **Ask to merge.**
 
 ## Milestone 1.3 — Combat core (`feat/1.3-combat`)
 
