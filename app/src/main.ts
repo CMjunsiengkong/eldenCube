@@ -36,8 +36,7 @@ async function main(): Promise<void> {
   renderer.setSize(window.innerWidth, window.innerHeight, false);
   renderer.outputColorSpace = SRGBColorSpace;
   renderer.shadowMap.enabled = true;
-  // ARCHITECTURE §4.6 asks for PCFSoftShadowMap; three r186 removed it and falls back to PCFShadowMap
-  // with a console warning. Using PCFShadowMap directly gives the same image without the warning.
+  // ARCHITECTURE §4.6: PCFShadowMap (three r186 removed PCFSoftShadowMap).
   renderer.shadowMap.type = PCFShadowMap;
 
   // Wait for the bundled Cinzel font so the title never flashes in a fallback font.

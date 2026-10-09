@@ -37,7 +37,7 @@ Latest stable version of each at project start, locked with `package-lock.json`.
 - Gameplay timers count simulation time; input locks, victory auto-return and `TO_TITLE` fades count real time.
 - Pure logic (collision helpers, `springStep`, `chooseAttack`, `updateCloseTimer`, `applyMissPunish`, boss HP/phase, swing/roll timing, state-flow timing, flags parsing, `resolveSfxSources`) must be importable and testable under Vitest in a Node environment (no DOM/WebGL required).
 - Seedable RNG (`util/rng.ts`); tests use fixed seeds.
-- Rendering: `WebGLRenderer({ antialias: true })`, pixel ratio ≤ 2, `PCFSoftShadowMap`, < 100 draw calls, one shadow-casting light, no post-processing. Reuse geometries/materials; never allocate per frame.
+- Rendering: `WebGLRenderer({ antialias: true })`, pixel ratio ≤ 2, `PCFShadowMap`, < 100 draw calls, one shadow-casting light, no post-processing. Reuse geometries/materials; never allocate per frame.
 - Keys via `KeyboardEvent.code`; ignore `event.repeat`.
 - Never reload the page to reset; `Game.reset()` restores state.
 

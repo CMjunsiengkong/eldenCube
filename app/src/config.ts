@@ -4,6 +4,8 @@
  * Source: GAME_DESIGN.md (GD) §1–11, ASSETS.md §1.1 (relative loudness), ARCHITECTURE.md §5 (physics).
  * Units: meters, seconds, radians (degrees only as input to `deg()`), m/s, m/s², Hz.
  * Values marked (tune) in GD may change only during playtesting (milestone 1.6), and only here.
+ * "(tune, agent-chosen)" marks values the documents did not specify; chosen during the build and
+ * approved by the user (2026-10-09). They are tunable in 1.6 like any (tune) value.
  *
  * CONFIG is deeply frozen and never mutated. `?easy` / rage multipliers are applied when values are
  * read (see flags.ts). Tests that need different values (e.g. rage upgrades) inject overrides; they
@@ -55,7 +57,7 @@ const RAW = {
       hipPivot: { x: 0.15, y: 0.6, z: 0 }, // ±x
       leg: { size: { x: 0.2, y: 0.6, z: 0.2 }, offset: { x: 0, y: -0.3, z: 0 } },
       weapon: { size: { x: 0.12, y: 1.6, z: 0.06 }, offset: { x: 0, y: -1.3, z: 0 } }, // on the right shoulder pivot
-      sphereSegments: 16, // head/eye tessellation (visual only)
+      sphereSegments: 16, // head/eye tessellation (visual only) (tune, agent-chosen)
     },
   },
 
@@ -130,8 +132,8 @@ const RAW = {
       outwardSpeed: [4, 8] as Range, // m/s
       upwardSpeed: [5, 9] as Range, // m/s
       maxSpin: 6, // rad/s
-      crownOutwardSpeed: [1, 2] as Range, // m/s (crown falls and rolls)
-      crownUpwardSpeed: [3, 4] as Range, // m/s
+      crownOutwardSpeed: [1, 2] as Range, // m/s (crown falls and rolls) (tune, agent-chosen)
+      crownUpwardSpeed: [3, 4] as Range, // m/s (tune, agent-chosen)
       shake: { amplitude: 0.4, duration: 0.5 } as Shake,
       timeScale: 0.5,
       timeScaleDuration: 1.0, // s
@@ -205,14 +207,14 @@ const RAW = {
     ringSpeed: 8, // m/s (rage ×1.4 = 11.2) (tune)
     ringWidth: 1.0, // m (kill band = r ± (width/2 + player radius))
     ringHeight: 0.3, // m
-    ringFadeStart: 0.8, // fraction of travel after which the ring fades out
+    ringFadeStart: 0.8, // fraction of travel after which the ring fades out (tune, agent-chosen)
   },
 
   /** GD §6.5 B — Royal Charge. */
   charge: {
     telegraph: 1.0, // s (rage ×0.6) (tune)
     shakeAmplitude: 0.1, // m
-    pulseFrequency: 6, // Hz red emissive pulse
+    pulseFrequency: 6, // Hz red emissive pulse (tune, agent-chosen)
     speed: 18, // m/s (rage ×1.4 = 25.2) (tune)
     maxDashTime: 2.0, // s
     stopRadius: 27, // m boss center radius
@@ -225,18 +227,18 @@ const RAW = {
     count: 3,
     circleRadius: 1.2, // m
     circleOpacity: 0.5,
-    circlePulseHz: 3,
+    circlePulseHz: 3, // warning circle pulse rate (tune, agent-chosen; GD gives 3 Hz only for the staggered tell)
     leadTime: 0.5, // s: center = P + V × leadTime
     sideOffset: 2.5, // m perpendicular to boss→player
     size: 0.6, // m cube
     hitRadius: 0.35, // m sphere
     flightTime: 0.8, // s at speed ×1 (rage: 0.8 / 1.4 ≈ 0.57) (tune)
-    spinRate: 8, // rad/s (visual)
+    spinRate: 8, // rad/s (visual) (tune, agent-chosen)
     launchHeight: 4.8, // m above the boss origin (crown top)
     landHeight: 0.3, // m (resting on the ground)
-    puffPieces: 6, // small debris cubes on landing / on cancel
-    puffSize: 0.15, // m
-    puffSpeed: [1, 3] as Range, // m/s
+    puffPieces: 6, // small debris cubes on landing / on cancel (tune, agent-chosen)
+    puffSize: 0.15, // m (tune, agent-chosen)
+    puffSpeed: [1, 3] as Range, // m/s (tune, agent-chosen)
   },
 
   /** GD §7 — camera. */
@@ -267,7 +269,7 @@ const RAW = {
     outerOffset: 0.01, // m below the arena
     edgeInner: 29.8,
     edgeOuter: 30.2,
-    edgeLift: 0.005, // m above the floor (avoids z-fighting)
+    edgeLift: 0.005, // m above the floor (avoids z-fighting) (tune, agent-chosen)
     fogNear: 60,
     fogFar: 180,
   },
@@ -279,8 +281,8 @@ const RAW = {
     sunIntensity: 2.0, // (tune)
     shadowMapSize: 1024,
     shadowExtent: 35, // ± m around the origin
-    shadowNear: 0.5,
-    shadowFar: 100,
+    shadowNear: 0.5, // m (tune, agent-chosen)
+    shadowFar: 100, // m (tune, agent-chosen)
     shadowBias: -0.0005,
   },
 
