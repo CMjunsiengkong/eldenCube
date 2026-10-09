@@ -15,8 +15,7 @@ Rules: follow `requirements.md` and `design.md`; git per `.kiro/steering/git.md`
 - [x] **0.7 [User]** — create the `elden-personal` profile (AR §13.4) and confirm `aws sts get-caller-identity --profile elden-personal`. _Req 0.4.1–0.4.2_
 - [x] **0.8 Bootstrap + synth** — `npx cdk bootstrap aws://<ACCOUNT_ID>/ap-southeast-1 --profile elden-personal`; `npm run synth`. _Req 0.4.3–0.4.4_
 - [x] **0.9 Smoke deploy** — deployed; GameUrl https://d376ckm5wji8ku.cloudfront.net serves the starter page (Chrome MCP: 200s, console clean). User confirmed the budget alert email. _Req 0.4.5_
-- [x] **0.10 Stage 0 report** — all six Stage 0 exit criteria with evidence. `cd app && npm run build`; `cd infra && npm run deploy`; open `GameUrl` in Chrome via MCP. **[User]** confirm the budget alert email subscription. _Req 0.4.5_
-- [ ] **0.10 Stage 0 report** — all six Stage 0 exit criteria with evidence.
+- [x] **0.10 Stage 0 report** — all six Stage 0 exit criteria with evidence.
 
 ---
 
