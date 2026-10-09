@@ -1,0 +1,54 @@
+/* Overlay styles (ARCHITECTURE §4.7). Tunable sizes/colors come from CSS variables set by ui.ts (CONFIG.ui). */
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  color: #fff;
+}
+
+#game {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  outline: none;
+  touch-action: none;
+}
+
+#overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none; /* clicks always reach the canvas */
+  user-select: none;
+}
+
+#debug {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 6px 8px;
+  font: 12px/1.4 ui-monospace, Menlo, monospace;
+  white-space: pre;
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: 4px;
+}
+
+#debug[hidden] {
+  display: none;
+}
+
+.webgl-error {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 24px;
+  font-size: 20px;
+}
