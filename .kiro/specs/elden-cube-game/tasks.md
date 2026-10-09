@@ -14,22 +14,22 @@ Rules: follow `requirements.md` and `design.md`; git per `.kiro/steering/git.md`
 - [x] **0.6 [User]** — restart `kiro-cli` from `eldenCube/`, run `/mcp`, confirm `aws-docs`, `aws-iac`, `chrome-devtools` loaded. _Req 0.2.3_
 - [x] **0.7 [User]** — create the `elden-personal` profile (AR §13.4) and confirm `aws sts get-caller-identity --profile elden-personal`. _Req 0.4.1–0.4.2_
 - [x] **0.8 Bootstrap + synth** — `npx cdk bootstrap aws://<ACCOUNT_ID>/ap-southeast-1 --profile elden-personal`; `npm run synth`. _Req 0.4.3–0.4.4_
-- [ ] **0.9 Smoke deploy** — deployed; GameUrl https://d376ckm5wji8ku.cloudfront.net serves the starter page (Chrome MCP: 200s, console clean). Remaining: **[User]** confirm the budget alert email. `cd app && npm run build`; `cd infra && npm run deploy`; open `GameUrl` in Chrome via MCP. **[User]** confirm the budget alert email subscription. _Req 0.4.5_
-- [ ] **0.10 Stage 0 report** — all six Stage 0 exit criteria with evidence.
+- [x] **0.9 Smoke deploy** — deployed; GameUrl https://d376ckm5wji8ku.cloudfront.net serves the starter page (Chrome MCP: 200s, console clean). User confirmed the budget alert email. _Req 0.4.5_
+- [x] **0.10 Stage 0 report** — all six Stage 0 exit criteria with evidence.
 
 ---
 
 ## Milestone 1.1 — Foundation (`feat/1.1-foundation`)
 
-- [ ] 1.1.1 `config.ts` — the full `CONFIG` (every GD §1–11 value, DeepReadonly, units in comments, rageUpgrades all false). _Req 1.1_
-- [ ] 1.1.2 `util/math.ts` (lerp, clamp, easings, `springStep`, `turnToward`, `randRange`) and `util/rng.ts` (mulberry32) + `tests/math.test.ts` (springStep stability). _Req 21.2_
-- [ ] 1.1.3 `flags.ts` (`parseFlags`, lazy `FLAGS`, `speedMult`, `telegraphMult`, `cooldownFor`, shard flight D4) + `tests/flags.test.ts`. _Req 1.2, 19.1, 21.10_
-- [ ] 1.1.4 `loop.ts` — fixed step, clamp, 5-step cap, `hitStop`, `setTimeScale`, `paused`, `realUpdate`. _Req 1.3_
-- [ ] 1.1.5 `main.ts` — WebGL check + error message, renderer per AR §4.6, resize, `fonts.ready`. _Req 1.4, 1.5_
-- [ ] 1.1.6 `game/Arena.ts` — floor, outer field, edge ring, sky, fog, lights/shadows per GD §8. _Req 1.6_
-- [ ] 1.1.7 `systems/input.ts` — held keys, edges, repeat/Space/contextmenu handling, blur/visibility. _Req 1.7_
-- [ ] 1.1.8 `systems/ui.ts` + `styles.css` + `index.html` skeleton (`#overlay`, `#debug`); `Game.ts` shell with a static camera; `?debug` FPS + state at 4 Hz. _Req 1.8_
-- [ ] 1.1.9 Verify: typecheck, tests; Chrome (MCP) `?debug` screenshot shows the green arena, FPS ≈ 60, console clean. Report. **Ask to merge.** _Req 1.9_
+- [x] 1.1.1 `config.ts` — the full `CONFIG` (every GD §1–11 value, DeepReadonly, units in comments, rageUpgrades all false). _Req 1.1_
+- [x] 1.1.2 `util/math.ts` (lerp, clamp, easings, `springStep`, `turnToward`, `randRange`) and `util/rng.ts` (mulberry32) + `tests/math.test.ts` (springStep stability). _Req 21.2_
+- [x] 1.1.3 `flags.ts` (`parseFlags`, lazy `FLAGS`, `speedMult`, `telegraphMult`, `cooldownFor`, shard flight D4) + `tests/flags.test.ts`. _Req 1.2, 19.1, 21.10_
+- [x] 1.1.4 `loop.ts` — fixed step, clamp, 5-step cap, `hitStop`, `setTimeScale`, `paused`, `realUpdate`. _Req 1.3_
+- [x] 1.1.5 `main.ts` — WebGL check + error message, renderer per AR §4.6, resize, `fonts.ready`. _Req 1.4, 1.5_
+- [x] 1.1.6 `game/Arena.ts` — floor, outer field, edge ring, sky, fog, lights/shadows per GD §8. _Req 1.6_
+- [x] 1.1.7 `systems/input.ts` — held keys, edges, repeat/Space/contextmenu handling, blur/visibility. _Req 1.7_
+- [x] 1.1.8 `systems/ui.ts` + `styles.css` + `index.html` skeleton (`#overlay`, `#debug`); `Game.ts` shell with a static camera; `?debug` FPS + state at 4 Hz. _Req 1.8_
+- [x] 1.1.9 Verify: typecheck, tests; Chrome (MCP) `?debug` screenshot shows the green arena, FPS ≈ 60, console clean. Report. **Ask to merge.** _Req 1.9_
 
 ## Milestone 1.2 — Player (`feat/1.2-player`)
 
