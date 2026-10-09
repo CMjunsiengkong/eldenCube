@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- The Elden Cube: isometric purple cube with a small gold three-point crown (ASSETS.md §3) -->
+  <polygon points="32,22 54,33 32,44 10,33" fill="#8A6CB3"/>
+  <polygon points="10,33 32,44 32,62 10,51" fill="#6A4C93"/>
+  <polygon points="54,33 32,44 32,62 54,51" fill="#523A73"/>
+  <polygon points="22,22 22,10 27,16 32,6 37,16 42,10 42,22" fill="#FFC300"/>
+</svg>
