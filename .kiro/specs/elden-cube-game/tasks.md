@@ -53,16 +53,16 @@ Rules: follow `requirements.md` and `design.md`; git per `.kiro/steering/git.md`
 
 ## Milestone 1.4 — Boss AI (`feat/1.4-boss-ai`)
 
-- [ ] 1.4.1 `chooseAttack`, `updateCloseTimer`, `applyMissPunish` + `tests/attackSelection.test.ts`, `tests/tactics.test.ts` (incl. D3). _Req 8, 12.1, 12.4, 12.7, 21.3–21.5_
-- [ ] 1.4.2 Scheduler in `BossBrain`/`Boss` — grace, cooldown (phase × easy), chase, history, forced attacks, anti-camping trigger + bigger bounce, punish trigger + glare. _Req 7.2, 12.2–12.6, 12.8_
-- [ ] 1.4.3 `attacks/Attack.ts` + `CubeSlam` (rise, hang, drop, impact kill, shockwave ring, cancel with puff). _Req 9_
-- [ ] 1.4.4 `RoyalCharge` (telegraph, lock, dash, stop rules, skid, dash kill, no knockback while dashing). _Req 10_
-- [ ] 1.4.5 `CrownShards` (circle placement, ballistic flight with D4, flight/landing kill, puff). _Req 11_
-- [ ] 1.4.6 Player death hook (minimal: player hit → DYING placeholder → reset) so attacks can be tested; rage transition with D9 cancel; rage multipliers. _Req 7.5_
-- [ ] 1.4.7 Rage upgrades (doubleSlam, chargeUTurn, staggeredShards) with tells, off by default. _Req 13_
-- [ ] 1.4.7a `tests/rageUpgrades.test.ts` — one test per variant, injecting the switch through the `AttackContext.upgrades` override (never by editing `config.ts`): doubleSlam spawns a 2nd ring 0.5 s after the first impact; chargeUTurn re-telegraphs 0.4 s and dashes once more (max one U-turn); staggeredShards lands the center shard 0.3 s after the sides; and each is ignored outside rage. Plus one test asserting all three `CONFIG.rageUpgrades` switches are `false` by default. _Req 13_
-- [ ] 1.4.8 `?easy`; debug keys `1/2/3/K/G`; debug text (phase, attack, close timer, punish marker); hitbox wireframes. _Req 19_
-- [ ] 1.4.9 Verify in Chrome: force each attack, avoid it by moving and by roll i-frames; both tactics visible in `?debug`; each upgrade on individually (temporary local edit, reverted) vs all off; console clean. Report. **Ask to merge.**
+- [x] 1.4.1 `chooseAttack`, `updateCloseTimer`, `applyMissPunish` + `tests/attackSelection.test.ts`, `tests/tactics.test.ts` (incl. D3). _Req 8, 12.1, 12.4, 12.7, 21.3–21.5_
+- [x] 1.4.2 Scheduler in `BossBrain`/`Boss` — grace, cooldown (phase × easy), chase, history, forced attacks, anti-camping trigger + bigger bounce, punish trigger + glare. _Req 7.2, 12.2–12.6, 12.8_
+- [x] 1.4.3 `attacks/Attack.ts` + `CubeSlam` (rise, hang, drop, impact kill, shockwave ring, cancel with puff). _Req 9_
+- [x] 1.4.4 `RoyalCharge` (telegraph, lock, dash, stop rules, skid, dash kill, no knockback while dashing). _Req 10_
+- [x] 1.4.5 `CrownShards` (circle placement, ballistic flight with D4, flight/landing kill, puff). _Req 11_
+- [x] 1.4.6 Player death hook (minimal: player hit → DYING placeholder → reset) so attacks can be tested; rage transition with D9 cancel; rage multipliers. _Req 7.5_
+- [x] 1.4.7 Rage upgrades (doubleSlam, chargeUTurn, staggeredShards) with tells, off by default. _Req 13_
+- [x] 1.4.7a `tests/rageUpgrades.test.ts` — one test per variant, injecting the switch through the `AttackContext.upgrades` override (never by editing `config.ts`): doubleSlam spawns a 2nd ring 0.5 s after the first impact; chargeUTurn re-telegraphs 0.4 s and dashes once more (max one U-turn); staggeredShards lands the center shard 0.3 s after the sides; and each is ignored outside rage. Plus one test asserting all three `CONFIG.rageUpgrades` switches are `false` by default. _Req 13_
+- [x] 1.4.8 `?easy`; debug keys `1/2/3/K/G`; debug text (phase, attack, close timer, punish marker); hitbox wireframes. _Req 19_
+- [x] 1.4.9 Verify in Chrome: force each attack, avoid it by moving and by roll i-frames; both tactics visible in `?debug`; each upgrade on individually (temporary local edit, reverted) vs all off; console clean. Report. **Ask to merge.**
 
 ## Milestone 1.5 — Game flow and feedback (`feat/1.5-flow`)
 
