@@ -193,10 +193,10 @@ interface Attack {
 
 - `WebGLRenderer({ antialias: true })`.
 - `setPixelRatio(min(devicePixelRatio, 2))`.
-- `shadowMap.enabled = true`, `type = PCFSoftShadowMap`.
+- `shadowMap.enabled = true`, `type = PCFShadowMap` (three r186 removed `PCFSoftShadowMap` and its PCF filtering is soft).
 - Output color space sRGB (the Three.js default).
 - On window `resize`: update the renderer size and the camera aspect.
-- Before creating the renderer, check WebGL support. If it fails, show the WebGL error message (GAME_DESIGN §2) and stop.
+- Before creating the renderer, check WebGL 2 support (required by three r186). If it fails, show the WebGL error message (GAME_DESIGN §2) and stop.
 - Wait for `document.fonts.ready` before showing the TITLE overlay, so the title doesn't flash in a fallback font.
 - Performance budget: under 100 draw calls, a single shadow-casting light, no post-processing. Reuse geometries and materials; never create them per frame.
 

@@ -3,6 +3,7 @@ import '@fontsource/cinzel/700.css';
 import './styles.css';
 import { PCFShadowMap, SRGBColorSpace, WebGLRenderer } from 'three';
 import { Game } from './game/Game';
+import { getFlags } from './flags';
 import { Loop } from './loop';
 import { showWebGLError } from './systems/ui';
 
@@ -36,8 +37,7 @@ async function main(): Promise<void> {
   renderer.setSize(window.innerWidth, window.innerHeight, false);
   renderer.outputColorSpace = SRGBColorSpace;
   renderer.shadowMap.enabled = true;
-  // ARCHITECTURE §4.6 asks for PCFSoftShadowMap; three r186 removed it and falls back to PCFShadowMap
-  // with a console warning. Using PCFShadowMap directly gives the same image without the warning.
+  // ARCHITECTURE §4.6: PCFShadowMap (three r186 removed PCFSoftShadowMap).
   renderer.shadowMap.type = PCFShadowMap;
 
   // Wait for the bundled Cinzel font so the title never flashes in a fallback font.
@@ -45,6 +45,8 @@ async function main(): Promise<void> {
 
   const game = new Game(renderer, canvas, overlay);
   window.addEventListener('resize', () => game.onResize(window.innerWidth, window.innerHeight));
+  // ?debug only: expose the game for in-browser inspection (DevTools / chrome-devtools MCP).
+  if (getFlags().debug) (window as unknown as { __elden: Game }).__elden = game;
 
   new Loop(game).start();
 }
