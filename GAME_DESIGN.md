@@ -182,7 +182,7 @@ Two spheres, each with radius 0.40, at heights 0.50 and 1.30 above the feet. The
 - Convert each point into the boss's local space and test it against the boss box (half-size 2.0). A hit is any point inside.
 - **At most one hit per swing.**
 - A hit is ignored while the boss's invulnerability timer is above 0.
-- A hit during a boss attack still deals damage but **does not interrupt** the attack.
+- A hit during a boss attack still deals damage but **does not interrupt** the attack. **Exception: the 3rd hit** (which starts rage, §6.4) cancels the running attack immediately.
 
 ## 6. Boss — "The Elden Cube"
 
@@ -254,7 +254,7 @@ All of these happen together when the boss is hit:
 | Phase | When | Changes |
 |---|---|---|
 | Phase 1 | HP 5–3 | Base values |
-| **Rage** | Immediately after the 3rd hit (HP ≤ 2) | **Transition (1.0 s, no attacks, boss cannot take damage):** body color fades `#6A4C93` → `#D62828` over 0.5 s, the boss shakes ±0.1 m, `rage` sound plays, camera shake 0.2 m for 0.6 s. **Afterward:** all boss movement speeds (chase, dash, shockwave, shard flight) ×1.4; telegraph times ×0.6; cooldown 1.6 s |
+| **Rage** | Immediately after the 3rd hit (HP ≤ 2) | **Transition (1.0 s, no attacks, boss cannot take damage):** starts in the same step as the 3rd hit, even mid-attack. The running attack is cancelled: anything it spawned (shockwave ring, shards in flight, warning circles) is removed with a small puff effect, and long sounds (`slam_rise`, `charge_windup`) stop. Hits 1, 2 and 4 never interrupt an attack (§5). Body color fades `#6A4C93` → `#D62828` over 0.5 s, the boss shakes ±0.1 m, `rage` sound plays, camera shake 0.2 m for 0.6 s. **Afterward:** all boss movement speeds (chase, dash, shockwave, shard flight) ×1.4; telegraph times ×0.6; cooldown 1.6 s |
 
 ### 6.5 Attacks
 
