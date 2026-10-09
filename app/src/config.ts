@@ -80,6 +80,7 @@ const RAW = {
     recoveryDuration: 0.25, // s dizzy recovery (tune)
     recoverySpeed: 2, // m/s initial velocity in the recovery, decays at decel
     recoverySway: deg(8), // ± body sway
+    recoverySwayCycles: 1, // full side-to-side sways during the recovery (tune, agent-chosen)
     cooldown: 0.15, // s after the recovery before a new roll (tune)
     somersault: Math.PI * 2, // one full forward flip over `duration`, ease-in-out
     tuckAngle: deg(70), // limb spring target during the roll
@@ -99,6 +100,8 @@ const RAW = {
     headDamping: 6,
     headPush: -0.02, // m per m/s² of horizontal acceleration
     headNod: deg(5), // × s
+    headNodPerStride: 2, // nods per walk cycle (tune, agent-chosen)
+    dizzyHeadKick: 0.6, // m/s sideways velocity kick on the head spring at the dizzy landing (tune, agent-chosen)
     bodyLean: deg(8), // × s
   },
 
