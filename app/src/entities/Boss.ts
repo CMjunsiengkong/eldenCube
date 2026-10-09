@@ -24,38 +24,104 @@ import { createPiece, randomSpin, type DebrisPiece } from '../fx/debris';
 import { Fade, Squash, Timer } from '../fx/effects';
 import { randRange, turnToward } from '../util/math';
 import type { Rng } from '../util/rng';
-import type { BossPhase } from '../flags';
+import { cooldownFor, getFlags, speedMult, type BossPhase, type Flags } from '../flags';
+import { ATTACK_IDS, type AttackBoss, type AttackId, type BossBox } from '../attacks/Attack';
 
 const B = CONFIG.boss;
 const RG = CONFIG.rage;
+const T = CONFIG.tactics;
 const EPS = 1e-9;
 
-export type BossMode = 'idle' | 'attacking' | 'rageTransition' | 'defeated';
+export type BossMode = 'grace' | 'cooldown' | 'attacking' | 'rageTransition' | 'gloat' | 'defeated';
 export type HitResult = 'hit' | 'rage' | 'defeated' | 'ignored';
 
+/**
+ * GD §6.5 selection rule (pure). `history` is oldest → newest.
+ * - The attack used for the last `noRepeat` attacks in a row is blocked.
+ * - Close timer ≥ 3.0 s: Slam, or Shards if Slam is blocked (anti-camping).
+ * - Otherwise uniformly random among slam, charge (only if distance > 6 m), shards, minus the blocked one.
+ */
+export function chooseAttack(history: readonly AttackId[], distance: number, closeTimer: number, rng: Rng): AttackId {
+  const n = history.length;
+  let blocked: AttackId | null = null;
+  if (n >= T.noRepeat) {
+    blocked = history[n - 1];
+    for (let i = 2; i <= T.noRepeat; i++) if (history[n - i] !== blocked) blocked = null;
+  }
+  if (closeTimer >= T.closeTrigger - EPS) return blocked === 'slam' ? 'shards' : 'slam';
+  const valid: AttackId[] = [];
+  for (const id of ATTACK_IDS) {
+    if (id === blocked) continue;
+    if (id === 'charge' && distance <= CONFIG.charge.minDistance) continue;
+    valid.push(id);
+  }
+  return valid[Math.min(valid.length - 1, Math.floor(rng() * valid.length))];
+}
+
+/** GD §6.2a close timer (pure): +dt while closer than 4 m, −2·dt otherwise, never below 0. */
+export function updateCloseTimer(timer: number, distance: number, dt: number): number {
+  return distance < T.closeDistance ? timer + dt : Math.max(0, timer - T.closeDecayMult * dt);
+}
+
+/** GD §6.2a punish (pure): −0.8 s, never below 0.3 s, at most once per cooldown (D3: fixed values). */
+export function applyMissPunish(remaining: number, alreadyPunished: boolean): { remaining: number; punished: boolean } {
+  if (alreadyPunished) return { remaining, punished: true };
+  return { remaining: Math.max(T.punishFloor, remaining - T.punishReduction), punished: true };
+}
+
+/** Pure boss core: HP, phase, invulnerability, mode, cooldown scheduler and tactics. */
 export class BossBrain {
   hp: number = B.hp;
   phase: BossPhase = 'p1';
   /** Seconds of invulnerability left after a hit. */
   invuln = 0;
-  mode: BossMode = 'idle';
+  mode: BossMode = 'grace';
+  /** Seconds until the next attack starts (grace or cooldown). */
+  cooldownLeft: number = B.grace;
+  /** Attacks used so far, oldest first (only the last few matter). */
+  readonly history: AttackId[] = [];
+  closeTimer = 0;
+  /** The miss punish already fired in this cooldown. */
+  punished = false;
+  /** Debug keys 1/2/3 override the next choice. */
+  forceNext: AttackId | null = null;
+  /** The current attack (while mode === 'attacking'). */
+  current: AttackId | null = null;
   /** Time spent in the rage transition (s). */
   rageT = 0;
   /** Set by takeHit when the running attack must be cancelled (D9); read with consumeCancel(). */
   private cancelRequested = false;
+  private readonly rng: Rng;
+  private readonly flags: Flags;
+
+  constructor(rng: Rng, flags: Flags = getFlags()) {
+    this.rng = rng;
+    this.flags = flags;
+  }
 
   reset(): void {
     this.hp = B.hp;
     this.phase = 'p1';
     this.invuln = 0;
-    this.mode = 'idle';
+    this.mode = 'grace';
+    this.cooldownLeft = B.grace;
+    this.history.length = 0;
+    this.closeTimer = 0;
+    this.punished = false;
+    this.forceNext = null;
+    this.current = null;
     this.rageT = 0;
     this.cancelRequested = false;
   }
 
-  /** Marks that an attack is running (milestone 1.4 sets/clears this from the scheduler). */
-  setAttacking(attacking: boolean): void {
-    if (this.mode === 'idle' || this.mode === 'attacking') this.mode = attacking ? 'attacking' : 'idle';
+  /** Waiting for the next attack (grace or cooldown): chase, tells and punish apply. */
+  get waiting(): boolean {
+    return this.mode === 'grace' || this.mode === 'cooldown';
+  }
+
+  /** The anti-camping tell is showing (the boss "gets annoyed"). */
+  get annoyed(): boolean {
+    return this.mode === 'cooldown' && this.closeTimer >= T.closeTrigger - EPS;
   }
 
   canTakeDamage(): boolean {
@@ -73,14 +139,16 @@ export class BossBrain {
     this.invuln = B.invulnerability;
     if (this.hp <= 0) {
       this.hp = 0;
+      this.cancelRequested = this.mode === 'attacking';
       this.mode = 'defeated';
-      this.cancelRequested = true;
+      this.current = null;
       return 'defeated';
     }
     if (this.phase === 'p1' && this.hp <= RG.hpThreshold) {
       this.phase = 'rage';
       this.cancelRequested = this.mode === 'attacking';
       this.mode = 'rageTransition';
+      this.current = null;
       this.rageT = 0;
       return 'rage';
     }
@@ -94,30 +162,93 @@ export class BossBrain {
     return c;
   }
 
-  update(dt: number): void {
+  /** Starts an attack now (used by `update` at the end of a cooldown, and by tests). */
+  beginAttack(id: AttackId): void {
+    this.history.push(id);
+    if (this.history.length > 8) this.history.shift();
+    this.current = id;
+    this.mode = 'attacking';
+  }
+
+  /** The running attack has finished: start the cooldown (rage × easy, D3). */
+  attackFinished(): void {
+    if (this.mode !== 'attacking') return;
+    this.current = null;
+    this.startCooldown();
+  }
+
+  /** Player died (DYING): stop attacking and gloat. */
+  gloat(): void {
+    if (this.mode === 'defeated') return;
+    this.cancelRequested = false;
+    this.current = null;
+    this.mode = 'gloat';
+  }
+
+  /**
+   * GD §6.2a punish rushing in: a missed swing within 5 m while waiting shortens the remaining
+   * cooldown once. Returns true if the punish fired.
+   */
+  onPlayerMissedSwing(distance: number): boolean {
+    if (!this.waiting || this.punished || distance >= T.punishDistance) return false;
+    const r = applyMissPunish(this.cooldownLeft, this.punished);
+    this.cooldownLeft = r.remaining;
+    this.punished = r.punished;
+    return true;
+  }
+
+  /**
+   * One fixed step during FIGHT. `distance` is the horizontal player distance to the boss center.
+   * Returns the attack to start now, or null.
+   */
+  update(dt: number, distance: number): AttackId | null {
     this.invuln = Math.max(0, this.invuln - dt);
+    if (this.mode === 'gloat' || this.mode === 'defeated') return null;
+    this.closeTimer = updateCloseTimer(this.closeTimer, distance, dt);
+
     if (this.mode === 'rageTransition') {
       this.rageT += dt;
-      if (this.rageT >= RG.transitionDuration - EPS) this.mode = 'idle';
+      // After the transition a fresh rage cooldown starts (design decision D10, see report).
+      if (this.rageT >= RG.transitionDuration - EPS) this.startCooldown();
+      return null;
     }
+    if (!this.waiting) return null;
+
+    this.cooldownLeft -= dt;
+    if (this.cooldownLeft > EPS) return null;
+    let id: AttackId;
+    if (this.forceNext) {
+      id = this.forceNext;
+      this.forceNext = null;
+    } else {
+      const camping = this.closeTimer >= T.closeTrigger - EPS;
+      id = chooseAttack(this.history, distance, this.closeTimer, this.rng);
+      if (camping) this.closeTimer = 0;
+    }
+    this.beginAttack(id);
+    return id;
+  }
+
+  private startCooldown(): void {
+    this.mode = 'cooldown';
+    this.cooldownLeft = cooldownFor(this.phase, this.flags);
+    this.punished = false;
   }
 }
 
-export interface BossBox {
-  center: Vector3;
-  halfSize: number;
-  yaw: number;
-}
-
-/** The visual boss, positioned and turned by the game. */
-export class Boss {
-  readonly brain = new BossBrain();
+/** The visual boss: model, motion (turn, chase), tells, hit reaction, break-apart. */
+export class Boss implements AttackBoss {
+  readonly brain: BossBrain;
   readonly root = new Group();
-  /** Position of the boss origin (bottom center) on the ground. */
+  /** Position of the boss origin (bottom center). Slam drives y, Charge drives x/z. */
   readonly pos = new Vector3(B.spawn.x, B.spawn.y, B.spawn.z);
   yaw = 0;
-  /** True during a Charge dash (no turning, no knockback) — set by RoyalCharge in 1.4. */
+  /** True during a Charge dash (no turning, no knockback). */
   dashing = false;
+  /** Red emissive pulse 0…1 (Charge telegraph). */
+  pulse = 0;
+  /** Extra shake amplitude from the running attack (m). */
+  shake = 0;
 
   /** Squashed / bobbing / shaking part (pivot at the ground). */
   private readonly visual = new Group();
@@ -135,14 +266,19 @@ export class Boss {
   private readonly squash = new Squash();
   private readonly rageFade = new Fade();
   private readonly scaleTmp = { x: 1, y: 1, z: 1 };
-  private readonly box: BossBox = { center: new Vector3(), halfSize: B.halfSize, yaw: 0 };
+  private readonly box: { center: Vector3; halfSize: number; yaw: number } = { center: new Vector3(), halfSize: B.halfSize, yaw: 0 };
+  private readonly pulseColor = new Color(CONFIG.colors.warning);
+  private readonly flags: Flags;
+  private glareLeft = 0;
   private readonly pieceGeo = new BoxGeometry(B.defeat.pieceSize, B.defeat.pieceSize, B.defeat.pieceSize);
   private readonly rng: Rng;
   private time = 0;
   private broken = false;
 
-  constructor(rng: Rng) {
+  constructor(rng: Rng, flags: Flags = getFlags()) {
     this.rng = rng;
+    this.flags = flags;
+    this.brain = new BossBrain(rng, flags);
     const M = B.model;
     const C = CONFIG.colors;
     this.root.add(this.visual);
@@ -196,6 +332,9 @@ export class Boss {
     this.pos.set(B.spawn.x, B.spawn.y, B.spawn.z);
     this.yaw = 0;
     this.dashing = false;
+    this.pulse = 0;
+    this.shake = 0;
+    this.glareLeft = 0;
     this.time = 0;
     this.flash.clear();
     this.squash.clear();
@@ -227,16 +366,29 @@ export class Boss {
     return this.broken;
   }
 
-  /** One fixed step: brain timers, turning toward `face`, visuals. */
-  update(dt: number, face: Vec3Like | null): void {
-    this.brain.update(dt);
+  /**
+   * One fixed step. `target` is the player during FIGHT, or the player's remains while gloating
+   * (null after defeat). Returns the attack to start now, or null.
+   */
+  update(dt: number, target: Vec3Like | null): AttackId | null {
+    const brain = this.brain;
+    const dx = target ? target.x - this.pos.x : 0;
+    const dz = target ? target.z - this.pos.z : 0;
+    const dist = target ? Math.hypot(dx, dz) : Infinity;
+    const start = brain.update(dt, dist);
     this.time += dt;
 
-    if (face && !this.dashing && this.brain.mode !== 'defeated') {
-      const dx = face.x - this.pos.x;
-      const dz = face.z - this.pos.z;
-      if (dx * dx + dz * dz > 1e-6) this.yaw = turnToward(this.yaw, Math.atan2(dx, dz), B.turnRate * dt);
+    if (target && !this.dashing && brain.mode !== 'defeated' && dist > 1e-3) {
+      this.yaw = turnToward(this.yaw, Math.atan2(dx, dz), B.turnRate * dt);
     }
+    // Chase between attacks (grace or cooldown) when farther than 7 m.
+    if (target && brain.waiting && dist > B.chaseDistance) {
+      const step = Math.min(dist - B.chaseDistance, B.chaseSpeed * speedMult(brain.phase, this.flags) * dt);
+      this.pos.x += (dx / dist) * step;
+      this.pos.z += (dz / dist) * step;
+      this.clampToArena();
+    }
+    this.glareLeft = Math.max(0, this.glareLeft - dt);
 
     // Rage transition: color fade (0.5 s) and shake (±0.1 m).
     this.rageFade.step(dt);
@@ -246,12 +398,40 @@ export class Boss {
     this.flash.step(dt);
     this.squash.step(dt);
     this.applyFlash();
+    this.applyGlare();
     this.syncTransform();
+    return start;
   }
 
+  /** GD §6.2a "you missed" glare: eyebrows +10°, pupils 70% for 0.5 s. */
+  glare(): void {
+    this.glareLeft = CONFIG.tactics.glareDuration;
+    this.applyGlare();
+  }
+
+  get glaring(): boolean {
+    return this.glareLeft > 0;
+  }
+
+  private applyGlare(): void {
+    const on = this.glareLeft > 0;
+    const tilt = B.model.eyebrow.tilt + (on ? CONFIG.tactics.glareBrowTilt : 0);
+    const ps = on ? CONFIG.tactics.glarePupilScale : 1;
+    for (let i = 0; i < this.brows.length; i++) {
+      const sx = i === 0 ? -1 : 1;
+      this.brows[i].rotation.z = sx * tilt;
+      this.pupils[i].scale.set(ps, ps, 1);
+    }
+  }
+
+  /** White hit flash wins over the red Charge pulse. */
   private applyFlash(): void {
-    const f = this.flash.active ? 1 : 0;
-    this.bodyMat.emissive.setRGB(f, f, f);
+    if (this.flash.active) {
+      this.bodyMat.emissive.setRGB(1, 1, 1);
+    } else {
+      const w = this.pulse * CONFIG.charge.pulseIntensity;
+      this.bodyMat.emissive.setRGB(this.pulseColor.r * w, this.pulseColor.g * w, this.pulseColor.b * w);
+    }
   }
 
   /** GD §6.3 hit reaction visuals + knockback. Hit-stop, shake, sound and HUD are done by Game. */
@@ -339,12 +519,15 @@ export class Boss {
     this.root.position.copy(this.pos);
     this.root.rotation.y = this.yaw;
     // Idle bob (visual only). Milestone 1.4 doubles it as the anti-camping tell.
-    const bob = B.bobAmplitude * Math.sin(2 * Math.PI * B.bobFrequency * this.time);
+    // The anti-camping tell doubles the bob (GD §6.2a).
+    const amp = this.brain.annoyed ? CONFIG.tactics.annoyedBobAmplitude : B.bobAmplitude;
+    const bob = amp * Math.sin(2 * Math.PI * B.bobFrequency * this.time);
+    const shake = this.brain.mode === 'rageTransition' ? RG.shakeAmplitude : this.shake;
     let sx = 0;
     let sz = 0;
-    if (this.brain.mode === 'rageTransition') {
-      sx = (this.rng() * 2 - 1) * RG.shakeAmplitude;
-      sz = (this.rng() * 2 - 1) * RG.shakeAmplitude;
+    if (shake > 0) {
+      sx = (this.rng() * 2 - 1) * shake;
+      sz = (this.rng() * 2 - 1) * shake;
     }
     this.visual.position.set(sx, bob, sz);
     this.squash.scale(this.scaleTmp);

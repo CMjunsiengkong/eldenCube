@@ -160,6 +160,7 @@ const RAW = {
   tactics: {
     closeDistance: 4.0, // m horizontal to the boss center (tune)
     closeTrigger: 3.0, // s of close timer that forces Slam/Shards (tune)
+    noRepeat: 2, // the same attack may not be chosen after this many in a row
     closeDecayMult: 2, // timer decreases at 2 × dt while not close
     annoyedBobAmplitude: 0.16, // m (tell)
     punishDistance: 5.0, // m (tune)
@@ -212,6 +213,9 @@ const RAW = {
     ringWidth: 1.0, // m (kill band = r ± (width/2 + player radius))
     ringHeight: 0.3, // m
     ringFadeStart: 0.8, // fraction of travel after which the ring fades out (tune, agent-chosen)
+    ringSegments: 64, // tessellation (tune, agent-chosen)
+    shadowLift: 0.02, // m above the floor (tune, agent-chosen)
+    doubleSlamFlashBoost: 0.4, // extra shadow opacity at the top of each tell flash (tune, agent-chosen)
   },
 
   /** GD §6.5 B — Royal Charge. */
@@ -219,6 +223,8 @@ const RAW = {
     telegraph: 1.0, // s (rage ×0.6) (tune)
     shakeAmplitude: 0.1, // m
     pulseFrequency: 6, // Hz red emissive pulse (tune, agent-chosen)
+    minDistance: 6, // m: Charge is only valid when the player is farther than this
+    pulseIntensity: 0.7, // red emissive at the top of a pulse (tune, agent-chosen)
     speed: 18, // m/s (rage ×1.4 = 25.2) (tune)
     maxDashTime: 2.0, // s
     stopRadius: 27, // m boss center radius
@@ -232,6 +238,8 @@ const RAW = {
     circleRadius: 1.2, // m
     circleOpacity: 0.5,
     circlePulseHz: 3, // warning circle pulse rate (tune, agent-chosen; GD gives 3 Hz only for the staggered tell)
+    circlePulseDepth: 0.4, // opacity dips by up to this fraction while pulsing (tune, agent-chosen)
+    circleLift: 0.02, // m above the floor (avoids z-fighting) (tune, agent-chosen)
     leadTime: 0.5, // s: center = P + V × leadTime
     sideOffset: 2.5, // m perpendicular to boss→player
     size: 0.6, // m cube
@@ -243,6 +251,8 @@ const RAW = {
     puffPieces: 6, // small debris cubes on landing / on cancel (tune, agent-chosen)
     puffSize: 0.15, // m (tune, agent-chosen)
     puffSpeed: [1, 3] as Range, // m/s (tune, agent-chosen)
+    puffLifetime: 0.8, // s before puff pieces disappear (tune, agent-chosen)
+    puffPool: 48, // preallocated puff pieces (8 puffs of 6) (tune, agent-chosen)
   },
 
   /** GD §7 — camera. */
@@ -366,6 +376,7 @@ const RAW = {
     pauseDim: 0.55,
     pauseTextSize: 28,
     debugRefreshHz: 4,
+    punishMarker: 1.0, // s the debug "PUNISH!" marker stays visible
   },
 
   /** GD §1 — state transitions (real time unless noted). */
