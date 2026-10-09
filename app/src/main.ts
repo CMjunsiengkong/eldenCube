@@ -3,6 +3,7 @@ import '@fontsource/cinzel/700.css';
 import './styles.css';
 import { PCFShadowMap, SRGBColorSpace, WebGLRenderer } from 'three';
 import { Game } from './game/Game';
+import { getFlags } from './flags';
 import { Loop } from './loop';
 import { showWebGLError } from './systems/ui';
 
@@ -44,6 +45,8 @@ async function main(): Promise<void> {
 
   const game = new Game(renderer, canvas, overlay);
   window.addEventListener('resize', () => game.onResize(window.innerWidth, window.innerHeight));
+  // ?debug only: expose the game for in-browser inspection (DevTools / chrome-devtools MCP).
+  if (getFlags().debug) (window as unknown as { __elden: Game }).__elden = game;
 
   new Loop(game).start();
 }
