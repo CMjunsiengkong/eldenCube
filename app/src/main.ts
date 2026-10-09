@@ -48,7 +48,9 @@ async function main(): Promise<void> {
   // ?debug only: expose the game for in-browser inspection (DevTools / chrome-devtools MCP).
   if (getFlags().debug) (window as unknown as { __elden: Game }).__elden = game;
 
-  new Loop(game).start();
+  const loop = new Loop(game);
+  game.setTimeControl(loop);
+  loop.start();
 }
 
 void main();

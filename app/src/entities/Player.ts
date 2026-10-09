@@ -20,7 +20,7 @@ import {
 } from 'three';
 import { CONFIG } from '../config';
 import { createSphereOBBResult, sphereOBB, type Vec3Like } from '../systems/collision';
-import { approach, clamp, easeInOut, easeOut, springStep, turnToward, type SpringState } from '../util/math';
+import { approach, clamp, easeIn, easeInOut, easeOut, springStep, turnToward, type SpringState } from '../util/math';
 
 const P = CONFIG.player;
 const R = CONFIG.roll;
@@ -30,7 +30,7 @@ const W = CONFIG.wobble;
 const EPS = 1e-9;
 
 export type PlayerAction = 'free' | 'windup' | 'active' | 'recovery' | 'rolling' | 'dizzy';
-export type PlayerEvent = 'rollStart' | 'rollEnd' | 'footstep';
+export type PlayerEvent = 'rollStart' | 'rollEnd' | 'footstep' | 'swingStart' | 'swingActive' | 'swingMiss';
 
 /** A yaw-only cube the player cannot walk into (the boss body). */
 export interface BodyObstacle {
@@ -44,6 +44,8 @@ export interface MotorInput {
   moveX: number;
   moveZ: number;
   wantRoll: boolean;
+  /** Swing pressed this step (and swinging is allowed in the current state, e.g. not BOSS_DEFEATED). */
+  wantSwing: boolean;
   bossX: number;
   bossZ: number;
   /** Body-contact obstacle, or null while the boss is attacking (GD §4.2: no pushback then). */
@@ -82,6 +84,27 @@ export function moveDirFromAxis(
 /** Yaw that makes local +Z face the direction (dx, dz). */
 export const yawOf = (dx: number, dz: number): number => Math.atan2(dx, dz);
 
+const S = CONFIG.swing;
+
+/**
+ * Pure: the right-arm swing angle θ (GD §4.3) for an action and time into it.
+ * Wind-up 20° → 200° ease-out; active 200° → 70° ease-in; recovery 70° → 20° ease-in-out.
+ */
+export function swingAngle(action: PlayerAction, t: number): number {
+  switch (action) {
+    case 'windup':
+      return S.restAngle + (S.windup.toAngle - S.restAngle) * easeOut(t / S.windup.duration);
+    case 'active':
+      return S.windup.toAngle + (S.active.toAngle - S.windup.toAngle) * easeIn(t / S.active.duration);
+    case 'recovery':
+      return S.active.toAngle + (S.recovery.toAngle - S.active.toAngle) * easeInOut(t / S.recovery.duration);
+    default:
+      return S.restAngle;
+  }
+}
+
+export const isSwingAction = (a: PlayerAction): boolean => a === 'windup' || a === 'active' || a === 'recovery';
+
 /** True while a roll at time `t` (s since it started) is invincible: [0.05, 0.40). */
 export const rollInvincibleAt = (t: number): boolean => t >= R.iFrameStart - EPS && t < R.iFrameEnd - EPS;
 
@@ -106,7 +129,13 @@ export class PlayerMotor {
   /** Events raised by the last `step` (sound triggers). */
   readonly events: PlayerEvent[] = [];
 
+  /** The current swing already hit the boss (at most one hit per swing). */
+  swingHit = false;
+
   private rollCovered = 0;
+  /** Velocity just before the lunge; restored when the active phase ends (keeps the lunge ≈ 1.5 m). */
+  private preLungeVx = 0;
+  private preLungeVz = 0;
   private footstepT = 0;
   private readonly contact = createSphereOBBResult();
   private readonly lowSphere: Vec3Like = { x: 0, y: P.hitSpheres[0].height, z: 0 };
@@ -129,7 +158,18 @@ export class PlayerMotor {
     this.rollCooldown = 0;
     this.rollCovered = 0;
     this.footstepT = 0;
+    this.swingHit = false;
     this.events.length = 0;
+  }
+
+  /** True during the active (slash) phase while it has not hit yet: the only damaging window. */
+  isSwingActive(): boolean {
+    return this.action === 'active' && !this.swingHit;
+  }
+
+  /** Called by the game when the blade hits the boss: no further hits this swing. */
+  markSwingHit(): void {
+    this.swingHit = true;
   }
 
   /** A roll may start only from free movement after the cooldown (no buffering). */
@@ -161,6 +201,7 @@ export class PlayerMotor {
     const pvz = this.vz;
 
     if (input.wantRoll && this.canStartRoll()) this.startRoll(input);
+    else if (input.wantSwing && this.canStartSwing()) this.startSwing();
 
     switch (this.action) {
       case 'free':
@@ -173,10 +214,7 @@ export class PlayerMotor {
         this.stepDizzy(dt, input);
         break;
       default:
-        // windup / active / recovery: milestone 1.3
-        this.decay(dt);
-        this.integrate(dt);
-        this.faceBoss(dt, input);
+        this.stepSwing(dt, input);
         break;
     }
 
@@ -201,6 +239,48 @@ export class PlayerMotor {
     this.rollCovered = 0;
     this.footstepT = 0;
     this.events.push('rollStart');
+  }
+
+  private startSwing(): void {
+    this.action = 'windup';
+    this.actionT = 0;
+    this.swingHit = false;
+    this.footstepT = 0;
+    this.events.push('swingStart');
+  }
+
+  /** GD §4.3: wind-up and recovery decay at decel; the active phase lunges at facing × 10 m/s. */
+  private stepSwing(dt: number, input: MotorInput): void {
+    this.rollCooldown = Math.max(0, this.rollCooldown - dt);
+    this.actionT += dt;
+    if (this.action === 'active') {
+      this.vx = Math.sin(this.yaw) * S.active.lungeSpeed;
+      this.vz = Math.cos(this.yaw) * S.active.lungeSpeed;
+    } else {
+      this.decay(dt);
+    }
+    this.integrate(dt);
+    // Movement input is ignored during the swing, so the facing target is the boss (GD §4.2).
+    this.faceBoss(dt, input);
+
+    if (this.action === 'windup' && this.actionT >= S.windup.duration - EPS) {
+      this.action = 'active';
+      this.actionT = 0;
+      this.preLungeVx = this.vx;
+      this.preLungeVz = this.vz;
+      this.events.push('swingActive');
+    } else if (this.action === 'active' && this.actionT >= S.active.duration - EPS) {
+      if (!this.swingHit) this.events.push('swingMiss');
+      // The lunge velocity applies only "for this phase" (GD §4.3); recovery then decays from the
+      // pre-lunge velocity, so the lunge moves the player about 1.5 m in total.
+      this.vx = this.preLungeVx;
+      this.vz = this.preLungeVz;
+      this.action = 'recovery';
+      this.actionT = 0;
+    } else if (this.action === 'recovery' && this.actionT >= S.recovery.duration - EPS) {
+      this.action = 'free';
+      this.actionT = 0;
+    }
   }
 
   private stepFree(dt: number, input: MotorInput): void {
@@ -361,6 +441,7 @@ export class Player {
 
   private readonly spheres: Sphere[] = P.hitSpheres.map((s) => ({ center: new Vector3(), radius: s.radius }));
   private readonly pos = new Vector3();
+  private readonly blade: Vector3[] = CONFIG.swing.bladePoints.map(() => new Vector3());
   private readonly debugTint: boolean;
 
   constructor(debugTint: boolean) {
@@ -392,6 +473,19 @@ export class Player {
     this.syncTransform();
     this.updateTint();
     return m.events;
+  }
+
+  /**
+   * The 3 blade points in world space (GD §5): 0.5, 1.3 and 2.1 m from the right shoulder along
+   * the arm direction. Reuses preallocated vectors.
+   */
+  getBladePoints(): readonly Vector3[] {
+    this.root.updateMatrixWorld(true);
+    const pts = CONFIG.swing.bladePoints;
+    for (let i = 0; i < pts.length; i++) {
+      this.blade[i].set(0, -pts[i], 0).applyMatrix4(this.shoulderR.matrixWorld);
+    }
+    return this.blade;
   }
 
   /** The two hitbox spheres in world space (GD §4.5). Reuses preallocated objects. */
@@ -518,10 +612,17 @@ export class Player {
       [this.legL, legLT],
       [this.legR, legRT],
       [this.armL, armLT],
-      [this.armR, armRT],
     ] as const) {
       springStep(spring, target, k, c, dt);
       spring.x = clamp(spring.x, -W.limbClamp, W.limbClamp);
+    }
+    if (isSwingAction(m.action)) {
+      // Right arm while swinging: driven directly by the swing curve, no spring (GD §4.4).
+      this.armR.x = swingAngle(m.action, m.actionT);
+      this.armR.v = 0;
+    } else {
+      springStep(this.armR, armRT, k, c, dt);
+      this.armR.x = clamp(this.armR.x, -W.limbClamp, W.limbClamp);
     }
 
     // Head offset spring pushed by −0.02 × horizontal acceleration (local frame).

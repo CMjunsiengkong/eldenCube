@@ -43,13 +43,13 @@ Rules: follow `requirements.md` and `design.md`; git per `.kiro/steering/git.md`
 
 ## Milestone 1.3 — Combat core (`feat/1.3-combat`)
 
-- [ ] 1.3.1 Swing in `PlayerMotor` (phases, `swingAngle`, lunge, one hit per swing, miss event) + swing-timing tests. _Req 6.1–6.4, 6.7, 21.7_
-- [ ] 1.3.2 `getBladePoints` and weapon → boss test in `Game` (only active phase, invuln check). _Req 6.3, 6.5_
-- [ ] 1.3.3 `BossBrain` HP/phase/invuln/`takeHit` (incl. D9 cancel request) + `tests/bossBrain.test.ts`. _Req 7.4, 7.5, 21.6_
-- [ ] 1.3.4 `Boss` view — model per GD §6.1 replacing the placeholder, idle bob, yaw toward the player; `fx/effects.ts` flash, squash spring, rage color fade/shake. _Req 7.1, 7.2 (motion parts), 7.6_
-- [ ] 1.3.5 Hit reaction (hit-stop, flash, squash, knockback, shake) and HUD health bar with segment flash. _Req 7.3, 17.2 (health bar)_
-- [ ] 1.3.6 `fx/debris.ts` + boss defeat (hit-stop 0.20, 8 cubes + crown falls and rolls, time scale 0.5 for 1.0 s, shake). _Req 14.1–14.4, 15.6_
-- [ ] 1.3.7 Verify: kill an idle boss with exactly 5 hits; one swing never counts twice (debug HP display); console clean. Report. **Ask to merge.**
+- [x] 1.3.1 Swing in `PlayerMotor` (phases, `swingAngle`, lunge, one hit per swing, miss event) + swing-timing tests. _Req 6.1–6.4, 6.7, 21.7_
+- [x] 1.3.2 `getBladePoints` and weapon → boss test in `Game` (only active phase, invuln check). _Req 6.3, 6.5_
+- [x] 1.3.3 `BossBrain` HP/phase/invuln/`takeHit` (incl. D9 cancel request) + `tests/bossBrain.test.ts`. _Req 7.4, 7.5, 21.6_
+- [x] 1.3.4 `Boss` view — model per GD §6.1 replacing the placeholder, idle bob, yaw toward the player; `fx/effects.ts` flash, squash spring, rage color fade/shake. _Req 7.1, 7.2 (motion parts), 7.6_
+- [x] 1.3.5 Hit reaction (hit-stop, flash, squash, knockback, shake) and HUD health bar with segment flash. _Req 7.3, 17.2 (health bar)_
+- [x] 1.3.6 `fx/debris.ts` + boss defeat (hit-stop 0.20, 8 cubes + crown falls and rolls, time scale 0.5 for 1.0 s, shake). _Req 14.1–14.4, 15.6_
+- [x] 1.3.7 Verify: kill an idle boss with exactly 5 hits; one swing never counts twice (debug HP display); console clean. Report. **Ask to merge.**
 
 ## Milestone 1.4 — Boss AI (`feat/1.4-boss-ai`)
 

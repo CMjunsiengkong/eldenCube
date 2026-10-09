@@ -52,3 +52,54 @@ body {
   padding: 24px;
   font-size: 20px;
 }
+
+/* HUD (GAME_DESIGN §2) */
+.hud {
+  opacity: 0;
+  transition: opacity var(--hud-fade) ease-in-out;
+}
+
+.hud.visible {
+  opacity: 1;
+}
+
+#boss-health {
+  position: absolute;
+  left: 50%;
+  bottom: 48px;
+  width: var(--health-width);
+  transform: translateX(-50%);
+}
+
+.health-label {
+  font-family: 'Cinzel', serif;
+  font-weight: 700;
+  font-size: var(--health-label-size);
+  color: #fff;
+  text-align: left;
+  margin-bottom: 6px;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.6);
+}
+
+.health-bar {
+  display: flex;
+  gap: var(--health-gap);
+  height: var(--health-height);
+}
+
+.health-bar .seg {
+  flex: 1;
+  background: var(--health-full);
+}
+
+.health-bar .seg.lost {
+  background: var(--health-empty);
+  animation: seg-flash var(--health-flash) steps(1, end);
+}
+
+@keyframes seg-flash {
+  from,
+  to {
+    background: #fff;
+  }
+}

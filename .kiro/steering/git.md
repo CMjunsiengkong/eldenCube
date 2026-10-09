@@ -16,10 +16,11 @@ Remote: `origin` = https://github.com/CMjunsiengkong/eldenCube.git. **The agent 
 - Small, frequent commits. Stage specific files (no blind `git add .`).
 
 ## Merging
-- When a milestone's exit criteria pass, **ask the user first**, then merge into `main` with `--no-ff` and delete the branch.
+- When a milestone's exit criteria pass, **ask the user first**. On approval (when the user asks for it): push the branch, open a GitHub PR with `gh pr create`, **squash-merge** it with `gh pr merge --squash` (**keep** the branch, no `--delete-branch`), then `git pull --ff-only` on `main` and start the next branch from it.
+- After a squash merge, local `main` is reset to `origin/main` only with the user's permission.
 
 ## Never
-- Never push (the user pushes), never force-push, never rewrite history (no amend/rebase/reset of shared commits).
+- Never push unless the user asks for it, never force-push, never rewrite history (no amend/rebase of shared commits).
 - Never commit secrets, `node_modules`, `dist` or `cdk.out`.
 - Never change git config.
 

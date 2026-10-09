@@ -1,17 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG } from '../src/config';
 import { STEP } from '../src/loop';
-import { moveDirFromAxis, PlayerMotor, rollInvincibleAt, type MotorInput } from '../src/entities/Player';
+import { moveDirFromAxis, PlayerMotor, rollInvincibleAt, swingAngle, type MotorInput } from '../src/entities/Player';
 
 const R = CONFIG.roll;
 
 /** Input helper: world direction (normalized here), optional roll press. */
-function input(dx = 0, dz = 0, wantRoll = false, obstacle: MotorInput['obstacle'] = null): MotorInput {
+function input(dx = 0, dz = 0, wantRoll = false, obstacle: MotorInput['obstacle'] = null, wantSwing = false): MotorInput {
   const len = Math.hypot(dx, dz);
   return {
     moveX: len ? dx / len : 0,
     moveZ: len ? dz / len : 0,
     wantRoll,
+    wantSwing,
     bossX: 0,
     bossZ: 0,
     obstacle,
@@ -223,5 +224,137 @@ describe('roll timing (ARCHITECTURE §8, GAME_DESIGN §4.3a)', () => {
 
   it('roll constants match the design (0.35 s i-frames, 0.95 s cycle)', () => {
     expect(R.iFrameEnd - R.iFrameStart).toBeCloseTo(0.35);
+  });
+});
+
+const swing = (dx = 0, dz = 0) => input(dx, dz, false, null, true);
+const DEG = Math.PI / 180;
+
+describe('swing timing (ARCHITECTURE §8, GAME_DESIGN §4.3)', () => {
+  it('phases: wind-up 0.20 s, active 0.15 s, recovery 0.40 s', () => {
+    const m = freshMotor();
+    m.step(STEP, swing());
+    expect(m.events).toContain('swingStart');
+    let n = 1;
+    let activeAt = -1;
+    let recoveryAt = -1;
+    while (m.action !== 'free') {
+      const before = m.action;
+      m.step(STEP, input());
+      n++;
+      if (m.events.includes('swingActive')) activeAt = n;
+      if (before === 'active' && m.action === 'recovery') recoveryAt = n;
+    }
+    expect(activeAt * STEP).toBeCloseTo(0.2, 6);
+    expect((recoveryAt - activeAt) * STEP).toBeCloseTo(0.15, 6);
+    expect((n - recoveryAt) * STEP).toBeCloseTo(0.4, 6);
+    expect(n * STEP).toBeCloseTo(0.75, 6);
+  });
+
+  it('damage window: isSwingActive only during the active phase', () => {
+    const m = freshMotor();
+    m.step(STEP, swing());
+    let activeSteps = 0;
+    while (m.action !== 'free') {
+      if (m.isSwingActive()) {
+        expect(m.action).toBe('active');
+        activeSteps++;
+      } else {
+        expect(m.action).not.toBe('active');
+      }
+      m.step(STEP, input());
+    }
+    expect(activeSteps * STEP).toBeCloseTo(0.15, 6);
+  });
+
+  it('at most one hit per swing; a hit swing does not report a miss', () => {
+    const m = freshMotor();
+    m.step(STEP, swing());
+    while (m.action !== 'active') m.step(STEP, input());
+    expect(m.isSwingActive()).toBe(true);
+    m.markSwingHit();
+    expect(m.isSwingActive()).toBe(false);
+    let missed = false;
+    const action = (): string => m.action;
+    while (action() !== 'free') {
+      m.step(STEP, input());
+      if (m.events.includes('swingMiss')) missed = true;
+      expect(m.isSwingActive()).toBe(false);
+    }
+    expect(missed).toBe(false);
+    // The next swing can hit again.
+    m.step(STEP, swing());
+    while (m.action !== 'active') m.step(STEP, input());
+    expect(m.isSwingActive()).toBe(true);
+  });
+
+  it('a missed active phase reports swingMiss exactly once', () => {
+    const m = freshMotor();
+    m.step(STEP, swing());
+    let misses = 0;
+    while (m.action !== 'free') {
+      m.step(STEP, input());
+      misses += m.events.filter((e) => e === 'swingMiss').length;
+    }
+    expect(misses).toBe(1);
+  });
+
+  it('lunge: about 1.5 m forward during the active phase at 10 m/s', () => {
+    const m = freshMotor();
+    m.yaw = Math.PI; // facing −Z (toward the boss)
+    m.step(STEP, swing());
+    while (m.action !== 'active') m.step(STEP, input());
+    const z0 = m.z;
+    while (m.action === 'active') {
+      m.step(STEP, input());
+      if (m.action === 'active') expect(m.speed()).toBeCloseTo(10, 6);
+    }
+    expect(z0 - m.z).toBeCloseTo(1.5, 6);
+    // After the phase the lunge velocity is gone (restored to the pre-lunge velocity, here 0).
+    expect(m.speed()).toBeCloseTo(0, 6);
+  });
+
+  it('movement and roll input are ignored during the swing; swing presses are not buffered', () => {
+    const m = freshMotor();
+    m.step(STEP, swing());
+    let rolls = 0;
+    let swings = 0;
+    while (m.action !== 'free') {
+      m.step(STEP, { ...input(1, 0, true, null, true) });
+      if (m.events.includes('rollStart')) rolls++;
+      if (m.events.includes('swingStart')) swings++;
+    }
+    expect(rolls).toBe(0);
+    expect(swings).toBe(0);
+    expect(m.speed()).toBeCloseTo(0, 6); // movement input never accelerated the player
+  });
+
+  it('no swing during a roll or the dizzy recovery', () => {
+    const m = freshMotor();
+    m.step(STEP, input(0, 1, true));
+    while (m.action === 'rolling' || m.action === 'dizzy') {
+      m.step(STEP, swing());
+      expect(m.events).not.toContain('swingStart');
+    }
+  });
+
+  it('a swing is allowed during the roll cooldown (decision D1)', () => {
+    const m = freshMotor();
+    m.step(STEP, input(0, 1, true));
+    while (m.action !== 'free') m.step(STEP, input());
+    expect(m.rollCooldown).toBeGreaterThan(0);
+    m.step(STEP, swing());
+    expect(m.events).toContain('swingStart');
+  });
+
+  it('swingAngle follows the documented curve', () => {
+    expect(swingAngle('free', 0)).toBeCloseTo(20 * DEG);
+    expect(swingAngle('windup', 0)).toBeCloseTo(20 * DEG);
+    expect(swingAngle('windup', 0.2)).toBeCloseTo(200 * DEG);
+    expect(swingAngle('windup', 0.1)).toBeGreaterThan(110 * DEG); // ease-out: past halfway at half time
+    expect(swingAngle('active', 0)).toBeCloseTo(200 * DEG);
+    expect(swingAngle('active', 0.075)).toBeGreaterThan(135 * DEG); // ease-in: slow start
+    expect(swingAngle('active', 0.15)).toBeCloseTo(70 * DEG);
+    expect(swingAngle('recovery', 0.4)).toBeCloseTo(20 * DEG);
   });
 });
