@@ -377,6 +377,14 @@ const RAW = {
     pauseTextSize: 28,
     debugRefreshHz: 4,
     punishMarker: 1.0, // s the debug "PUNISH!" marker stays visible
+    /** ?debug hitbox wireframes (agent-chosen, debug only). */
+    debugHitbox: {
+      playerColor: 0x00ffff,
+      bossColor: 0xffff00,
+      attackColor: 0xff00ff, // blade points, shockwave band, shard spheres
+      bladePointRadius: 0.06, // m
+      bandThickness: 0.005, // fraction of the radius
+    },
   },
 
   /** GD §1 — state transitions (real time unless noted). */
