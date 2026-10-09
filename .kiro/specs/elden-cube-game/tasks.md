@@ -11,10 +11,10 @@ Rules: follow `requirements.md` and `design.md`; git per `.kiro/steering/git.md`
 - [x] **0.3 Scaffold `app/`** — Vite `vanilla-ts` into `app/`; install `three`, `@fontsource/cinzel`; dev `vitest`, `@types/three` (if needed); remove template demo files; `vite.config.ts` (base `./`, es2022, ports 5173/4173, vitest node env); `tsconfig` strict; scripts per AR §7; empty folders per AR §3 incl. `src/assets/sfx/.gitkeep`, `tests/`; placeholder `main.ts` that renders the starter page. Commit `chore(app): scaffold vite app`. _Req 0.3_
 - [x] **0.4 Scaffold `infra/`** — (TypeScript pinned to 6.0.3 for ts-node, AR §13.3) CDK TypeScript app per AR §3 (`aws-cdk-lib`, `constructs`; dev `aws-cdk`, `typescript`, `ts-node`, `@types/node`); `cdk.json` with `"context": { "alertEmail": "junsieng55@gmail.com" }`; `bin/infra.ts` (missing-email error, `ap-southeast-1`, `CDK_DEFAULT_ACCOUNT`); full `lib/EldenCubeStack.ts` per AR §9.2; scripts `build`, `synth`, `diff`, `deploy`, `destroy` with `--profile elden-personal`. Commit `feat(infra): add EldenCubeStack`. Also commit `.kiro/` steering + specs as `docs(kiro): add steering and specs`. _Req 0.3.2, 0.3.4, 0.3.5_
 - [x] **0.5 Local check** — `npm run dev` → starter page at `http://localhost:5173` (curl check; Chrome check once the MCP is loaded). _Req 0.3.6_
-- [ ] **0.6 [User]** — restart `kiro-cli` from `eldenCube/`, run `/mcp`, confirm `aws-docs`, `aws-iac`, `chrome-devtools` loaded. _Req 0.2.3_
-- [ ] **0.7 [User]** — create the `elden-personal` profile (AR §13.4) and confirm `aws sts get-caller-identity --profile elden-personal`. _Req 0.4.1–0.4.2_
-- [ ] **0.8 Bootstrap + synth** — `npx cdk bootstrap aws://<ACCOUNT_ID>/ap-southeast-1 --profile elden-personal`; `npm run synth`. _Req 0.4.3–0.4.4_
-- [ ] **0.9 Smoke deploy** — `cd app && npm run build`; `cd infra && npm run deploy`; open `GameUrl` in Chrome via MCP. **[User]** confirm the budget alert email subscription. _Req 0.4.5_
+- [x] **0.6 [User]** — restart `kiro-cli` from `eldenCube/`, run `/mcp`, confirm `aws-docs`, `aws-iac`, `chrome-devtools` loaded. _Req 0.2.3_
+- [x] **0.7 [User]** — create the `elden-personal` profile (AR §13.4) and confirm `aws sts get-caller-identity --profile elden-personal`. _Req 0.4.1–0.4.2_
+- [x] **0.8 Bootstrap + synth** — `npx cdk bootstrap aws://<ACCOUNT_ID>/ap-southeast-1 --profile elden-personal`; `npm run synth`. _Req 0.4.3–0.4.4_
+- [ ] **0.9 Smoke deploy** — deployed; GameUrl https://d376ckm5wji8ku.cloudfront.net serves the starter page (Chrome MCP: 200s, console clean). Remaining: **[User]** confirm the budget alert email. `cd app && npm run build`; `cd infra && npm run deploy`; open `GameUrl` in Chrome via MCP. **[User]** confirm the budget alert email subscription. _Req 0.4.5_
 - [ ] **0.10 Stage 0 report** — all six Stage 0 exit criteria with evidence.
 
 ---
