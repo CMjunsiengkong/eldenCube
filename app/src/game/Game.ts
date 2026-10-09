@@ -48,6 +48,7 @@ export class Game implements LoopTarget {
     moveX: 0,
     moveZ: 0,
     wantRoll: false,
+    wantSwing: false,
     bossX: 0,
     bossZ: 0,
     obstacle: null,
