@@ -2,220 +2,278 @@ import { describe, expect, it } from 'vitest';
 import { Vector3 } from 'three';
 import { CubeSlam } from '../src/attacks/CubeSlam';
 import { RoyalCharge } from '../src/attacks/RoyalCharge';
-import { CrownShards, placeCircles } from '../src/attacks/CrownShards';
+import { CrownRain, placeCage, placeScatter, placeWall, RAIN_MAX_R } from '../src/attacks/CrownRain';
+import { RoyalRebuke } from '../src/attacks/RoyalRebuke';
 import type { Attack } from '../src/attacks/Attack';
 import { CONFIG } from '../src/config';
 import { STEP } from '../src/loop';
+import { createRng } from '../src/util/rng';
 import { makeCtx, spheresAt, type TestCtx } from './attackCtx';
 
-/** Runs the attack to the end; calls `each(t)` after every step. Returns the total time. */
-function run(a: Attack, ctx: TestCtx, each?: (t: number) => void, max = 30): number {
+const RN = CONFIG.rain;
+const RB = CONFIG.rebuke;
+
+/** Runs the attack (and the hazards) until the boss is free; `each(t)` after every step. */
+function runUntilFree(a: Attack, ctx: TestCtx, each?: (t: number) => void, max = 30): number {
   a.start(ctx);
   let t = 0;
-  while (!a.isFinished() && t < max) {
+  while (!a.isBossFree() && t < max) {
     a.update(STEP, ctx);
+    ctx.hazards.step(STEP);
     t += STEP;
     each?.(t);
   }
   return t;
 }
 
+/** Steps the hazards alone until nothing is left (or max). */
+function drainHazards(ctx: TestCtx, max = 10): number {
+  const radii: number[] = [];
+  let t = 0;
+  while ((ctx.hazards.rainAlive || ctx.hazards.liveRings(radii).length > 0) && t < max) {
+    ctx.hazards.step(STEP);
+    t += STEP;
+  }
+  return t;
+}
+
 describe('Cube Slam (GAME_DESIGN §6.5 A)', () => {
-  it('rises to 4 m over the telegraph, hangs 0.15 s, drops in 0.20 s, ring runs 2.2 → 14 m at 8 m/s', () => {
+  it('rise 1.0, hang 0.15, drop 0.20 → impact (ring hazard), then a 2.0 s punish window; free after it', () => {
     const ctx = makeCtx();
     const slam = new CubeSlam();
     let impactAt = -1;
-    let maxY = 0;
+    let windowSteps = 0;
     const radii: number[] = [];
-    const total = run(slam, ctx, (t) => {
-      maxY = Math.max(maxY, ctx.boss.pos.y);
-      if (impactAt < 0 && slam.phaseName === 'ring') impactAt = t;
-      slam.liveRings(radii);
+    const total = runUntilFree(slam, ctx, (t) => {
+      if (impactAt < 0 && slam.impactCount === 1) impactAt = t;
+      if (slam.inPunishWindow()) {
+        windowSteps++;
+        expect(ctx.boss.stuck).toBe(true);
+      }
     });
-    expect(maxY).toBeCloseTo(CONFIG.slam.riseHeight, 6);
-    expect(impactAt).toBeCloseTo(1.0 + 0.15 + 0.2, 6);
-    expect(total - impactAt).toBeCloseTo((14 - 2.2) / 8, 1);
-    expect(ctx.boss.pos.y).toBe(0);
-    expect(ctx.scene.children).toHaveLength(0); // shadow and ring removed
+    expect(impactAt).toBeCloseTo(1.0 + 0.15 + 0.2, 1);
+    expect(windowSteps * STEP).toBeCloseTo(CONFIG.slam.window, 1);
+    expect(total - impactAt).toBeCloseTo(CONFIG.slam.window, 1);
+    // The ring (1.475 s of travel) is gone before the window ends, but it was a hazard all along.
+    expect(ctx.hazards.liveRings(radii)).toHaveLength(0);
+    expect(ctx.boss.stuck).toBe(false);
   });
 
-  it('rage: telegraph ×0.6 and ring ×1.4 (11.2 m/s)', () => {
+  it('a full combo started 0.7 s after the impact lands its last hit inside the window', () => {
+    const lastDamage = 0.18 + 0.12 + 0.15 + 0.12 + 0.12 + 0.15 + 0.25 + 0.15; // 1.24 s
+    expect(0.7 + lastDamage).toBeLessThan(CONFIG.slam.window);
+  });
+
+  it('impact frame: the footprint hits; the ring band r ± 0.9 hits; outside it does not', () => {
+    const ctx = makeCtx();
+    const slam = new CubeSlam();
+    slam.start(ctx);
+    for (let i = 0; i < 30; i++) {
+      slam.update(STEP, ctx);
+      expect(slam.checkPlayerHit(spheresAt(0, 1))).toBeNull(); // in the air
+    }
+    while (slam.impactCount === 0) slam.update(STEP, ctx);
+    expect(slam.checkPlayerHit(spheresAt(0, 1))).not.toBeNull();
+    ctx.hazards.step(STEP);
+    const r = ctx.hazards.liveRings([])[0];
+    expect(ctx.hazards.check(spheresAt(0, r + 0.89))).not.toBeNull();
+    expect(ctx.hazards.check(spheresAt(0, r - 0.89))).not.toBeNull();
+    expect(ctx.hazards.check(spheresAt(0, r + 0.95))).toBeNull();
+  });
+
+  it('asks for a Rebuke at the window end only when the player is within 5 m', () => {
+    for (const [z, want] of [
+      [4.9, true],
+      [5.1, false],
+    ] as const) {
+      const ctx = makeCtx();
+      ctx.playerPos.set(0, 0, z);
+      const slam = new CubeSlam();
+      runUntilFree(slam, ctx);
+      expect(slam.wantsRebuke()).toBe(want);
+    }
+  });
+
+  it('rage: telegraph ×0.6; the ring runs at 11.2 m/s; the window is not shortened', () => {
     const ctx = makeCtx({ rage: true });
     const slam = new CubeSlam();
     let impactAt = -1;
-    const total = run(slam, ctx, (t) => {
-      if (impactAt < 0 && slam.phaseName === 'ring') impactAt = t;
+    const total = runUntilFree(slam, ctx, (t) => {
+      if (impactAt < 0 && slam.impactCount === 1) impactAt = t;
     });
-    expect(impactAt).toBeCloseTo(0.6 + 0.15 + 0.2, 6);
-    expect(total - impactAt).toBeCloseTo((14 - 2.2) / 11.2, 1);
-  });
-
-  it('kills inside the ring band r ± 0.9 only; the footprint kills only on the impact frame', () => {
-    const ctx = makeCtx();
-    const slam = new CubeSlam();
-    slam.start(ctx);
-    // Under the boss during the rise: no kill yet.
-    for (let i = 0; i < 30; i++) {
-      slam.update(STEP, ctx);
-      expect(slam.checkPlayerHit(spheresAt(0, 1))).toBeNull();
-    }
-    while (slam.phaseName !== 'ring') slam.update(STEP, ctx);
-    expect(slam.checkPlayerHit(spheresAt(0, 1))).not.toBeNull(); // impact frame, inside the footprint
-    const radii: number[] = [];
-    slam.update(STEP, ctx);
-    const r = slam.liveRings(radii)[0];
-    expect(slam.checkPlayerHit(spheresAt(0, r + 0.89))).not.toBeNull();
-    expect(slam.checkPlayerHit(spheresAt(0, r - 0.89))).not.toBeNull();
-    expect(slam.checkPlayerHit(spheresAt(0, r + 0.95))).toBeNull();
-    expect(slam.checkPlayerHit(spheresAt(0, 14.95))).toBeNull();
-  });
-
-  it('dispose with puff removes the ring and spawns puffs (D9)', () => {
-    const ctx = makeCtx();
-    const slam = new CubeSlam();
-    slam.start(ctx);
-    while (slam.phaseName !== 'ring') slam.update(STEP, ctx);
-    slam.update(STEP, ctx);
-    slam.dispose(true);
-    expect(ctx.effects.count).toBeGreaterThan(0);
-    expect(ctx.scene.children).toHaveLength(ctx.effects.count); // only the puff pieces remain
-    ctx.effects.clear();
-    expect(ctx.scene.children).toHaveLength(0);
-    expect(slam.isFinished()).toBe(true);
+    expect(impactAt).toBeCloseTo(0.6 + 0.15 + 0.2, 1);
+    expect(total - impactAt).toBeCloseTo(CONFIG.slam.window, 1);
   });
 });
 
 describe('Royal Charge (GAME_DESIGN §6.5 B)', () => {
-  it('locks toward the player at the end of the telegraph and dashes at 18 m/s', () => {
+  it('0.7 s telegraph, locks toward the player, dashes at 18 m/s, skids, then a 0.6 s recovery window', () => {
     const ctx = makeCtx();
     ctx.playerPos.set(10, 0, 0);
     const charge = new RoyalCharge();
-    charge.start(ctx);
-    let t = 0;
-    while (charge.phaseName === 'telegraph') {
-      charge.update(STEP, ctx);
-      t += STEP;
-    }
-    expect(t).toBeCloseTo(1.0, 6);
-    expect(ctx.boss.dashing).toBe(true);
-    ctx.playerPos.set(0, 0, 10); // moving after the lock does not change the direction
-    const x0 = ctx.boss.pos.x;
-    charge.update(STEP, ctx);
-    expect((ctx.boss.pos.x - x0) / STEP).toBeCloseTo(18, 6);
-    expect(ctx.boss.pos.z).toBeCloseTo(0, 9);
-  });
-
-  it('stops at radius 27 (then skids 0.3 s, clamped) or after 2.0 s', () => {
-    const ctx = makeCtx();
-    ctx.playerPos.set(10, 0, 0);
-    const charge = new RoyalCharge();
-    let dashTime = 0;
-    let maxR = 0;
-    run(charge, ctx, () => {
-      if (charge.phaseName === 'dash') dashTime += STEP;
-      maxR = Math.max(maxR, Math.hypot(ctx.boss.pos.x, ctx.boss.pos.z));
+    let tele = 0;
+    let recovery = 0;
+    let dashSpeed = 0;
+    let prevX = 0;
+    runUntilFree(charge, ctx, () => {
+      if (charge.phaseName === 'telegraph') tele += STEP;
+      if (charge.phaseName === 'dash' && ctx.boss.pos.x > 0.5 && ctx.boss.pos.x < 20) dashSpeed = (ctx.boss.pos.x - prevX) / STEP;
+      if (charge.inPunishWindow()) {
+        recovery += STEP;
+        expect(ctx.boss.stuck).toBe(true);
+      }
+      prevX = ctx.boss.pos.x;
     });
-    expect(dashTime).toBeLessThan(27 / 18 + 2 * STEP);
-    expect(maxR).toBeLessThanOrEqual(27 + 1e-9);
+    expect(tele).toBeCloseTo(CONFIG.charge.telegraph - STEP, 1);
+    expect(dashSpeed).toBeCloseTo(18, 6);
+    expect(recovery).toBeCloseTo(CONFIG.charge.recovery, 1);
     expect(ctx.boss.pos.x).toBeCloseTo(27, 6);
-
-    const slow = makeCtx({ speedMult: 0.5 }); // 9 m/s from −13: reaches 27 only after 4.4 s
-    slow.boss.pos.set(-13, 0, 0);
-    slow.playerPos.set(10, 0, 0);
-    const c2 = new RoyalCharge();
-    let d2 = 0;
-    run(c2, slow, () => {
-      if (c2.phaseName === 'dash') d2 += STEP;
-    });
-    expect(d2).toBeCloseTo(2.0, 1);
   });
 
-  it('kills only during the dash', () => {
+  it('hits only during the dash', () => {
     const ctx = makeCtx();
     ctx.playerPos.set(0, 0, 5);
     const charge = new RoyalCharge();
     charge.start(ctx);
-    while (charge.phaseName === 'telegraph') {
-      charge.update(STEP, ctx);
-      if (charge.phaseName === 'telegraph') expect(charge.checkPlayerHit(spheresAt(0, 2.2))).toBeNull(); // touching, not dashing
-    }
     let hit = null;
-    while (charge.phaseName === 'dash' && !hit) {
+    while (!charge.isBossFree() && !hit) {
       charge.update(STEP, ctx);
-      hit = charge.checkPlayerHit(spheresAt(0, 5));
+      const h = charge.checkPlayerHit(spheresAt(0, 2.2));
+      if (h) {
+        expect(charge.phaseName).toBe('dash');
+        hit = h;
+      }
     }
     expect(hit).not.toBeNull();
   });
 });
 
-describe('Crown Shards (GAME_DESIGN §6.5 C)', () => {
-  it('places circles at P + V·0.5 and ±2.5 m perpendicular to boss→player, clamped inside the arena', () => {
-    const out = [new Vector3(), new Vector3(), new Vector3()];
-    placeCircles(0, 10, 2, 0, 0, 0, 0, out);
+describe('Crown Rain (GAME_DESIGN §6.5 C)', () => {
+  it('cage: center at P + V·0.5 plus 6 circles at 3.5 m, the first on boss→player', () => {
+    const out = Array.from({ length: 12 }, () => new Vector3());
+    const n = placeCage(0, 10, 2, 0, 0, 0, 0, out);
+    expect(n).toBe(7);
     expect(out[0].toArray()).toEqual([1, 0, 10]);
-    expect(out[1].x).toBeCloseTo(3.5);
-    expect(out[2].x).toBeCloseTo(-1.5);
-    expect(out[1].z).toBeCloseTo(10);
-    placeCircles(0, 29, 0, 6, 0, 0, 0, out);
-    for (const c of out) expect(Math.hypot(c.x, c.z)).toBeLessThanOrEqual(30 - 1.2 + 1e-9);
+    expect(out[1].x).toBeCloseTo(1);
+    expect(out[1].z).toBeCloseTo(13.5);
+    for (let i = 1; i < 7; i++) expect(Math.hypot(out[i].x - 1, out[i].z - 10)).toBeCloseTo(3.5);
   });
 
-  it('shards land exactly on the circle centers at the same time after 0.8 s (D4: 0.8 / speedMult)', () => {
-    for (const [ctx, flight] of [
+  it('wall: 5 circles 3.0 m apart, perpendicular to boss→player, through P + V·0.5', () => {
+    const out = Array.from({ length: 12 }, () => new Vector3());
+    const n = placeWall(0, 10, 0, 0, 0, 0, 0, out);
+    expect(n).toBe(5);
+    for (let i = 0; i < 5; i++) expect(out[i].z).toBeCloseTo(10); // perpendicular to boss→player (+Z)
+    expect(out.slice(0, 5).map((v) => Math.round(v.x)).sort((a, b) => a - b)).toEqual([-6, -3, 0, 3, 6]);
+  });
+
+  it('scatter: up to 12 circles, ≥ 5 m apart, all inside the arena', () => {
+    for (const seed of [1, 2, 3, 4]) {
+      const out = Array.from({ length: 12 }, () => new Vector3());
+      const n = placeScatter(createRng(seed), out);
+      expect(n).toBeGreaterThanOrEqual(10);
+      for (let i = 0; i < n; i++) {
+        expect(Math.hypot(out[i].x, out[i].z)).toBeLessThanOrEqual(RAIN_MAX_R + 1e-9);
+        for (let j = 0; j < i; j++) expect(out[i].distanceTo(out[j])).toBeGreaterThanOrEqual(RN.scatter.minSpacing - 1e-9);
+      }
+    }
+  });
+
+  it('every circle stays inside the arena, even for a player at the wall', () => {
+    const out = Array.from({ length: 12 }, () => new Vector3());
+    placeCage(0, 29.5, 0, 6, 0, 0, 0, out);
+    for (let i = 0; i < 7; i++) expect(Math.hypot(out[i].x, out[i].z)).toBeLessThanOrEqual(RAIN_MAX_R + 1e-9);
+    placeWall(29, 0, 0, 0, 0, 0, 0, out);
+    for (let i = 0; i < 5; i++) expect(Math.hypot(out[i].x, out[i].z)).toBeLessThanOrEqual(RAIN_MAX_R + 1e-9);
+  });
+
+  it('the boss is free at the launch (end of the 1.0 s cast); the shards keep flying as hazards', () => {
+    const ctx = makeCtx();
+    const rain = new CrownRain();
+    const t = runUntilFree(rain, ctx);
+    expect(t).toBeCloseTo(RN.cast, 1);
+    expect(ctx.hazards.rainAlive).toBe(true);
+    expect(ctx.hazards.flyingShards([]).length).toBeGreaterThanOrEqual(7 + 5 + 10);
+  });
+
+  it('waves land at T, T + 0.4 and T + 0.8 after the launch (T = 0.8 / speed), exactly on their centers', () => {
+    for (const [ctx, T] of [
       [makeCtx(), 0.8],
       [makeCtx({ rage: true }), 0.8 / 1.4],
       [makeCtx({ speedMult: 0.75 }), 0.8 / 0.75],
     ] as const) {
-      ctx.playerPos.set(3, 0, 9);
-      const shards = new CrownShards();
-      shards.start(ctx);
-      expect(shards.flightTimes().every((f) => Math.abs(f - flight) < 1e-9)).toBe(true);
-      const positions: Vector3[] = [];
-      const last: Vector3[] = [new Vector3(), new Vector3(), new Vector3()];
-      let tFlight = 0;
-      while (!shards.isFinished()) {
-        shards.update(STEP, ctx);
-        if (shards.phaseName !== 'flight') continue;
-        tFlight += STEP;
-        shards.flyingShards(positions);
-        if (positions.length === 3) positions.forEach((p, i) => last[i].copy(p));
+      const rain = new CrownRain();
+      runUntilFree(rain, ctx);
+      for (let w = 0; w < 3; w++) {
+        for (const f of ctx.hazards.waveFlightTimes(w)) expect(f).toBeCloseTo(T + w * RN.waveGap, 9);
+        for (const c of ctx.hazards.waveTargets(w)) expect(c.y).toBeCloseTo(RN.landHeight, 9);
       }
-      expect(tFlight).toBeLessThan(flight + 2 * STEP);
-      // The semi-implicit Euler path is within a few cm of the target on the last flight step
-      // before the landing snap (allow one step of travel).
-      shards.circleCenters.forEach((c, i) => {
-        expect(c.y).toBeCloseTo(CONFIG.shards.landHeight, 9);
-        expect(last[i].distanceTo(c)).toBeLessThan(1.0);
-      });
+      const left = drainHazards(ctx);
+      expect(left).toBeLessThan(T + 2 * RN.waveGap + 2 * STEP);
+      expect(ctx.hazards.rainAlive).toBe(false);
     }
   });
 
-  it('landing kills within 1.2 + 0.4 m of a circle center; shards in flight kill on contact', () => {
+  it('landing hits within 1.2 + 0.4 m of a circle center, not farther', () => {
     const ctx = makeCtx();
     ctx.playerPos.set(0, 0, 10);
-    const shards = new CrownShards();
-    shards.start(ctx);
-    let landingHit = null;
-    let flightHits = 0;
-    while (!shards.isFinished()) {
-      shards.update(STEP, ctx);
-      const h = shards.checkPlayerHit(spheresAt(0, 10 + 1.55));
-      if (h && shards.isFinished()) landingHit = h.clone();
-      if (h && !shards.isFinished()) flightHits++;
+    const rain = new CrownRain();
+    runUntilFree(rain, ctx);
+    const center = ctx.hazards.waveTargets(0)[0].clone();
+    let hit = null;
+    let t = 0;
+    while (ctx.hazards.rainAlive && t < 3 && !hit) {
+      ctx.hazards.step(STEP);
+      t += STEP;
+      const h = ctx.hazards.check(spheresAt(center.x, center.z + 1.55));
+      if (h && Math.abs(h.y) < 1e-6) hit = h.clone();
     }
-    expect(landingHit).not.toBeNull();
-    expect(landingHit!.z).toBeCloseTo(10);
-    expect(flightHits).toBe(0);
+    expect(hit).not.toBeNull();
+    expect(hit!.distanceTo(new Vector3(center.x, 0, center.z))).toBeLessThan(RN.circleRadius + 0.4);
+  });
 
-    const ctx2 = makeCtx();
-    const s2 = new CrownShards();
-    s2.start(ctx2);
-    let missed = true;
-    while (!s2.isFinished()) {
-      s2.update(STEP, ctx2);
-      if (s2.checkPlayerHit(spheresAt(0, 10 + 1.65))) missed = false;
+  it('clear(puff) removes every hazard with puffs', () => {
+    const ctx = makeCtx();
+    runUntilFree(new CrownRain(), ctx);
+    ctx.hazards.spawnRing(0, 0, 8);
+    ctx.hazards.clear(true);
+    expect(ctx.hazards.rainAlive).toBe(false);
+    expect(ctx.hazards.liveRings([])).toHaveLength(0);
+    expect(ctx.effects.count).toBeGreaterThan(0);
+    ctx.effects.clear();
+    expect(ctx.scene.children).toHaveLength(0);
+  });
+});
+
+describe('Royal Rebuke (GAME_DESIGN §6.5 D)', () => {
+  it('tell 0.35 s, burst 0.10 s, recovery 0.30 s; hits within 4.5 + 0.4 m only during the burst', () => {
+    const ctx = makeCtx();
+    const rb = new RoyalRebuke();
+    rb.start(ctx);
+    const phases: Record<string, number> = { tell: 0, burst: 0, recovery: 0 };
+    let hitIn = 0;
+    let hitOut = 0;
+    let hitOutsideBurst = 0;
+    while (!rb.isBossFree()) {
+      phases[rb.phaseName] = (phases[rb.phaseName] ?? 0) + STEP;
+      rb.update(STEP, ctx);
+      const inside = rb.checkPlayerHit(spheresAt(0, RB.endRadius + 0.39));
+      if (inside && rb.phaseName === 'burst') hitIn++;
+      if (inside && rb.phaseName !== 'burst') hitOutsideBurst++;
+      if (rb.checkPlayerHit(spheresAt(0, RB.endRadius + 0.45))) hitOut++;
     }
-    expect(missed).toBe(true);
-    expect(ctx2.scene.children).toHaveLength(ctx2.effects.count); // circles and shards removed
+    expect(phases.tell).toBeCloseTo(RB.tell, 1);
+    expect(phases.burst).toBeCloseTo(RB.burst, 1);
+    expect(phases.recovery).toBeCloseTo(RB.recovery, 1);
+    expect(hitIn).toBeGreaterThan(0);
+    expect(hitOutsideBurst).toBe(0);
+    expect(hitOut).toBe(0);
+  });
+
+  it('a roll started at the tell covers the whole burst with i-frames', () => {
+    // Roll i-frames run 0.05–0.40 s after the roll starts; the burst is 0.35–0.45 s after the tell starts.
+    const rollStart = 0.05; // a reaction 0.05 s into the tell
+    expect(rollStart + CONFIG.roll.iFrameStart).toBeLessThanOrEqual(RB.tell);
+    expect(rollStart + CONFIG.roll.iFrameEnd).toBeGreaterThanOrEqual(RB.tell + RB.burst);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cooldownFor, parseFlags, shardFlightTime, speedMult, telegraphMult, type Flags } from '../src/flags';
+import { cooldownFor, parseFlags, rebukeTellFor, shardFlightTime, speedMult, telegraphMult, type Flags } from '../src/flags';
 
 const NONE: Flags = { easy: false, debug: false };
 const EASY: Flags = { easy: true, debug: false };
@@ -41,10 +41,13 @@ describe('multipliers (GAME_DESIGN §6.4, §11; decisions D3, D4)', () => {
   });
 
   it('cooldown: 2.5 s / rage 1.6 s, easy ×1.3', () => {
-    expect(cooldownFor('p1', NONE)).toBeCloseTo(2.5);
-    expect(cooldownFor('rage', NONE)).toBeCloseTo(1.6);
-    expect(cooldownFor('p1', EASY)).toBeCloseTo(3.25);
-    expect(cooldownFor('rage', EASY)).toBeCloseTo(2.08);
+    expect(cooldownFor('p1', NONE)).toBeCloseTo(1.0);
+    expect(cooldownFor('rage', NONE)).toBeCloseTo(0.6);
+    expect(cooldownFor('p1', EASY)).toBeCloseTo(1.3);
+    expect(cooldownFor('rage', EASY)).toBeCloseTo(0.78);
+    // The Rebuke tell: × easy only (GD §6.5 D)
+    expect(rebukeTellFor(NONE)).toBeCloseTo(0.35);
+    expect(rebukeTellFor(EASY)).toBeCloseTo(0.455);
   });
 
   it('shard flight time = 0.8 / speed multiplier', () => {

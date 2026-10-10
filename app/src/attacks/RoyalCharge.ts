@@ -1,5 +1,6 @@
 /**
- * Royal Charge (GD §6.5 B, design §8): telegraph (shake + red pulse) → lock → dash → skid.
+ * Royal Charge (GD §6.5 B): telegraph (shake + red pulse) → lock → dash → skid → 0.6 s recovery
+ * (a small punish window: no turning, damage does not count toward poise) → free.
  * Rage upgrade Charge U-turn: a 0.4 s re-telegraph, re-lock and one more dash + skid.
  */
 import { Vector3 } from 'three';
@@ -12,7 +13,7 @@ const C = CONFIG.charge;
 const U = CONFIG.rageUpgrades;
 const EPS = 1e-9;
 
-type Phase = 'telegraph' | 'dash' | 'skid' | 'uturn' | 'done';
+type Phase = 'telegraph' | 'dash' | 'skid' | 'uturn' | 'recovery' | 'done';
 
 export class RoyalCharge implements Attack {
   readonly id = 'charge' as const;
@@ -80,10 +81,18 @@ export class RoyalCharge implements Attack {
         boss.pulse = keepPulsing ? this.pulseAt(this.t) : Math.max(0, 1 - this.t / C.skid);
         if (this.t >= C.skid - EPS) {
           if (keepPulsing) this.beginTelegraph(ctx, 'uturn', U.uTurnTelegraph);
-          else this.finish(ctx);
+          else {
+            boss.pulse = 0;
+            boss.stuck = true;
+            this.next('recovery');
+          }
         }
         break;
       }
+      case 'recovery':
+        boss.stuck = true;
+        if (this.t >= C.recovery - EPS) this.finish(ctx);
+        break;
       default:
         break;
     }
@@ -101,14 +110,22 @@ export class RoyalCharge implements Attack {
     return null;
   }
 
-  isFinished(): boolean {
+  isBossFree(): boolean {
     return this.phase === 'done';
+  }
+
+  inPunishWindow(): boolean {
+    return this.phase === 'recovery';
+  }
+
+  wantsRebuke(): boolean {
+    return false;
   }
 
   dispose(): void {
     this.windup?.stop();
     this.windup = null;
-    if (this.ctx) this.resetBoss(this.ctx);
+    this.ctx?.boss.clearAttackPose();
     this.phase = 'done';
   }
 
@@ -150,14 +167,8 @@ export class RoyalCharge implements Attack {
     return 0.5 * (1 - Math.cos(2 * Math.PI * C.pulseFrequency * t));
   }
 
-  private resetBoss(ctx: AttackContext): void {
-    ctx.boss.dashing = false;
-    ctx.boss.pulse = 0;
-    ctx.boss.shake = 0;
-  }
-
   private finish(ctx: AttackContext): void {
-    this.resetBoss(ctx);
+    ctx.boss.clearAttackPose();
     this.windup = null;
     this.phase = 'done';
   }

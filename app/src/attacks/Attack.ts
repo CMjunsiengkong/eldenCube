@@ -4,10 +4,13 @@ import type { CONFIG, RageUpgrades } from '../config';
 import type { Sphere } from '../entities/Player';
 import type { Vec3Like } from '../systems/collision';
 import type { Puffs } from '../fx/effects';
+import type { Hazards } from './Hazards';
 import type { Rng } from '../util/rng';
 
-export type AttackId = 'slam' | 'charge' | 'shards';
-export const ATTACK_IDS: readonly AttackId[] = ['slam', 'charge', 'shards'];
+/** The random attacks (GD §6.5 A–C). The Royal Rebuke (D) is triggered, never picked. */
+export type AttackId = 'slam' | 'charge' | 'rain';
+export const ATTACK_IDS: readonly AttackId[] = ['slam', 'charge', 'rain'];
+export type MoveId = AttackId | 'rebuke';
 
 /** Sound IDs (ASSETS.md §1.1). The real audio arrives in milestone 1.5. */
 export type SoundId = keyof typeof CONFIG.audio.volume;
@@ -49,6 +52,16 @@ export interface AttackBoss {
   pulse: number;
   /** Extra visual shake amplitude in m (Charge telegraph). */
   shake: number;
+  /** No turning (Slam punish window, Charge recovery). */
+  stuck: boolean;
+  /** Attack pose: body squash factors (1 = none). */
+  readonly attackSquash: { x: number; y: number; z: number };
+  /** White crown glow 0…1. */
+  crownGlow: number;
+  /** Crown tilt (rad) around the forward axis. */
+  crownTilt: number;
+  /** Resets everything above (and y = 0). */
+  clearAttackPose(): void;
   getBox(): BossBox;
 }
 
@@ -67,30 +80,39 @@ export interface AttackContext {
   shake(amplitude: number, duration: number): void;
   /** All boss movement speeds: rage × easy. */
   speedMult: number;
-  /** All telegraph times: rage × easy. */
+  /** All attack telegraph times: rage × easy. */
   telegraphMult: number;
+  /** The Rebuke tell (s): × easy only. */
+  rebukeTell: number;
   /** Rage phase. Upgrades are honoured only when true (GD §6.5a). */
   rage: boolean;
   upgrades: RageUpgrades;
   rng: Rng;
   effects: Puffs;
+  /** Rings, shards, circles and the Rebuke ring: they outlive the attack that spawned them. */
+  hazards: Hazards;
 }
 
 export interface Attack {
-  readonly id: AttackId;
+  readonly id: MoveId;
   /** The current internal phase name (debug text). */
   readonly phaseName: string;
   /** Begins the telegraph. */
   start(ctx: AttackContext): void;
   update(dt: number, ctx: AttackContext): void;
   /**
-   * The hit source if the attack kills the player in the current step, else null.
-   * Game calls it only when the player is not invincible.
+   * The hit source if the boss body / burst hits the player in the current step, else null.
+   * Hazards are checked separately. Game calls it only when the player is not invincible.
    */
   checkPlayerHit(spheres: readonly Sphere[]): Vector3 | null;
-  isFinished(): boolean;
-  /** Removes all meshes and stops long sounds; with `puff`, spawned objects vanish in a puff (D9). */
-  dispose(puff?: boolean): void;
+  /** The boss's own animation (incl. its recovery / punish window) has ended: the cooldown starts. */
+  isBossFree(): boolean;
+  /** Damage now does not count toward poise (Slam window, Charge recovery). */
+  inPunishWindow(): boolean;
+  /** The attack ended with a Rebuke request (Slam window end with the player close). */
+  wantsRebuke(): boolean;
+  /** Stops long sounds, removes attack-owned meshes, resets the boss pose. */
+  dispose(): void;
 }
 
 /** True if this rage upgrade is active for the attack being run (rage AND switched on). */

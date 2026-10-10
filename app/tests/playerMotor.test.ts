@@ -3,7 +3,6 @@ import { CONFIG } from '../src/config';
 import { STEP } from '../src/loop';
 import { comboArmPose, moveDirFromAxis, PlayerMotor, rollInvincibleAt, type ArmPose, type MotorInput } from '../src/entities/Player';
 
-const R = CONFIG.roll;
 
 /** Input helper: world direction (normalized here), optional roll press. */
 function input(dx = 0, dz = 0, wantRoll = false, obstacle: MotorInput['obstacle'] = null, wantAttack = false, wantFlask = false): MotorInput {

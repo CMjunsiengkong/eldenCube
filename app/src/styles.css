@@ -29,7 +29,7 @@ body {
 
 #debug {
   position: absolute;
-  top: 8px;
+  top: 96px; /* below the player HUD (GAME_DESIGN §2) */
   left: 8px;
   padding: 6px 8px;
   font: 12px/1.4 ui-monospace, Menlo, monospace;
@@ -88,18 +88,119 @@ body {
 }
 
 .health-bar .seg {
+  position: relative;
   flex: 1;
+  background: var(--health-empty);
+}
+
+.health-bar .seg .fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 100%;
   background: var(--health-full);
 }
 
-.health-bar .seg.lost {
-  background: var(--health-empty);
-  animation: seg-flash var(--health-flash) steps(1, end);
+.health-bar .seg .lost {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  opacity: 0;
+  background: #fff;
 }
 
-@keyframes seg-flash {
-  from,
+.health-bar .seg .lost.flash {
+  animation: lost-flash var(--health-flash) steps(1, end);
+}
+
+@keyframes lost-flash {
+  from {
+    opacity: 1;
+  }
   to {
+    opacity: 0;
+  }
+}
+
+/* Player HUD (GAME_DESIGN §2): HP pips, flask counter, stamina bar */
+#player-hud {
+  position: absolute;
+  top: var(--hud-edge);
+  left: var(--hud-edge);
+}
+
+.hud-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.pips {
+  display: flex;
+  gap: var(--pip-gap);
+}
+
+.pip {
+  width: var(--pip-size);
+  height: var(--pip-size);
+  box-sizing: border-box;
+  border: var(--pip-border) solid #fff;
+  background: var(--health-full);
+}
+
+.pip.empty {
+  background: var(--health-empty);
+}
+
+.pip.flash {
+  animation: pip-flash var(--pip-flash) steps(1, end);
+}
+
+@keyframes pip-flash {
+  from {
+    background: #fff;
+  }
+}
+
+.flask {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: 700 var(--flask-text) system-ui, sans-serif;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+.flask-icon {
+  width: var(--flask-w);
+  height: var(--flask-h);
+  border-radius: 4px;
+  background: var(--flask-color);
+}
+
+.stamina {
+  margin-top: 8px;
+  width: var(--stamina-w);
+  height: var(--stamina-h);
+  background: var(--health-empty);
+}
+
+.stamina .fill {
+  width: 100%;
+  height: 100%;
+  background: var(--stamina-full);
+}
+
+.stamina.flash {
+  animation: stamina-flash var(--stamina-flash) steps(1, end);
+}
+
+.stamina.flash .fill {
+  animation: stamina-flash var(--stamina-flash) steps(1, end);
+}
+
+@keyframes stamina-flash {
+  from {
     background: #fff;
   }
 }

@@ -1,17 +1,20 @@
 /**
  * Owns everything; the state machine (ARCHITECTURE §4.2).
  *
- * Milestone 1.4: the boss schedules and runs its three attacks (with tactics and optional rage
- * upgrades). A player hit leads to a minimal DYING placeholder (2.0 s, then an instant reset back
- * into FIGHT). The full state machine (TITLE → … → TO_TITLE), the player break-apart, screens and
- * audio arrive in milestone 1.5.
+ * Milestone 1.4b: the 3-hit combo deals damage; the boss runs Slam / Charge / Crown Rain and the
+ * Royal Rebuke; hazards live on after the boss is free; the player has 2 HP (stagger on the first
+ * hit). Death leads to a minimal DYING placeholder (2.0 s, then an instant reset back into FIGHT).
+ * The full state machine (TITLE → … → TO_TITLE), player break-apart, screens and audio arrive in
+ * milestone 1.5.
  */
 import {
   BoxGeometry,
   EdgesGeometry,
   Group,
+  InstancedMesh,
   LineBasicMaterial,
   LineSegments,
+  Matrix4,
   Mesh,
   MeshBasicMaterial,
   PerspectiveCamera,
@@ -22,18 +25,20 @@ import {
   type WebGLRenderer,
 } from 'three';
 import { CONFIG } from '../config';
-import { getFlags, speedMult, telegraphMult } from '../flags';
+import { getFlags, rebukeTellFor, speedMult, telegraphMult } from '../flags';
 import type { LoopTarget, TimeControl } from '../loop';
 import { moveDirFromAxis, Player, type MotorInput, type PlayerEvent } from '../entities/Player';
 import { Boss, type HitResult } from '../entities/Boss';
-import { SILENT, type Attack, type AttackContext, type AttackId } from '../attacks/Attack';
+import { SILENT, type Attack, type AttackContext, type MoveId } from '../attacks/Attack';
 import { CubeSlam } from '../attacks/CubeSlam';
 import { RoyalCharge } from '../attacks/RoyalCharge';
-import { CrownShards } from '../attacks/CrownShards';
+import { CrownRain } from '../attacks/CrownRain';
+import { RoyalRebuke } from '../attacks/RoyalRebuke';
+import { Hazards, WAVES } from '../attacks/Hazards';
 import { disposeDebris, stepDebris, type DebrisPiece } from '../fx/debris';
 import { Puffs } from '../fx/effects';
 import { CameraController } from '../systems/camera';
-import { horizontalDistance, pointInOBB } from '../systems/collision';
+import { pointInOBB } from '../systems/collision';
 import { Input } from '../systems/input';
 import { UI } from '../systems/ui';
 import { createRng } from '../util/rng';
@@ -63,7 +68,8 @@ export class Game implements LoopTarget {
   private readonly boss: Boss;
   private readonly debris: DebrisPiece[] = [];
   private readonly puffs: Puffs;
-  private readonly attacks: Record<AttackId, Attack>;
+  private readonly hazards: Hazards;
+  private readonly attacks: Record<MoveId, Attack>;
   private attack: Attack | null = null;
   private readonly ctx: AttackContext;
   private time: TimeControl = NO_TIME;
@@ -72,7 +78,7 @@ export class Game implements LoopTarget {
   /** Simulation time in DYING (from the hit; starts at the hit-stop length, design §4.1). */
   private dyingT = 0;
   private lastHit: HitResult | null = null;
-  private punishMarker = 0;
+  private rebukeMarker = 0;
   private hitboxes: DebugHitboxes | null = null;
 
   private readonly moveDir = { x: 0, z: 0 };
@@ -83,7 +89,9 @@ export class Game implements LoopTarget {
     moveX: 0,
     moveZ: 0,
     wantRoll: false,
-    wantSwing: false,
+    wantAttack: false,
+    wantFlask: false,
+    allowAttack: true,
     bossX: 0,
     bossZ: 0,
     obstacle: null,
@@ -108,7 +116,8 @@ export class Game implements LoopTarget {
     this.player = new Player(this.debug);
     this.scene.add(this.player.root);
     this.puffs = new Puffs(this.scene, this.rng);
-    this.attacks = { slam: new CubeSlam(), charge: new RoyalCharge(), shards: new CrownShards() };
+    this.hazards = new Hazards(this.scene, this.puffs);
+    this.attacks = { slam: new CubeSlam(), charge: new RoyalCharge(), rain: new CrownRain(), rebuke: new RoyalRebuke() };
 
     this.cameraCtl = new CameraController(this.camera, this.rng);
     this.cameraCtl.snapLockOn(this.player.position, this.boss.pos);
@@ -123,14 +132,17 @@ export class Game implements LoopTarget {
       shake: (a, d) => this.cameraCtl.shake(a, d),
       speedMult: 1,
       telegraphMult: 1,
+      rebukeTell: rebukeTellFor(),
       rage: false,
       upgrades: CONFIG.rageUpgrades,
       rng: this.rng,
       effects: this.puffs,
+      hazards: this.hazards,
     };
 
     if (this.debug) this.hitboxes = new DebugHitboxes(this.scene);
     this.ui.setHealth(this.boss.brain.hp);
+    this.syncPlayerHud();
     this.ui.showHealth(true);
   }
 
@@ -162,14 +174,15 @@ export class Game implements LoopTarget {
     }
     stepDebris(this.debris, dt);
     this.puffs.step(dt);
-    this.punishMarker = Math.max(0, this.punishMarker - dt);
+    this.rebukeMarker = Math.max(0, this.rebukeMarker - dt);
+    this.syncPlayerHud();
     this.input.endStep();
   }
 
   /** Every frame, real time. */
   realUpdate(frameDt: number): void {
     this.cameraCtl.update(frameDt, this.player.position, this.boss.pos);
-    if (this.hitboxes) this.hitboxes.sync(this.player, this.boss, this.attack);
+    if (this.hitboxes) this.hitboxes.sync(this.player, this.boss, this.hazards);
     if (this.debug) this.updateDebug(frameDt);
   }
 
@@ -183,24 +196,31 @@ export class Game implements LoopTarget {
     this.renderer.setSize(width, height, false);
   }
 
-  /** One hit to the boss through the normal path (weapon hit or the `K` debug key). */
-  applyBossHit(from: Vector3): HitResult {
-    const result = this.boss.brain.takeHit();
+  /**
+   * `damage` to the boss through the normal path (combo hit, or the `K` debug key). The hit that
+   * starts rage cancels the attack and every hazard with a puff; defeat removes everything.
+   */
+  applyBossHit(from: Vector3, damage = 1, heavy = false): HitResult {
+    const inWindow = this.attack?.inPunishWindow() ?? false;
+    const result = this.boss.brain.takeHit(damage, inWindow);
     this.lastHit = result;
     if (result === 'ignored') return result;
 
-    // D9: the 3rd hit cancels a running attack (with a puff); defeat removes everything (GD §6.6).
-    if (this.boss.brain.consumeCancel()) this.cancelAttack(result === 'rage');
+    if (this.boss.brain.consumeCancel()) {
+      this.cancelAttack();
+      this.hazards.clear(result === 'rage');
+    }
     this.ui.setHealth(this.boss.brain.hp);
 
     if (result === 'defeated') {
       this.onBossDefeated();
       return result;
     }
-    // GD §6.3 hit reaction (sound `hit` in 1.5).
-    this.time.hitStop(B.hit.hitStop);
-    this.cameraCtl.shake(B.hit.shake.amplitude, B.hit.shake.duration);
-    this.boss.onHit(from);
+    // GD §6.3 hit reaction (sound `hit` in 1.5); Hit 3 hits harder.
+    const H = heavy ? B.hit.heavy : B.hit;
+    this.time.hitStop(H.hitStop);
+    this.cameraCtl.shake(H.shake.amplitude, H.shake.duration);
+    this.boss.onHit(from, heavy);
     if (result === 'rage') {
       // GD §6.4 rage transition (sound `rage` in 1.5).
       this.boss.onRage();
@@ -219,45 +239,64 @@ export class Game implements LoopTarget {
     mi.moveX = this.moveDir.x;
     mi.moveZ = this.moveDir.z;
     mi.wantRoll = this.input.consume('roll');
-    mi.wantSwing = fighting && this.input.consume('swing');
+    mi.wantAttack = this.input.consume('swing');
+    mi.wantFlask = this.input.consume('flask');
+    mi.allowAttack = fighting;
     mi.bossX = this.boss.pos.x;
     mi.bossZ = this.boss.pos.z;
-    // The boss body is solid only while it is not attacking (design §6).
-    mi.obstacle = broken || this.attack ? null : this.boss.getBox();
+    // The boss body is solid while it is on the ground and not dashing (GD §6.2).
+    mi.obstacle = this.boss.solid ? this.boss.getBox() : null;
     this.onPlayerEvents(this.player.update(dt, mi));
     if (broken) return;
 
     if (fighting) this.checkWeaponHit();
-    if (this.state !== 'FIGHT') return; // the 5th hit just happened
+    if (this.state !== 'FIGHT') return; // the final hit just happened
 
-    const start = this.boss.update(dt, this.player.position);
+    const start = this.boss.update(dt, this.player.position, this.hazards.rainAlive);
     this.refreshContext();
     if (start) {
       this.attack = this.attacks[start];
       this.attack.start(this.ctx);
+      if (start === 'rebuke') this.rebukeMarker = CONFIG.ui.rebukeMarker;
     } else if (this.attack) {
       this.attack.update(dt, this.ctx);
-      if (this.attack.isFinished()) {
-        this.attack.dispose();
-        this.attack = null;
-        this.boss.brain.attackFinished();
-      }
     }
-    if (this.attack && !this.player.isInvincible()) {
-      const source = this.attack.checkPlayerHit(this.player.getHitSpheres());
+    // The cooldown starts when the boss is free, not when its hazards are gone (GD §6.2).
+    if (this.attack && this.attack.isBossFree()) {
+      if (this.attack.wantsRebuke()) this.boss.brain.requestRebuke('window');
+      this.attack.dispose();
+      this.attack = null;
+      this.boss.brain.attackFree();
+    }
+    this.hazards.step(dt);
+
+    if (!this.player.isInvincible()) {
+      const spheres = this.player.getHitSpheres();
+      const source = this.attack?.checkPlayerHit(spheres) ?? this.hazards.check(spheres);
       if (source) this.onPlayerHit(source);
     }
   }
 
-  /** GD §9 (placeholder until 1.5): hit-stop, cancel the attack, the boss gloats; reset after 2.0 s. */
+  /**
+   * GD §4.6 / §9: a non-lethal hit staggers the player (hit-stop, shake, HUD pip flash); the
+   * second hit kills (placeholder DYING until 1.5: cancel everything, the boss gloats, reset after 2.0 s).
+   */
   private onPlayerHit(source: Vector3): void {
+    const r = this.player.motor.takeHit(source.x, source.z);
+    if (r === 'ignored') return;
+    if (r === 'hurt') {
+      // `player_hurt` sound in 1.5.
+      this.time.hitStop(CONFIG.hurt.hitStop);
+      this.cameraCtl.shake(CONFIG.hurt.shake.amplitude, CONFIG.hurt.shake.duration);
+      return;
+    }
     this.time.hitStop(DEATH.hitStop);
-    this.cancelAttack(false);
+    this.cancelAttack();
+    this.hazards.clear(false);
     this.boss.brain.gloat();
     this.gloatTarget.copy(this.player.position);
     this.state = 'DYING';
     this.dyingT = DEATH.hitStop;
-    void source; // the break-apart direction (milestone 1.5)
   }
 
   private updateDying(dt: number): void {
@@ -275,26 +314,28 @@ export class Game implements LoopTarget {
     const phase = this.boss.brain.phase;
     (ctx.playerPos as Vector3).copy(this.player.position);
     this.playerVel.set(this.player.motor.vx, 0, this.player.motor.vz);
+    ctx.rebukeTell = rebukeTellFor();
     ctx.speedMult = speedMult(phase);
     ctx.telegraphMult = telegraphMult(phase);
     ctx.rage = phase === 'rage';
   }
 
-  private cancelAttack(puff: boolean): void {
+  private cancelAttack(): void {
     if (!this.attack) return;
-    this.attack.dispose(puff);
+    this.attack.dispose();
     this.attack = null;
+    this.boss.clearAttackPose();
   }
 
-  /** GD §5: 3 blade points vs the boss box, only in the active phase, at most one hit per swing. */
+  /** GD §5: 3 blade points vs the boss box, only in active phases, at most one hit per combo hit. */
   private checkWeaponHit(): void {
     const motor = this.player.motor;
-    if (!motor.isSwingActive() || !this.boss.brain.canTakeDamage()) return;
+    if (!motor.isAttackActive() || !this.boss.brain.canTakeDamage()) return;
     const box = this.boss.getBox();
     for (const p of this.player.getBladePoints()) {
       if (pointInOBB(p, box.center, box.halfSize, box.yaw)) {
-        motor.markSwingHit();
-        this.applyBossHit(this.player.position);
+        motor.markAttackHit();
+        this.applyBossHit(this.player.position, motor.attackDamage(), motor.comboHit === 2);
         return;
       }
     }
@@ -311,16 +352,14 @@ export class Game implements LoopTarget {
     this.defeatT = D.hitStop;
   }
 
-  /** Sound triggers (GD §10) are wired in 1.5; the missed swing feeds the punish rule now. */
+  /** Sound triggers (GD §10) are wired in 1.5; the HUD reacts to refusals now. */
   private onPlayerEvents(events: readonly PlayerEvent[]): void {
-    for (const e of events) {
-      if (e !== 'swingMiss' || this.state !== 'FIGHT' || this.boss.isBroken) continue;
-      const d = horizontalDistance(this.player.position, this.boss.pos);
-      if (this.boss.brain.onPlayerMissedSwing(d)) {
-        this.boss.glare();
-        this.punishMarker = CONFIG.ui.punishMarker;
-      }
-    }
+    if (events.includes('staminaRefused')) this.ui.flashStamina();
+  }
+
+  private syncPlayerHud(): void {
+    const m = this.player.motor;
+    this.ui.setPlayerHud(m.hp, m.flasks, m.stamina / CONFIG.stamina.max);
   }
 
   /** GD §11 debug keys (the Input only raises them under ?debug). */
@@ -328,9 +367,10 @@ export class Game implements LoopTarget {
     const brain = this.boss.brain;
     if (this.input.consume('debug1')) brain.forceNext = 'slam';
     if (this.input.consume('debug2')) brain.forceNext = 'charge';
-    if (this.input.consume('debug3')) brain.forceNext = 'shards';
+    if (this.input.consume('debug3')) brain.forceNext = 'rain';
+    if (this.input.consume('debug4')) brain.requestRebuke('debug');
     if (this.input.consume('debugG')) this.player.motor.godMode = !this.player.motor.godMode;
-    if (this.input.consume('debugK')) this.applyBossHit(this.player.position);
+    if (this.input.consume('debugK')) this.applyBossHit(this.player.position, 1);
   }
 
   private updateDebug(frameDt: number): void {
@@ -344,24 +384,27 @@ export class Game implements LoopTarget {
     const b = this.boss.brain;
     const info = this.renderer.info.render;
     const atk = this.attack ? `${this.attack.id}:${this.attack.phaseName}` : '-';
+    const win = this.attack instanceof CubeSlam && this.attack.windowLeft > 0 ? ` window ${this.attack.windowLeft.toFixed(2)}` : '';
+    const act = m.action === 'attack' ? `hit${m.comboHit + 1}:${m.attackPhase}` : m.action;
     this.ui.setDebugText(
       [
         `FPS ${this.fps.toFixed(0)}`,
         `state ${this.state}`,
         `draw calls ${info.calls}`,
-        `player ${m.action} t=${m.actionT.toFixed(2)} cd=${m.rollCooldown.toFixed(2)}${m.godMode ? ' GOD' : ''}`,
-        `i-frames ${m.isInvincible() ? 'ON' : 'off'}`,
+        `player ${act} t=${m.actionT.toFixed(2)} chain=${m.chainNext >= 0 ? m.chainNext + 1 : '-'} buf=${m.buffered ?? '-'}${m.godMode ? ' GOD' : ''}`,
+        `hp ${m.hp}  stamina ${m.stamina.toFixed(0)}  flasks ${m.flasks}  i-frames ${m.isInvincible() ? 'ON' : 'off'}`,
         `speed ${m.speed().toFixed(2)} m/s  pos ${m.x.toFixed(1)}, ${m.z.toFixed(1)}`,
-        `boss hp ${b.hp} ${b.phase} ${b.mode} inv=${b.invuln.toFixed(2)} last=${this.lastHit ?? '-'}`,
-        `attack ${atk}  next in ${b.waiting ? b.cooldownLeft.toFixed(2) : '-'}${b.forceNext ? ` forced=${b.forceNext}` : ''}`,
-        `close ${b.closeTimer.toFixed(2)}${b.annoyed ? ' ANNOYED' : ''}${this.punishMarker > 0 ? '  PUNISH!' : ''}`,
+        `boss hp ${b.hp} ${b.phase} ${b.mode} last=${this.lastHit ?? '-'}`,
+        `attack ${atk}${win}  next in ${b.waiting ? b.cooldownLeft.toFixed(2) : '-'}${b.forceNext ? ` forced=${b.forceNext}` : ''}`,
+        `poise ${b.poise}  close ${b.closeTimer.toFixed(2)}${b.annoyed ? ' ANNOYED' : ''}${this.rebukeMarker > 0 ? `  REBUKE(${b.lastRebuke})` : ''}`,
       ].join('\n'),
     );
   }
 
   /** Placeholder reset (milestone 1.5 calls it at full black during TO_TITLE). */
   private resetWorld(): void {
-    this.cancelAttack(false);
+    this.cancelAttack();
+    this.hazards.clear(false);
     disposeDebris(this.debris, true);
     this.puffs.clear();
     this.player.reset();
@@ -369,12 +412,13 @@ export class Game implements LoopTarget {
     this.boss.reset(this.scene);
     this.ui.setHealth(this.boss.brain.hp);
     this.lastHit = null;
-    this.punishMarker = 0;
+    this.rebukeMarker = 0;
+    this.syncPlayerHud();
     this.cameraCtl.snapLockOn(this.player.position, this.boss.pos);
   }
 }
 
-/** ?debug wireframes (GD §11): player spheres, boss box, blade points, shockwave band, shard spheres. */
+/** ?debug wireframes (GD §11): player spheres, boss box, blade points, shockwave bands, shard spheres. */
 class DebugHitboxes {
   private readonly group = new Group();
   private readonly playerSpheres: Mesh[];
@@ -382,9 +426,11 @@ class DebugHitboxes {
   private readonly blade: Mesh[];
   private readonly bandInner: Mesh[];
   private readonly bandOuter: Mesh[];
-  private readonly shardSpheres: Mesh[];
+  private readonly shardSpheres: InstancedMesh;
   private readonly radii: number[] = [];
+  private readonly centers: Vector3[] = [];
   private readonly shardPos: Vector3[] = [];
+  private readonly m4 = new Matrix4();
 
   constructor(scene: Scene) {
     const D = CONFIG.ui.debugHitbox;
@@ -396,19 +442,21 @@ class DebugHitboxes {
     this.bossBox = new LineSegments(new EdgesGeometry(new BoxGeometry(box, box, box)), new LineBasicMaterial({ color: D.bossColor, depthTest: false }));
     this.group.add(this.bossBox);
     const bladeGeo = new SphereGeometry(D.bladePointRadius, 6, 4);
-    this.blade = CONFIG.swing.bladePoints.map(() => this.add(new Mesh(bladeGeo, red)));
+    this.blade = CONFIG.combo.bladePoints.map(() => this.add(new Mesh(bladeGeo, red)));
     // A unit ring scaled to r ± (half width + player radius).
     const ringGeo = new RingGeometry(1 - D.bandThickness, 1, CONFIG.slam.ringSegments);
     ringGeo.rotateX(-Math.PI / 2);
-    this.bandInner = [0, 1].map(() => this.add(new Mesh(ringGeo, red)));
-    this.bandOuter = [0, 1].map(() => this.add(new Mesh(ringGeo, red)));
-    const shardGeo = new SphereGeometry(CONFIG.shards.hitRadius, 8, 6);
-    this.shardSpheres = Array.from({ length: CONFIG.shards.count }, () => this.add(new Mesh(shardGeo, red)));
+    this.bandInner = [0, 1, 2].map(() => this.add(new Mesh(ringGeo, red)));
+    this.bandOuter = [0, 1, 2].map(() => this.add(new Mesh(ringGeo, red)));
+    const max = WAVES * CONFIG.rain.maxPerWave;
+    this.shardSpheres = new InstancedMesh(new SphereGeometry(CONFIG.rain.hitRadius, 8, 6), red, max);
+    this.shardSpheres.frustumCulled = false;
+    this.group.add(this.shardSpheres);
     for (const o of this.group.children) o.renderOrder = 10;
     scene.add(this.group);
   }
 
-  sync(player: Player, boss: Boss, attack: Attack | null): void {
+  sync(player: Player, boss: Boss, hazards: Hazards): void {
     const spheres = player.getHitSpheres();
     spheres.forEach((s, i) => {
       this.playerSpheres[i].position.copy(s.center);
@@ -424,9 +472,9 @@ class DebugHitboxes {
       this.blade[i].visible = player.root.visible;
     });
 
-    const rings = attack instanceof CubeSlam ? attack.liveRings(this.radii) : ((this.radii.length = 0), this.radii);
+    const rings = hazards.liveRings(this.radii, this.centers);
     const half = CONFIG.slam.ringWidth / 2 + CONFIG.player.radius;
-    for (let i = 0; i < 2; i++) {
+    for (let i = 0; i < this.bandInner.length; i++) {
       const on = i < rings.length;
       for (const [m, r] of [
         [this.bandInner[i], on ? rings[i] - half : 1],
@@ -434,16 +482,17 @@ class DebugHitboxes {
       ] as const) {
         m.visible = on;
         if (!on) continue;
-        const c = (attack as CubeSlam).ringCenter;
-        m.position.set(c.x, 0.05, c.z);
+        m.position.set(this.centers[i].x, 0.05, this.centers[i].z);
         m.scale.setScalar(Math.max(0.01, r));
       }
     }
-    const shards = attack instanceof CrownShards ? attack.flyingShards(this.shardPos) : ((this.shardPos.length = 0), this.shardPos);
-    this.shardSpheres.forEach((m, i) => {
-      m.visible = i < shards.length;
-      if (m.visible) m.position.copy(shards[i]);
-    });
+    const shards = hazards.flyingShards(this.shardPos);
+    for (let i = 0; i < this.shardSpheres.count; i++) {
+      if (i < shards.length) this.m4.makeTranslation(shards[i].x, shards[i].y, shards[i].z);
+      else this.m4.makeScale(0, 0, 0);
+      this.shardSpheres.setMatrixAt(i, this.m4);
+    }
+    this.shardSpheres.instanceMatrix.needsUpdate = true;
   }
 
   private add(m: Mesh): Mesh {

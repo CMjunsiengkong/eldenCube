@@ -11,12 +11,14 @@
 export type InputEdge =
   | 'roll'
   | 'swing'
+  | 'flask'
   | 'mute'
   | 'anyStart'
   | 'resumeClick'
   | 'debug1'
   | 'debug2'
   | 'debug3'
+  | 'debug4'
   | 'debugK'
   | 'debugG';
 
@@ -26,6 +28,7 @@ const DEBUG_KEYS: Readonly<Record<string, InputEdge>> = {
   Digit1: 'debug1',
   Digit2: 'debug2',
   Digit3: 'debug3',
+  Digit4: 'debug4',
   KeyK: 'debugK',
   KeyG: 'debugG',
 };
@@ -36,6 +39,7 @@ export function edgesForKey(code: string, debug: boolean): InputEdge[] {
   const edges: InputEdge[] = ['anyStart'];
   if (code === 'Space') edges.push('roll');
   else if (code === 'KeyF') edges.push('swing');
+  else if (code === 'KeyR') edges.push('flask');
   else if (debug && DEBUG_KEYS[code] !== undefined) edges.push(DEBUG_KEYS[code]);
   return edges;
 }

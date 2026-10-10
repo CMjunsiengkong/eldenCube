@@ -147,8 +147,13 @@ export class ShockwaveRing {
   private readonly attr: BufferAttribute;
   private readonly segments: number;
 
-  constructor() {
+  private readonly width: number;
+  private readonly height: number;
+
+  constructor(width: number = CONFIG.slam.ringWidth, height: number = CONFIG.slam.ringHeight, color: number = CONFIG.colors.shockwave) {
     const S = CONFIG.slam;
+    this.width = width;
+    this.height = height;
     this.segments = S.ringSegments;
     const n = this.segments + 1;
     this.positions = new Float32Array(n * 4 * 3);
@@ -168,17 +173,20 @@ export class ShockwaveRing {
       }
     }
     geo.setIndex(idx);
-    this.material = new MeshBasicMaterial({ color: CONFIG.colors.shockwave, transparent: true, side: DoubleSide });
+    this.material = new MeshBasicMaterial({ color, transparent: true, side: DoubleSide });
     this.mesh = new Mesh(geo, this.material);
     this.mesh.frustumCulled = false; // the bounding sphere would change with every radius
     this.setRadius(S.ringStartRadius);
   }
 
+  get visible(): boolean {
+    return this.mesh.parent !== null;
+  }
+
   setRadius(r: number): void {
-    const S = CONFIG.slam;
-    const inner = Math.max(0, r - S.ringWidth / 2);
-    const outer = r + S.ringWidth / 2;
-    const h = S.ringHeight;
+    const inner = Math.max(0, r - this.width / 2);
+    const outer = r + this.width / 2;
+    const h = this.height;
     const p = this.positions;
     for (let j = 0; j <= this.segments; j++) {
       const a = (j / this.segments) * Math.PI * 2;
@@ -204,7 +212,7 @@ export class ShockwaveRing {
   }
 }
 
-export type PuffColor = 'crown' | 'shockwave' | 'warning';
+export type PuffColor = 'crown' | 'shockwave' | 'warning' | 'rebuke';
 
 /**
  * Small debris puffs (shard landing, and objects removed when an attack is cancelled — D9).
@@ -222,25 +230,26 @@ export class Puffs {
   constructor(scene: Scene, rng: Rng) {
     this.scene = scene;
     this.rng = rng;
-    const S = CONFIG.shards;
+    const S = CONFIG.fx.puff;
     const C = CONFIG.colors;
     this.materials = {
       crown: new MeshStandardMaterial({ color: C.crown }),
       shockwave: new MeshStandardMaterial({ color: C.shockwave }),
       warning: new MeshStandardMaterial({ color: C.warning }),
+      rebuke: new MeshStandardMaterial({ color: C.rebukeRing }),
     };
-    const geo = new BoxGeometry(S.puffSize, S.puffSize, S.puffSize);
-    for (let i = 0; i < S.puffPool; i++) {
+    const geo = new BoxGeometry(S.size, S.size, S.size);
+    for (let i = 0; i < S.pool; i++) {
       const m = new Mesh(geo, this.materials.crown);
       m.castShadow = false;
-      this.pool.push(createPiece(m, S.puffSize / 2));
+      this.pool.push(createPiece(m, S.size / 2));
     }
   }
 
-  /** One puff of `puffPieces` cubes at (x, y, z). Reuses the oldest pieces when the pool is full. */
-  spawn(x: number, y: number, z: number, color: PuffColor): void {
-    const S = CONFIG.shards;
-    for (let i = 0; i < S.puffPieces; i++) {
+  /** One puff of `pieces` cubes at (x, y, z). Reuses the oldest pieces when the pool is full. */
+  spawn(x: number, y: number, z: number, color: PuffColor, pieces: number = CONFIG.fx.puff.pieces): void {
+    const S = CONFIG.fx.puff;
+    for (let i = 0; i < pieces; i++) {
       const p = this.pool[this.next];
       this.next = (this.next + 1) % this.pool.length;
       const m = p.object as Mesh;
@@ -248,12 +257,12 @@ export class Puffs {
       m.position.set(x, Math.max(y, p.groundR), z);
       m.rotation.set(0, 0, 0);
       const a = this.rng() * Math.PI * 2;
-      const sp = randRange(this.rng, S.puffSpeed[0], S.puffSpeed[1]);
+      const sp = randRange(this.rng, S.speed[0], S.speed[1]);
       p.vel.set(Math.cos(a) * sp, sp, Math.sin(a) * sp);
       randomSpin(this.rng, CONFIG.boss.defeat.maxSpin, p.angVel);
       p.asleep = false;
       if (!this.life.has(p)) this.active.push(p);
-      this.life.set(p, S.puffLifetime);
+      this.life.set(p, S.lifetime);
       if (!m.parent) this.scene.add(m);
     }
   }

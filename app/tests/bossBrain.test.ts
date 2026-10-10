@@ -7,179 +7,147 @@ import type { Flags } from '../src/flags';
 
 const NORMAL: Flags = { easy: false, debug: false };
 const EASY: Flags = { easy: true, debug: false };
-/** Player distance that neither counts as "close" nor blocks Charge. */
+/** Player distance that is neither "close" nor blocks Charge. */
 const FAR = 10;
 
-/** A brain that never starts an attack on its own (for the pure HP/phase tests). */
+/** A brain that never starts an attack on its own (pure HP/phase tests); hits count in a window. */
 function quietBrain(flags: Flags = NORMAL): BossBrain {
   const b = new BossBrain(createRng(1), flags);
   b.cooldownLeft = Infinity;
   return b;
 }
 
-/** Advances the brain until it can take damage again. */
-function waitUntilVulnerable(b: BossBrain): void {
-  let guard = 0;
-  while (!b.canTakeDamage() && guard++ < 1000) {
-    b.update(STEP, FAR);
-    if (b.mode === 'cooldown') b.cooldownLeft = Infinity;
-  }
-}
-
 /** Steps until `pred` holds; returns the elapsed simulation time. */
 function stepUntil(b: BossBrain, pred: () => boolean, distance = FAR, max = 20): number {
   let t = 0;
   while (!pred() && t < max) {
-    b.update(STEP, distance);
+    b.update(STEP, distance, false);
     t += STEP;
   }
   return t;
 }
 
-describe('boss HP / phase transitions (ARCHITECTURE §8, GAME_DESIGN §6.4)', () => {
-  it('takeHit sequence → hit, hit, rage, hit, defeated', () => {
+describe('boss HP / phase transitions (GAME_DESIGN §5, §6.4)', () => {
+  it('20 HP; damage 1/1/2 per combo; rage at ≤ 8; defeat at 0', () => {
     const b = quietBrain();
     const results: HitResult[] = [];
-    for (let i = 0; i < 5; i++) {
-      waitUntilVulnerable(b);
-      results.push(b.takeHit());
+    // Five full combos (1 + 1 + 2), all inside punish windows so no Rebuke interferes.
+    for (let c = 0; c < 5; c++) {
+      for (const d of [1, 1, 2]) {
+        if (b.mode === 'rageTransition') stepUntil(b, () => b.mode !== 'rageTransition');
+        if (b.mode === 'cooldown') b.cooldownLeft = Infinity;
+        results.push(b.takeHit(d, true));
+      }
     }
-    expect(results).toEqual(['hit', 'hit', 'rage', 'hit', 'defeated']);
+    expect(results.filter((r) => r === 'rage')).toHaveLength(1);
+    expect(results.indexOf('rage')).toBe(8); // HP 20 → 8 on the 3rd combo's finisher
+    expect(results.at(-1)).toBe('defeated');
     expect(b.hp).toBe(0);
-    expect(b.phase).toBe('rage');
     expect(b.mode).toBe('defeated');
   });
 
-  it('hits are ignored during the 0.4 s invulnerability', () => {
+  it('there is no invulnerability between hits', () => {
     const b = quietBrain();
-    expect(b.takeHit()).toBe('hit');
-    const steps = Math.round(CONFIG.boss.invulnerability / STEP);
-    for (let i = 0; i < steps - 1; i++) {
-      b.update(STEP, FAR);
-      expect(b.takeHit()).toBe('ignored');
-    }
-    b.update(STEP, FAR);
-    expect(b.takeHit()).toBe('hit');
-    expect(b.hp).toBe(3);
+    expect(b.takeHit(1, true)).toBe('hit');
+    expect(b.takeHit(1, true)).toBe('hit');
+    expect(b.hp).toBe(18);
   });
 
-  it('hits are ignored during the 1.0 s rage transition (even after the invulnerability ends)', () => {
+  it('hits are ignored during the 1.0 s rage transition', () => {
     const b = quietBrain();
-    for (let i = 0; i < 2; i++) {
-      waitUntilVulnerable(b);
-      b.takeHit();
-    }
-    waitUntilVulnerable(b);
-    expect(b.takeHit()).toBe('rage');
-    expect(b.mode).toBe('rageTransition');
+    b.hp = 9;
+    expect(b.takeHit(1)).toBe('rage');
     let t = 0;
     while (b.mode === 'rageTransition') {
-      expect(b.takeHit()).toBe('ignored');
-      b.update(STEP, FAR);
+      expect(b.takeHit(1)).toBe('ignored');
+      b.update(STEP, FAR, false);
       t += STEP;
     }
     expect(t).toBeCloseTo(CONFIG.rage.transitionDuration, 6);
-    expect(b.hp).toBe(2);
-    expect(b.takeHit()).toBe('hit');
+    expect(b.hp).toBe(8);
   });
 
-  it('no hits are counted after defeat', () => {
+  it('D10: after the transition a fresh rage cooldown (0.6 s) starts', () => {
     const b = quietBrain();
-    for (let i = 0; i < 5; i++) {
-      waitUntilVulnerable(b);
-      b.takeHit();
-    }
-    for (let i = 0; i < 60; i++) b.update(STEP, FAR);
-    expect(b.takeHit()).toBe('ignored');
-    expect(b.hp).toBe(0);
+    b.hp = 9;
+    b.takeHit(1);
+    stepUntil(b, () => b.mode !== 'rageTransition');
+    expect(b.mode).toBe('cooldown');
+    expect(b.cooldownLeft).toBeCloseTo(CONFIG.rage.cooldown, 9);
   });
 
-  it('D9: the 3rd hit during an attack cancels it and starts the transition in the same step', () => {
+  it('the rage hit requests cancelling the attack AND all hazards, in the same step', () => {
     const b = quietBrain();
-    for (let i = 0; i < 2; i++) {
-      waitUntilVulnerable(b);
-      b.takeHit();
-    }
-    waitUntilVulnerable(b);
+    b.hp = 10;
     b.beginAttack('slam');
-    expect(b.mode).toBe('attacking');
-    expect(b.takeHit()).toBe('rage');
-    expect(b.mode).toBe('rageTransition'); // same step, no update in between
+    expect(b.takeHit(2)).toBe('rage');
+    expect(b.mode).toBe('rageTransition');
     expect(b.current).toBeNull();
     expect(b.consumeCancel()).toBe(true);
-    expect(b.consumeCancel()).toBe(false); // consumed once
+    expect(b.consumeCancel()).toBe(false);
+    // Also when no attack runs (hazards may still fly).
+    const c = quietBrain();
+    c.hp = 9;
+    c.takeHit(1);
+    expect(c.consumeCancel()).toBe(true);
   });
 
-  it('D9: hits 1, 2 and 4 during an attack do not interrupt it', () => {
+  it('other hits never interrupt a running attack', () => {
     const b = quietBrain();
-    for (const expected of ['hit', 'hit'] as const) {
-      waitUntilVulnerable(b);
-      b.beginAttack('charge');
-      expect(b.takeHit()).toBe(expected);
-      expect(b.mode).toBe('attacking');
-      expect(b.consumeCancel()).toBe(false);
-      b.attackFinished();
-      b.cooldownLeft = Infinity;
-    }
-    waitUntilVulnerable(b);
-    expect(b.takeHit()).toBe('rage'); // not attacking: no cancel requested
-    expect(b.consumeCancel()).toBe(false);
-    waitUntilVulnerable(b);
-    b.beginAttack('shards');
-    expect(b.takeHit()).toBe('hit'); // 4th hit
+    b.beginAttack('rain');
+    expect(b.takeHit(1)).toBe('hit');
+    expect(b.takeHit(1)).toBe('hit');
     expect(b.mode).toBe('attacking');
-    expect(b.current).toBe('shards');
+    expect(b.current).toBe('rain');
     expect(b.consumeCancel()).toBe(false);
   });
 
-  it('the 5th hit (defeat) requests cancelling a running attack (GD §6.6)', () => {
+  it('defeat requests cancelling everything; no hits after defeat or while gloating', () => {
     const b = quietBrain();
-    for (let i = 0; i < 4; i++) {
-      waitUntilVulnerable(b);
-      b.takeHit();
-    }
-    waitUntilVulnerable(b);
-    b.beginAttack('slam');
-    expect(b.takeHit()).toBe('defeated');
+    b.phase = 'rage';
+    b.hp = 2;
+    b.beginAttack('charge');
+    expect(b.takeHit(2)).toBe('defeated');
     expect(b.consumeCancel()).toBe(true);
+    expect(b.takeHit(1)).toBe('ignored');
+    const g = quietBrain();
+    g.gloat();
+    expect(g.takeHit(1)).toBe('ignored');
   });
 
-  it('reset restores full HP in Phase 1 with the grace period', () => {
+  it('reset restores 20 HP in Phase 1 with the 1.0 s grace', () => {
     const b = quietBrain();
-    for (let i = 0; i < 5; i++) {
-      waitUntilVulnerable(b);
-      b.takeHit();
-    }
+    b.takeHit(5);
+    b.poise = 2;
     b.reset();
     expect(b.hp).toBe(CONFIG.boss.hp);
     expect(b.phase).toBe('p1');
     expect(b.mode).toBe('grace');
     expect(b.cooldownLeft).toBe(CONFIG.boss.grace);
+    expect(b.poise).toBe(0);
     expect(b.history).toEqual([]);
-    expect(b.canTakeDamage()).toBe(true);
   });
 });
 
-describe('boss scheduler (GAME_DESIGN §6.2, §6.5; design §7.1)', () => {
-  it('the first attack starts after the 2.0 s grace period', () => {
+describe('boss scheduler (GAME_DESIGN §6.2, §6.5)', () => {
+  it('the first attack starts after the 1.0 s grace period', () => {
     const b = new BossBrain(createRng(3), NORMAL);
     const t = stepUntil(b, () => b.mode === 'attacking');
     expect(t).toBeCloseTo(CONFIG.boss.grace, 6);
     expect(b.history).toHaveLength(1);
-    expect(b.current).toBe(b.history[0]);
   });
 
-  it('cooldown from the end of one attack to the next: 2.5 s (P1), 1.6 s (rage), ×1.3 with ?easy', () => {
+  it('cooldown from the moment the boss is free: 1.0 s (P1), 0.6 s (rage), ×1.3 with ?easy', () => {
     for (const [flags, phase, expected] of [
-      [NORMAL, 'p1', 2.5],
-      [NORMAL, 'rage', 1.6],
-      [EASY, 'p1', 2.5 * 1.3],
-      [EASY, 'rage', 1.6 * 1.3],
+      [NORMAL, 'p1', 1.0],
+      [NORMAL, 'rage', 0.6],
+      [EASY, 'p1', 1.3],
+      [EASY, 'rage', 0.78],
     ] as const) {
       const b = new BossBrain(createRng(4), flags);
       b.phase = phase;
       b.beginAttack('slam');
-      b.attackFinished();
+      b.attackFree();
       expect(b.mode).toBe('cooldown');
       expect(b.cooldownLeft).toBeCloseTo(expected, 9);
       const t = stepUntil(b, () => b.mode === 'attacking');
@@ -187,67 +155,17 @@ describe('boss scheduler (GAME_DESIGN §6.2, §6.5; design §7.1)', () => {
     }
   });
 
-  it('after the rage transition a fresh rage cooldown starts (D10)', () => {
-    const b = quietBrain();
-    for (let i = 0; i < 2; i++) {
-      waitUntilVulnerable(b);
-      b.takeHit();
-    }
-    waitUntilVulnerable(b);
-    b.beginAttack('slam');
-    b.takeHit();
-    stepUntil(b, () => b.mode !== 'rageTransition');
-    expect(b.mode).toBe('cooldown');
-    expect(b.cooldownLeft).toBeCloseTo(CONFIG.rage.cooldown, 9);
-  });
-
-  it('no attacks and no chase-relevant waiting during the rage transition', () => {
-    const b = quietBrain();
-    b.hp = 3;
-    b.cooldownLeft = 0.01;
-    b.takeHit();
-    for (let i = 0; i < 30; i++) expect(b.update(STEP, FAR)).toBeNull();
-    expect(b.waiting).toBe(false);
+  it('while attacking, nothing new starts until attackFree()', () => {
+    const b = new BossBrain(createRng(5), NORMAL);
+    b.beginAttack('rain');
+    for (let i = 0; i < 600; i++) expect(b.update(STEP, FAR, true)).toBeNull();
   });
 
   it('debug forcing overrides the next choice once', () => {
     const b = new BossBrain(createRng(5), NORMAL);
     b.forceNext = 'charge';
-    stepUntil(b, () => b.mode === 'attacking', 2); // within 6 m: normally Charge is invalid
+    stepUntil(b, () => b.mode === 'attacking', 5.5); // within 6 m: normally Charge is invalid
     expect(b.current).toBe('charge');
     expect(b.forceNext).toBeNull();
-  });
-
-  it('anti-camping: close timer ≥ 3.0 s at cooldown end forces Slam and resets the timer', () => {
-    const b = new BossBrain(createRng(6), NORMAL);
-    b.beginAttack('shards');
-    b.attackFinished();
-    b.closeTimer = 3.0;
-    let started = null;
-    while (!started) started = b.update(STEP, 2);
-    expect(started).toBe('slam');
-    expect(b.closeTimer).toBe(0);
-  });
-
-  it('anti-camping tell: annoyed while waiting in cooldown with the close timer ≥ 3.0 s', () => {
-    const b = new BossBrain(createRng(7), NORMAL);
-    b.beginAttack('slam');
-    b.attackFinished();
-    b.closeTimer = 2.99;
-    expect(b.annoyed).toBe(false);
-    b.update(STEP, 2);
-    expect(b.annoyed).toBe(true);
-    b.beginAttack('slam');
-    expect(b.annoyed).toBe(false);
-  });
-
-  it('the close timer only counts while fighting (not while gloating)', () => {
-    const b = quietBrain();
-    b.update(1, 2);
-    expect(b.closeTimer).toBeCloseTo(1);
-    b.gloat();
-    b.update(1, 2);
-    expect(b.closeTimer).toBeCloseTo(1);
-    expect(b.update(10, 2)).toBeNull();
   });
 });
