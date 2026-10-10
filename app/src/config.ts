@@ -38,7 +38,8 @@ const RAW = {
     faceMoveMinSpeed: 0.5, // m/s; above this (with input) face the movement direction
     radius: 0.4, // m; arena wall clamp uses arenaRadius − radius = 29.6
     bossPushSpeed: 4, // m/s outward velocity after boss body contact (tune)
-    /** GD §4.5: the ONLY shapes that can kill the player. */
+    hp: 2, // GD §4.6: hits before death (tune)
+    /** GD §4.5: the ONLY shapes that can hurt the player. */
     hitSpheres: [
       { height: 0.5, radius: 0.4 }, // m above the feet
       { height: 1.3, radius: 0.4 },
@@ -58,16 +59,89 @@ const RAW = {
       leg: { size: { x: 0.2, y: 0.6, z: 0.2 }, offset: { x: 0, y: -0.3, z: 0 } },
       weapon: { size: { x: 0.12, y: 1.6, z: 0.06 }, offset: { x: 0, y: -1.3, z: 0 } }, // on the right shoulder pivot
       sphereSegments: 16, // head/eye tessellation (visual only) (tune, agent-chosen)
+      /** GD §4.3c flask prop in the left hand. */
+      flask: { radius: 0.07, height: 0.18, offset: { x: 0, y: -0.62, z: 0.06 }, segments: 10 }, // segments/offset (tune, agent-chosen)
     },
   },
 
-  /** GD §4.3 — swing angle θ on the right shoulder pitch: 0 = down, 90° = forward, 180° = up. */
-  swing: {
-    restAngle: deg(20),
-    windup: { duration: 0.2, toAngle: deg(200) }, // ease-out (tune)
-    active: { duration: 0.15, toAngle: deg(70), lungeSpeed: 10 }, // ease-in; m/s along facing (tune)
-    recovery: { duration: 0.4, toAngle: deg(20) }, // ease-in-out (tune)
+  /**
+   * GD §4.3 — 3-hit combo. θ = right shoulder pitch (0 = down, 90° = forward, 180° = up);
+   * ψ = swing-plane tilt around the forward axis (> 0: high end on the player's right).
+   */
+  combo: {
+    restAngle: deg(200), // rest pose: sword on the right shoulder
+    restTilt: deg(40),
+    chainWindow: 0.5, // s from the chain point (tune)
     bladePoints: [0.5, 1.3, 2.1], // m from the shoulder (GD §5)
+    hits: [
+      {
+        // Hit 1 — kesagiri (right shoulder → left hip)
+        cost: 20,
+        damage: 1,
+        tilt: deg(40),
+        windup: { duration: 0.18, toAngle: deg(215) }, // ease-out (tune)
+        active: { duration: 0.12, toAngle: deg(40), lunge: 0.8 }, // ease-in; lunge in m (tune)
+        recovery: { duration: 0.35, hold: 0.15 }, // hold, then back to rest (tune)
+        chainAt: 0.15, // s into the recovery
+        pitch: 1, // swing sound pitch
+      },
+      {
+        // Hit 2 — rising backhand (left hip → right shoulder)
+        cost: 20,
+        damage: 1,
+        tilt: deg(40),
+        windup: { duration: 0.12, toAngle: deg(30) },
+        active: { duration: 0.12, toAngle: deg(200), lunge: 0.6 },
+        recovery: { duration: 0.35, hold: 0.15 },
+        chainAt: 0.15,
+        pitch: 1,
+      },
+      {
+        // Hit 3 — overhead finisher
+        cost: 20,
+        damage: 2,
+        tilt: 0,
+        windup: { duration: 0.25, toAngle: deg(225) },
+        active: { duration: 0.15, toAngle: deg(40), lunge: 1.2 },
+        recovery: { duration: 0.55, hold: 0.25 },
+        chainAt: -1, // none: the combo ends
+        pitch: 0.8,
+      },
+    ],
+  },
+
+  /** GD §4.3b — stamina. */
+  stamina: {
+    max: 90, // (tune)
+    rollCost: 30, // (tune)
+    regenDelay: 0.4, // s after the player is free again (tune)
+    regenRate: 45, // per second (tune)
+  },
+
+  /** GD §4.3c — flask (R). */
+  flask: {
+    charges: 3, // per fight (tune)
+    heal: 1, // HP
+    healAt: 0.6, // s into the drink (tune)
+    duration: 1.1, // s total (tune)
+    maxSpeed: 1.8, // m/s while drinking (30% of max speed)
+    armAngle: deg(150), // left arm θ while drinking (hand at the face)
+    healFlash: 0.2, // s gold body flash
+  },
+
+  /** GD §4.6 — taking damage. */
+  hurt: {
+    hitStop: 0.1, // s
+    shake: { amplitude: 0.25, duration: 0.3 } as Shake,
+    stagger: 0.5, // s (tune)
+    knockback: 3.0, // m away from the hit source, ease-out over the stagger (tune)
+    invulnerability: 1.0, // s from the hit (tune)
+    blinkHz: 10, // visible ↔ hidden
+  },
+
+  /** GD §4.3d — input buffer. */
+  buffer: {
+    window: 0.2, // s; 0 = strict (no buffering) (tune)
   },
 
   /** GD §4.3a — roll (Space). */
@@ -77,11 +151,10 @@ const RAW = {
     iFrameStart: 0.05, // s after the roll starts (tune)
     iFrameEnd: 0.4, // s after the roll starts → 0.35 s of i-frames (tune)
     turnRateMult: 3, // × player.turnRate toward the roll direction
-    recoveryDuration: 0.25, // s dizzy recovery (tune)
+    recoveryDuration: 0.12, // s dizzy recovery (tune)
     recoverySpeed: 2, // m/s initial velocity in the recovery, decays at decel
     recoverySway: deg(8), // ± body sway
     recoverySwayCycles: 1, // full side-to-side sways during the recovery (tune, agent-chosen)
-    cooldown: 0.15, // s after the recovery before a new roll (tune)
     somersault: Math.PI * 2, // one full forward flip over `duration`, ease-in-out
     tuckAngle: deg(70), // limb spring target during the roll
     debugTint: 0.3, // ?debug: 30% white while invincible
@@ -89,6 +162,7 @@ const RAW = {
 
   /** GD §4.4 — visual wobble (no gameplay effect). */
   wobble: {
+    restArmSwing: deg(5), // ± right arm walk swing in the rest pose (GD §4.4)
     limbStiffness: 120, // k
     limbDamping: 8, // c
     limbClamp: deg(80), // ±
@@ -107,17 +181,18 @@ const RAW = {
 
   /** GD §6 — The Elden Cube. */
   boss: {
-    hp: 5, // (tune)
+    hp: 20, // (tune); the health bar shows 5 segments of 4
+    healthSegments: 5,
     spawn: { x: 0, y: 0, z: 0 }, // facing +Z
     halfSize: 2.0, // m, hit box (yaw-only)
-    grace: 2.0, // s before the first attack (tune)
+    grace: 1.0, // s before the first attack (tune)
     bobAmplitude: 0.08, // m (visual)
     bobFrequency: 1.2, // Hz
     turnRate: 2.0, // rad/s (tune)
-    chaseDistance: 7, // m; chase when farther (tune)
-    chaseSpeed: 1.5, // m/s (tune)
-    cooldown: 2.5, // s Phase 1 (tune)
-    invulnerability: 0.4, // s after a hit (tune)
+    chaseDistance: 5, // m; chase when farther, stop at this distance (tune)
+    chaseSpeed: 3.5, // m/s (tune)
+    cooldown: 1.0, // s Phase 1, from the moment the boss is free (tune)
+    noRepeat: 2, // the same attack may not be chosen after this many in a row
     clampRadius: 27, // m (ARCHITECTURE §5.3)
     /** GD §6.3 hit reaction. */
     hit: {
@@ -128,6 +203,8 @@ const RAW = {
       squashWobbles: 1, // damped oscillations while springing back (tune, agent-chosen)
       knockback: 0.3, // m away from the player (skipped during a Charge dash)
       shake: { amplitude: 0.15, duration: 0.2 } as Shake,
+      /** Hit 3 (the finisher) hits harder. */
+      heavy: { hitStop: 0.12, knockback: 0.6, shake: { amplitude: 0.25, duration: 0.25 } as Shake },
     },
     /** GD §6.6 defeat. */
     defeat: {
@@ -156,30 +233,37 @@ const RAW = {
     },
   },
 
-  /** GD §6.2a — boss tactics. */
-  tactics: {
-    closeDistance: 4.0, // m horizontal to the boss center (tune)
-    closeTrigger: 3.0, // s of close timer that forces Slam/Shards (tune)
-    closeDecayMult: 2, // timer decreases at 2 × dt while not close
+  /** GD §6.2a + §6.5 D — Royal Rebuke and its triggers. */
+  rebuke: {
+    poiseTrigger: 3, // damage outside punish windows (tune)
+    closeDistance: 5.0, // m horizontal to the boss center (tune)
+    closeTrigger: 1.0, // s of close timer (tune)
+    closeDecayMult: 2, // timer decreases at 2 × dt otherwise
+    annoyedAt: 0.5, // s: the doubled-bounce tell starts
     annoyedBobAmplitude: 0.16, // m (tell)
-    punishDistance: 5.0, // m (tune)
-    punishReduction: 0.8, // s taken off the remaining cooldown (fixed, not scaled by ?easy)
-    punishFloor: 0.3, // s minimum remaining cooldown (fixed)
-    glareDuration: 0.5, // s (tell)
-    glareBrowTilt: deg(10), // extra eyebrow tilt
-    glarePupilScale: 0.7,
+    windowEndDistance: 5.0, // m: Rebuke when the Slam window ends this close (tune)
+    tell: 0.35, // s (× easy only, never × rage) (tune)
+    burst: 0.1, // s
+    recovery: 0.3, // s (tune)
+    startRadius: 2.0, // m
+    endRadius: 4.5, // m; kill if distance ≤ endRadius + player radius during the burst
+    ringHeight: 0.3, // m
+    ringWidth: 0.6, // m drawn band width (visual only) (tune, agent-chosen)
+    tellSquash: { x: 1.1, y: 0.85, z: 1.1 },
+    crownFlashes: 2, // white flashes during the tell
+    shake: { amplitude: 0.2, duration: 0.2 } as Shake,
   },
 
   /** GD §6.4 — rage (Phase 2). */
   rage: {
-    hpThreshold: 2, // rage when HP ≤ 2 (immediately after the 3rd hit)
+    hpThreshold: 8, // rage when HP ≤ 8
     transitionDuration: 1.0, // s, no attacks, no damage taken
     colorFade: 0.5, // s body color → rage color
     shakeAmplitude: 0.1, // m boss shake during the transition
     cameraShake: { amplitude: 0.2, duration: 0.6 } as Shake,
     speedMult: 1.4, // all boss movement speeds (chase, dash, shockwave, shard flight)
-    telegraphMult: 0.6,
-    cooldown: 1.6, // s (tune)
+    telegraphMult: 0.6, // attack telegraphs only (not the Rebuke tell, not the Slam window)
+    cooldown: 0.6, // s (tune)
   },
 
   /** GD §6.5a — optional rage upgrades. ALL OFF by default. */
@@ -192,7 +276,7 @@ const RAW = {
     doubleSlamVolume: 0.7, // × slam_impact volume for the second impact
     doubleSlamTellFlashes: 2, // shadow circle pulses during the telegraph
     uTurnTelegraph: 0.4, // s (tune)
-    staggerExtraFlight: 0.3, // s extra flight time for the center shard (tune)
+    staggerExtraFlight: 0.3, // s extra flight time for wave 0's center shard (tune)
     staggerCenterPulseHz: 1,
     staggerSidePulseHz: 3,
   },
@@ -212,37 +296,50 @@ const RAW = {
     ringWidth: 1.0, // m (kill band = r ± (width/2 + player radius))
     ringHeight: 0.3, // m
     ringFadeStart: 0.8, // fraction of travel after which the ring fades out (tune, agent-chosen)
+    ringSegments: 64, // tessellation (tune, agent-chosen)
+    shadowLift: 0.02, // m above the floor (tune, agent-chosen)
+    doubleSlamFlashBoost: 0.4, // extra shadow opacity at the top of each tell flash (tune, agent-chosen)
+    window: 2.0, // s punish window from the (last) impact (tune)
+    windowCrownWobble: deg(10), // ± crown wobble while stuck
+    windowCrownWobbleHz: 3,
   },
 
   /** GD §6.5 B — Royal Charge. */
   charge: {
-    telegraph: 1.0, // s (rage ×0.6) (tune)
+    telegraph: 0.7, // s (rage ×0.6) (tune)
+    recovery: 0.6, // s after the skid: a small punish window (tune)
     shakeAmplitude: 0.1, // m
     pulseFrequency: 6, // Hz red emissive pulse (tune, agent-chosen)
+    minDistance: 6, // m: Charge is only valid when the player is farther than this
+    pulseIntensity: 0.7, // red emissive at the top of a pulse (tune, agent-chosen)
     speed: 18, // m/s (rage ×1.4 = 25.2) (tune)
     maxDashTime: 2.0, // s
     stopRadius: 27, // m boss center radius
     skid: 0.3, // s to slow to 0
   },
 
-  /** GD §6.5 C — Crown Shards. */
-  shards: {
-    telegraph: 1.0, // s (rage ×0.6) (tune)
-    count: 3,
+  /** GD §6.5 C — Crown Rain (3 waves). */
+  rain: {
+    cast: 1.0, // s (rage ×0.6) (tune)
+    waveGap: 0.4, // s between wave landings (tune)
+    flightTime: 0.8, // s for wave 0 at speed ×1 (D4: / speed multiplier) (tune)
+    leadTime: 0.5, // s: aim point = P + V × leadTime
+    cage: { ring: 6, radius: 3.5 }, // + 1 center circle
+    wall: { count: 5, spacing: 3.0 },
+    scatter: { count: 12, minSpacing: 5.0, tries: 30 },
+    maxPerWave: 12,
     circleRadius: 1.2, // m
     circleOpacity: 0.5,
-    circlePulseHz: 3, // warning circle pulse rate (tune, agent-chosen; GD gives 3 Hz only for the staggered tell)
-    leadTime: 0.5, // s: center = P + V × leadTime
-    sideOffset: 2.5, // m perpendicular to boss→player
+    circlePulseHz: 3, // (tune, agent-chosen)
+    circlePulseDepth: 0.4, // opacity dips by up to this fraction (tune, agent-chosen)
+    circleLift: 0.02, // m above the floor (tune, agent-chosen)
     size: 0.6, // m cube
     hitRadius: 0.35, // m sphere
-    flightTime: 0.8, // s at speed ×1 (rage: 0.8 / 1.4 ≈ 0.57) (tune)
     spinRate: 8, // rad/s (visual) (tune, agent-chosen)
     launchHeight: 4.8, // m above the boss origin (crown top)
     landHeight: 0.3, // m (resting on the ground)
-    puffPieces: 6, // small debris cubes on landing / on cancel (tune, agent-chosen)
-    puffSize: 0.15, // m (tune, agent-chosen)
-    puffSpeed: [1, 3] as Range, // m/s (tune, agent-chosen)
+    landPuffPieces: 2, // debris cubes per landing shard
+    castSquash: { x: 1.08, y: 0.9, z: 1.08 }, // body squash during the cast (tune, agent-chosen)
   },
 
   /** GD §7 — camera. */
@@ -303,6 +400,9 @@ const RAW = {
     eyes: 0xffffff,
     pupils: 0x111111,
     shockwave: 0xff7b00,
+    rebukeRing: 0xffe066,
+    flask: 0xf4a259,
+    healFlash: 0xffd166,
     warning: 0xff3b30,
     slamShadow: 0x000000,
     arenaGrass: 0x6ab04c,
@@ -316,6 +416,8 @@ const RAW = {
     youDiedRed: '#A4161A',
     healthFull: '#C1121F',
     healthEmpty: 'rgba(0,0,0,0.5)',
+    staminaFull: '#6BBF59',
+    flaskHud: '#F4A259',
   },
 
   /** Physics and effects (ARCHITECTURE §5, GD §9). */
@@ -336,6 +438,14 @@ const RAW = {
       horizontalSpeed: [3, 6] as Range, // m/s away from the hit source
       upwardSpeed: [4, 7] as Range, // m/s
       maxSpin: 10, // rad/s
+    },
+    /** Small debris puffs (shard landing, hazards removed by a cancel). */
+    puff: {
+      pieces: 6, // per removed object (tune, agent-chosen)
+      size: 0.15, // m (tune, agent-chosen)
+      speed: [1, 3] as Range, // m/s (tune, agent-chosen)
+      lifetime: 0.8, // s (tune, agent-chosen)
+      pool: 96, // preallocated pieces (tune, agent-chosen)
     },
   },
 
@@ -366,6 +476,27 @@ const RAW = {
     pauseDim: 0.55,
     pauseTextSize: 28,
     debugRefreshHz: 4,
+    rebukeMarker: 1.0, // s the debug "REBUKE (reason)" marker stays visible
+    /** GD §2 player HUD. */
+    hudEdge: 24, // px from the top-left edges
+    pipSize: 22,
+    pipGap: 6,
+    pipBorder: 2,
+    pipFlash: 0.15, // s
+    flaskIconWidth: 14,
+    flaskIconHeight: 22,
+    flaskTextSize: 18,
+    staminaWidth: 240,
+    staminaHeight: 8,
+    staminaFlash: 0.3, // s white flash when an action is refused
+    /** ?debug hitbox wireframes (agent-chosen, debug only). */
+    debugHitbox: {
+      playerColor: 0x00ffff,
+      bossColor: 0xffff00,
+      attackColor: 0xff00ff, // blade points, shockwave band, shard spheres, Rebuke band
+      bladePointRadius: 0.06, // m
+      bandThickness: 0.005, // fraction of the radius
+    },
   },
 
   /** GD §1 — state transitions (real time unless noted). */
@@ -405,6 +536,11 @@ const RAW = {
       you_died: 0.8,
       boss_break: 0.9,
       victory: 0.4,
+      rebuke_windup: 0.45,
+      rebuke_burst: 0.7,
+      player_hurt: 0.7,
+      flask_drink: 0.4,
+      flask_heal: 0.4,
     },
   },
 

@@ -32,13 +32,15 @@ eldenCube/
 │   │   │   ├── Game.ts             # owns everything; the state machine
 │   │   │   └── Arena.ts            # floor, outer field, edge ring, sky, fog, lights
 │   │   ├── entities/
-│   │   │   ├── Player.ts           # model, movement, roll, swing, wobble, hitbox, break-apart
+│   │   │   ├── Player.ts           # model, movement, roll, combo, stamina, flask, HP, buffer, wobble, hitbox, break-apart
 │   │   │   └── Boss.ts             # model, HP, phases, chase, hit reaction, scheduler, defeat
 │   │   ├── attacks/
 │   │   │   ├── Attack.ts           # shared interface
+│   │   │   ├── Hazards.ts          # rings, shards, circles, Rebuke ring (outlive the attack)
 │   │   │   ├── CubeSlam.ts
 │   │   │   ├── RoyalCharge.ts
-│   │   │   └── CrownShards.ts
+│   │   │   ├── CrownRain.ts
+│   │   │   └── RoyalRebuke.ts
 │   │   ├── systems/
 │   │   │   ├── input.ts            # key/mouse state, edge-triggered actions, blur handling
 │   │   │   ├── camera.ts           # title orbit, lock-on, title→fight blend, shake

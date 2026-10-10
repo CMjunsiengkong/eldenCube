@@ -1,15 +1,16 @@
 /**
  * The Tarnished Intern (GAME_DESIGN §4).
  *
- * - `PlayerMotor` is the pure gameplay core (movement, facing, roll, action gating, i-frames,
- *   arena wall, boss body pushback). It has no three.js scene dependency and is unit tested.
- * - `Player` is the view: the 7-part model, the roll somersault and the visual wobble springs.
- *
- * Swing phases (windup / active / recovery) are added in milestone 1.3.
+ * - `PlayerMotor` is the pure gameplay core: movement, facing, the 3-hit combo with its chain
+ *   window, roll, the one-slot input buffer, stamina, flask, HP / stagger / hurt invincibility,
+ *   arena wall and boss body pushback. No scene dependency; unit tested in Node.
+ * - `Player` is the view: the 7-part model with the swing-plane arm rig, the roll somersault,
+ *   the visual wobble springs, the flask prop, the hurt blink and the heal flash.
  */
 import {
   BoxGeometry,
   Color,
+  CylinderGeometry,
   Group,
   Mesh,
   MeshStandardMaterial,
@@ -25,12 +26,30 @@ import { approach, clamp, easeIn, easeInOut, easeOut, springStep, turnToward, ty
 const P = CONFIG.player;
 const R = CONFIG.roll;
 const W = CONFIG.wobble;
+const CB = CONFIG.combo;
+const ST = CONFIG.stamina;
+const FL = CONFIG.flask;
+const HU = CONFIG.hurt;
 
 /** Float tolerance for timer comparisons at the fixed step (avoids 14.9999-step boundaries). */
 const EPS = 1e-9;
 
-export type PlayerAction = 'free' | 'windup' | 'active' | 'recovery' | 'rolling' | 'dizzy';
-export type PlayerEvent = 'rollStart' | 'rollEnd' | 'footstep' | 'swingStart' | 'swingActive' | 'swingMiss';
+export type PlayerAction = 'free' | 'attack' | 'rolling' | 'dizzy' | 'drink' | 'stagger';
+export type AttackPhase = 'windup' | 'active' | 'recovery';
+export type BufferKind = 'attack' | 'roll' | 'flask';
+export type PlayerEvent =
+  | 'rollStart'
+  | 'rollEnd'
+  | 'footstep'
+  | 'attackStart'
+  | 'attackActive'
+  | 'attackMiss'
+  | 'staminaRefused'
+  | 'drinkStart'
+  | 'flaskHeal'
+  | 'hurt';
+
+export type PlayerHitResult = 'hurt' | 'dead' | 'ignored';
 
 /** A yaw-only cube the player cannot walk into (the boss body). */
 export interface BodyObstacle {
@@ -43,12 +62,15 @@ export interface MotorInput {
   /** World-space movement direction: length 0 (no input) or 1 (normalized). */
   moveX: number;
   moveZ: number;
+  /** Presses this step. */
   wantRoll: boolean;
-  /** Swing pressed this step (and swinging is allowed in the current state, e.g. not BOSS_DEFEATED). */
-  wantSwing: boolean;
+  wantAttack: boolean;
+  wantFlask: boolean;
+  /** Attack and flask are allowed in the current state (false in BOSS_DEFEATED). */
+  allowAttack: boolean;
   bossX: number;
   bossZ: number;
-  /** Body-contact obstacle, or null while the boss is attacking (GD §4.2: no pushback then). */
+  /** Body-contact obstacle, or null when the boss body is not solid (airborne or dashing). */
   obstacle: BodyObstacle | null;
 }
 
@@ -84,29 +106,45 @@ export function moveDirFromAxis(
 /** Yaw that makes local +Z face the direction (dx, dz). */
 export const yawOf = (dx: number, dz: number): number => Math.atan2(dx, dz);
 
-const S = CONFIG.swing;
-
-/**
- * Pure: the right-arm swing angle θ (GD §4.3) for an action and time into it.
- * Wind-up 20° → 200° ease-out; active 200° → 70° ease-in; recovery 70° → 20° ease-in-out.
- */
-export function swingAngle(action: PlayerAction, t: number): number {
-  switch (action) {
-    case 'windup':
-      return S.restAngle + (S.windup.toAngle - S.restAngle) * easeOut(t / S.windup.duration);
-    case 'active':
-      return S.windup.toAngle + (S.active.toAngle - S.windup.toAngle) * easeIn(t / S.active.duration);
-    case 'recovery':
-      return S.active.toAngle + (S.recovery.toAngle - S.active.toAngle) * easeInOut(t / S.recovery.duration);
-    default:
-      return S.restAngle;
-  }
+/** Arm pose of the sword arm: pitch θ and swing-plane tilt ψ (GD §4.3). */
+export interface ArmPose {
+  theta: number;
+  psi: number;
 }
 
-export const isSwingAction = (a: PlayerAction): boolean => a === 'windup' || a === 'active' || a === 'recovery';
+/**
+ * Pure: the sword-arm pose for combo hit `hit` (0-based) in `phase` at time `t`, where the
+ * wind-up starts from `from` (the arm's pose when the hit started). Writes into `out`.
+ */
+export function comboArmPose(hit: number, phase: AttackPhase, t: number, from: ArmPose, out: ArmPose): ArmPose {
+  const h = CB.hits[hit];
+  switch (phase) {
+    case 'windup': {
+      const u = clamp(t / h.windup.duration, 0, 1);
+      out.theta = from.theta + (h.windup.toAngle - from.theta) * easeOut(u);
+      out.psi = from.psi + (h.tilt - from.psi) * u;
+      break;
+    }
+    case 'active':
+      out.theta = h.windup.toAngle + (h.active.toAngle - h.windup.toAngle) * easeIn(clamp(t / h.active.duration, 0, 1));
+      out.psi = h.tilt;
+      break;
+    default: {
+      // Follow-through hold, then back to the rest pose.
+      const back = h.recovery.duration - h.recovery.hold;
+      const u = t <= h.recovery.hold ? 0 : easeInOut(clamp((t - h.recovery.hold) / back, 0, 1));
+      out.theta = h.active.toAngle + (CB.restAngle - h.active.toAngle) * u;
+      out.psi = h.tilt + (CB.restTilt - h.tilt) * u;
+      break;
+    }
+  }
+  return out;
+}
 
 /** True while a roll at time `t` (s since it started) is invincible: [0.05, 0.40). */
 export const rollInvincibleAt = (t: number): boolean => t >= R.iFrameStart - EPS && t < R.iFrameEnd - EPS;
+
+type Gate = 'ok' | 'busy' | 'refused' | 'invalid';
 
 export class PlayerMotor {
   x = 0;
@@ -118,33 +156,53 @@ export class PlayerMotor {
   az = 0;
   yaw = 0;
   action: PlayerAction = 'free';
-  /** Time in the current action (s). */
+  /** Time in the current action, or in the current attack phase (s). */
   actionT = 0;
-  /** Time left before a new roll may start (s). */
-  rollCooldown = 0;
+  /** The current (or last) combo hit, 0-based. */
+  comboHit = 0;
+  attackPhase: AttackPhase = 'windup';
+  /** The next combo hit while the chain window is open, else -1. */
+  chainNext = -1;
+  /** Time left in the open chain window (s). */
+  chainLeft = 0;
+  /** The current combo hit already hit the boss (at most one hit per combo hit). */
+  attackHit = false;
   rollDirX = 0;
   rollDirZ = 1;
+  stamina: number = ST.max;
+  /** Seconds until stamina regeneration resumes. */
+  regenDelay = 0;
+  hp: number = P.hp;
+  hurtInvuln = 0;
+  flasks: number = FL.charges;
+  /** The one-slot input buffer (GD §4.3d). */
+  buffered: BufferKind | null = null;
   /** Debug god mode (`G` with ?debug). */
   godMode = false;
-  /** Events raised by the last `step` (sound triggers). */
+  /** Events raised by the last `step` / `takeHit` (sound and HUD triggers). */
   readonly events: PlayerEvent[] = [];
-
-  /** The current swing already hit the boss (at most one hit per swing). */
-  swingHit = false;
+  /** Buffer window (s); a constructor option so tests can check the strict mode (0). */
+  readonly bufferWindow: number;
 
   private rollCovered = 0;
-  /** Velocity just before the lunge; restored when the active phase ends (keeps the lunge ≈ 1.5 m). */
+  private lungeCovered = 0;
   private preLungeVx = 0;
   private preLungeVz = 0;
+  private chainOpened = false;
+  private healed = false;
+  private knockX = 0;
+  private knockZ = 0;
+  private knockCovered = 0;
   private footstepT = 0;
   private readonly contact = createSphereOBBResult();
   private readonly lowSphere: Vec3Like = { x: 0, y: P.hitSpheres[0].height, z: 0 };
 
-  constructor() {
+  constructor(bufferWindow: number = CONFIG.buffer.window) {
+    this.bufferWindow = bufferWindow;
     this.reset();
   }
 
-  /** Back to spawn, facing the boss (at the origin), all timers cleared. */
+  /** Back to spawn, facing the boss (at the origin), full HP / stamina / flasks, timers cleared. */
   reset(): void {
     this.x = P.spawn.x;
     this.z = P.spawn.z;
@@ -155,57 +213,107 @@ export class PlayerMotor {
     this.yaw = yawOf(CONFIG.boss.spawn.x - this.x, CONFIG.boss.spawn.z - this.z);
     this.action = 'free';
     this.actionT = 0;
-    this.rollCooldown = 0;
+    this.resetCombo();
+    this.attackHit = false;
     this.rollCovered = 0;
+    this.stamina = ST.max;
+    this.regenDelay = 0;
+    this.hp = P.hp;
+    this.hurtInvuln = 0;
+    this.flasks = FL.charges;
+    this.buffered = null;
     this.footstepT = 0;
-    this.swingHit = false;
     this.events.length = 0;
   }
 
-  /** True during the active (slash) phase while it has not hit yet: the only damaging window. */
-  isSwingActive(): boolean {
-    return this.action === 'active' && !this.swingHit;
+  /** The current combo hit is in its active phase and has not hit yet: the only damaging window. */
+  isAttackActive(): boolean {
+    return this.action === 'attack' && this.attackPhase === 'active' && !this.attackHit;
   }
 
-  /** Called by the game when the blade hits the boss: no further hits this swing. */
-  markSwingHit(): void {
-    this.swingHit = true;
+  /** Damage of the current combo hit (1, 1 or 2). */
+  attackDamage(): number {
+    return CB.hits[this.comboHit].damage;
   }
 
-  /** A roll may start only from free movement after the cooldown (no buffering). */
-  canStartRoll(): boolean {
-    return this.action === 'free' && this.rollCooldown <= EPS;
-  }
-
-  /** A swing may start from free movement; the roll cooldown does NOT block it (decision D1). */
-  canStartSwing(): boolean {
-    return this.action === 'free';
+  /** Called by the game when the blade hits the boss: no further hits this combo hit. */
+  markAttackHit(): void {
+    this.attackHit = true;
   }
 
   isRollInvincible(): boolean {
     return this.action === 'rolling' && rollInvincibleAt(this.actionT);
   }
 
-  /** Roll i-frames or debug god mode. */
+  /** Roll i-frames, hurt invincibility or debug god mode. */
   isInvincible(): boolean {
-    return this.godMode || this.isRollInvincible();
+    return this.godMode || this.isRollInvincible() || this.hurtInvuln > EPS;
   }
 
   speed(): number {
     return Math.hypot(this.vx, this.vz);
   }
 
+  /**
+   * GD §4.6: an attack hit from (sourceX, sourceZ). Ignored while invincible. A non-lethal hit
+   * ends the current action, resets the combo, clears the buffer and starts the stagger.
+   */
+  takeHit(sourceX: number, sourceZ: number): PlayerHitResult {
+    if (this.isInvincible() || this.hp <= 0) return 'ignored';
+    this.hp -= 1;
+    this.hurtInvuln = HU.invulnerability;
+    if (this.hp <= 0) {
+      this.hp = 0;
+      return 'dead';
+    }
+    let dx = this.x - sourceX;
+    let dz = this.z - sourceZ;
+    const d = Math.hypot(dx, dz);
+    if (d > 1e-6) {
+      dx /= d;
+      dz /= d;
+    } else {
+      dx = -Math.sin(this.yaw);
+      dz = -Math.cos(this.yaw);
+    }
+    this.knockX = dx;
+    this.knockZ = dz;
+    this.knockCovered = 0;
+    this.action = 'stagger';
+    this.actionT = 0;
+    this.vx = 0;
+    this.vz = 0;
+    this.resetCombo();
+    this.buffered = null;
+    this.regenDelay = ST.regenDelay;
+    this.events.push('hurt');
+    return 'hurt';
+  }
+
   step(dt: number, input: MotorInput): void {
     this.events.length = 0;
     const pvx = this.vx;
     const pvz = this.vz;
+    this.hurtInvuln = Math.max(0, this.hurtInvuln - dt);
+    if (!input.allowAttack && (this.buffered === 'attack' || this.buffered === 'flask')) this.buffered = null;
 
-    if (input.wantRoll && this.canStartRoll()) this.startRoll(input);
-    else if (input.wantSwing && this.canStartSwing()) this.startSwing();
+    // Newest press wins; otherwise retry the buffered one (GD §4.3d).
+    const pressed: BufferKind | null = input.wantRoll
+      ? 'roll'
+      : input.wantAttack && input.allowAttack
+        ? 'attack'
+        : input.wantFlask && input.allowAttack
+          ? 'flask'
+          : null;
+    if (pressed) this.request(pressed, input);
+    else if (this.buffered) this.request(this.buffered, input);
 
     switch (this.action) {
       case 'free':
-        this.stepFree(dt, input);
+        this.stepMove(dt, input, P.maxSpeed);
+        break;
+      case 'attack':
+        this.stepAttack(dt, input);
         break;
       case 'rolling':
         this.stepRolling(dt);
@@ -213,10 +321,15 @@ export class PlayerMotor {
       case 'dizzy':
         this.stepDizzy(dt, input);
         break;
-      default:
-        this.stepSwing(dt, input);
+      case 'drink':
+        this.stepDrink(dt, input);
+        break;
+      case 'stagger':
+        this.stepStagger(dt, input);
         break;
     }
+    this.stepChainWindow(dt);
+    this.stepStamina(dt);
 
     this.clampToArena();
     if (input.obstacle) this.pushOutOf(input.obstacle);
@@ -225,8 +338,87 @@ export class PlayerMotor {
     this.az = (this.vz - pvz) / dt;
   }
 
+  // --- action gating -----------------------------------------------------------------------------
+
+  /** Whether `kind` can start now. */
+  private gate(kind: BufferKind): Gate {
+    switch (kind) {
+      case 'roll':
+        if (this.action !== 'free') return 'busy';
+        return this.stamina + EPS >= ST.rollCost ? 'ok' : 'refused';
+      case 'attack': {
+        const atChain = this.action === 'attack' && this.chainOpened && this.chainNext >= 0;
+        if (this.action !== 'free' && !atChain) return 'busy';
+        return this.stamina + EPS >= CB.hits[this.nextHit()].cost ? 'ok' : 'refused';
+      }
+      case 'flask':
+        if (this.action !== 'free') return 'busy';
+        return this.hp < P.hp && this.flasks > 0 ? 'ok' : 'invalid';
+    }
+  }
+
+  /** Seconds until `kind` could start (the buffer window test). */
+  private timeUntilPossible(kind: BufferKind): number {
+    switch (this.action) {
+      case 'attack': {
+        const h = CB.hits[this.comboHit];
+        let left: number;
+        if (this.attackPhase === 'windup') left = h.windup.duration - this.actionT + h.active.duration;
+        else if (this.attackPhase === 'active') left = h.active.duration - this.actionT;
+        else left = -this.actionT;
+        // An attack can follow at the chain point; everything else waits for the recovery end.
+        const until = kind === 'attack' && h.chainAt >= 0 ? h.chainAt : h.recovery.duration;
+        return left + until;
+      }
+      case 'rolling':
+        return R.duration - this.actionT + R.recoveryDuration;
+      case 'dizzy':
+        return R.recoveryDuration - this.actionT;
+      case 'drink':
+        return FL.duration - this.actionT;
+      case 'stagger':
+        return HU.stagger - this.actionT;
+      default:
+        return 0;
+    }
+  }
+
+  private request(kind: BufferKind, input: MotorInput): void {
+    const g = this.gate(kind);
+    if (g === 'busy') {
+      if (this.bufferWindow > 0 && this.timeUntilPossible(kind) <= this.bufferWindow + EPS) this.buffered = kind;
+      return;
+    }
+    this.buffered = null;
+    if (g === 'invalid') return;
+    if (g === 'refused') {
+      this.events.push('staminaRefused');
+      this.resetCombo();
+      return;
+    }
+    if (kind === 'roll') this.startRoll(input);
+    else if (kind === 'attack') this.startAttack(this.nextHit());
+    else this.startDrink();
+  }
+
+  private nextHit(): number {
+    return this.chainNext >= 0 && this.chainLeft > EPS ? this.chainNext : 0;
+  }
+
+  private resetCombo(): void {
+    this.chainNext = -1;
+    this.chainLeft = 0;
+    this.chainOpened = false;
+  }
+
+  private spend(cost: number): void {
+    this.stamina = Math.max(0, this.stamina - cost);
+  }
+
+  // --- starts ------------------------------------------------------------------------------------
+
   private startRoll(input: MotorInput): void {
-    // Direction: camera-relative input at the moment of the press, else the facing direction.
+    // Direction: camera-relative input at the moment the roll starts, else the facing direction.
     if (input.moveX !== 0 || input.moveZ !== 0) {
       this.rollDirX = input.moveX;
       this.rollDirZ = input.moveZ;
@@ -234,6 +426,8 @@ export class PlayerMotor {
       this.rollDirX = Math.sin(this.yaw);
       this.rollDirZ = Math.cos(this.yaw);
     }
+    this.spend(ST.rollCost);
+    this.resetCombo();
     this.action = 'rolling';
     this.actionT = 0;
     this.rollCovered = 0;
@@ -241,54 +435,90 @@ export class PlayerMotor {
     this.events.push('rollStart');
   }
 
-  private startSwing(): void {
-    this.action = 'windup';
+  private startAttack(hit: number): void {
+    this.spend(CB.hits[hit].cost);
+    this.resetCombo();
+    this.comboHit = hit;
+    this.action = 'attack';
+    this.attackPhase = 'windup';
     this.actionT = 0;
-    this.swingHit = false;
+    this.attackHit = false;
     this.footstepT = 0;
-    this.events.push('swingStart');
+    this.events.push('attackStart');
   }
 
-  /** GD §4.3: wind-up and recovery decay at decel; the active phase lunges at facing × 10 m/s. */
-  private stepSwing(dt: number, input: MotorInput): void {
-    this.rollCooldown = Math.max(0, this.rollCooldown - dt);
+  private startDrink(): void {
+    this.flasks -= 1;
+    this.resetCombo();
+    this.healed = false;
+    this.action = 'drink';
+    this.actionT = 0;
+    this.events.push('drinkStart');
+  }
+
+  // --- per-action steps --------------------------------------------------------------------------
+
+  /** GD §4.3: wind-up, active (lunge, damage), recovery (chain point, follow-through). */
+  private stepAttack(dt: number, input: MotorInput): void {
+    const h = CB.hits[this.comboHit];
     this.actionT += dt;
-    if (this.action === 'active') {
-      this.vx = Math.sin(this.yaw) * S.active.lungeSpeed;
-      this.vz = Math.cos(this.yaw) * S.active.lungeSpeed;
+    if (this.attackPhase === 'active') {
+      // Lunge at lunge / duration, capped so the total is exactly the lunge distance even when the
+      // phase length is not a whole number of fixed steps.
+      const d = Math.min((h.active.lunge / h.active.duration) * dt, h.active.lunge - this.lungeCovered);
+      this.lungeCovered += d;
+      this.vx = (Math.sin(this.yaw) * d) / dt;
+      this.vz = (Math.cos(this.yaw) * d) / dt;
     } else {
       this.decay(dt);
     }
     this.integrate(dt);
-    // Movement input is ignored during the swing, so the facing target is the boss (GD §4.2).
     this.faceBoss(dt, input);
 
-    if (this.action === 'windup' && this.actionT >= S.windup.duration - EPS) {
-      this.action = 'active';
+    if (this.attackPhase === 'windup' && this.actionT >= h.windup.duration - EPS) {
+      this.attackPhase = 'active';
       this.actionT = 0;
+      this.lungeCovered = 0;
       this.preLungeVx = this.vx;
       this.preLungeVz = this.vz;
-      this.events.push('swingActive');
-    } else if (this.action === 'active' && this.actionT >= S.active.duration - EPS) {
-      if (!this.swingHit) this.events.push('swingMiss');
-      // The lunge velocity applies only "for this phase" (GD §4.3); recovery then decays from the
-      // pre-lunge velocity, so the lunge moves the player about 1.5 m in total.
+      this.events.push('attackActive');
+    } else if (this.attackPhase === 'active' && this.actionT >= h.active.duration - EPS) {
+      if (!this.attackHit) this.events.push('attackMiss');
+      // The lunge velocity applies only during the active phase.
       this.vx = this.preLungeVx;
       this.vz = this.preLungeVz;
-      this.action = 'recovery';
+      this.attackPhase = 'recovery';
       this.actionT = 0;
-    } else if (this.action === 'recovery' && this.actionT >= S.recovery.duration - EPS) {
-      this.action = 'free';
-      this.actionT = 0;
+    } else if (this.attackPhase === 'recovery') {
+      if (h.chainAt >= 0 && !this.chainOpened && this.actionT >= h.chainAt - EPS) {
+        this.chainOpened = true;
+        this.chainNext = this.comboHit + 1;
+        this.chainLeft = CB.chainWindow;
+      }
+      if (this.actionT >= h.recovery.duration - EPS) {
+        this.action = 'free';
+        this.actionT = 0;
+        if (h.chainAt < 0) this.resetCombo(); // after Hit 3 the combo always resets
+      }
     }
   }
 
-  private stepFree(dt: number, input: MotorInput): void {
-    this.rollCooldown = Math.max(0, this.rollCooldown - dt);
+  /** The chain window keeps running while walking after the recovery has ended. */
+  private stepChainWindow(dt: number): void {
+    if (!this.chainOpened) return;
+    if (this.action !== 'attack' && this.action !== 'free') {
+      this.resetCombo();
+      return;
+    }
+    this.chainLeft -= dt;
+    if (this.chainLeft <= EPS) this.resetCombo();
+  }
+
+  private stepMove(dt: number, input: MotorInput, maxSpeed: number): void {
     const hasInput = input.moveX !== 0 || input.moveZ !== 0;
     const rate = (hasInput ? P.accel : P.decel) * dt;
-    const tx = input.moveX * P.maxSpeed;
-    const tz = input.moveZ * P.maxSpeed;
+    const tx = input.moveX * maxSpeed;
+    const tz = input.moveZ * maxSpeed;
     // Move the velocity vector toward the desired velocity by at most `rate` (no overshoot).
     const dx = tx - this.vx;
     const dz = tz - this.vz;
@@ -350,8 +580,54 @@ export class PlayerMotor {
     if (this.actionT >= R.recoveryDuration - EPS) {
       this.action = 'free';
       this.actionT = 0;
-      this.rollCooldown = R.cooldown;
     }
+  }
+
+  /** GD §4.3c: walk at ≤ 1.8 m/s; +1 HP at 0.60 s; done at 1.10 s. */
+  private stepDrink(dt: number, input: MotorInput): void {
+    this.actionT += dt;
+    this.stepMove(dt, input, FL.maxSpeed);
+    if (!this.healed && this.actionT >= FL.healAt - EPS) {
+      this.healed = true;
+      this.hp = Math.min(P.hp, this.hp + FL.heal);
+      this.events.push('flaskHeal');
+    }
+    if (this.actionT >= FL.duration - EPS) {
+      this.action = 'free';
+      this.actionT = 0;
+    }
+  }
+
+  /** GD §4.6: 3.0 m knockback on ease-out over the 0.5 s stagger. */
+  private stepStagger(dt: number, input: MotorInput): void {
+    this.actionT += dt;
+    const covered = HU.knockback * easeOut(Math.min(1, this.actionT / HU.stagger));
+    const delta = covered - this.knockCovered;
+    this.knockCovered = covered;
+    this.x += this.knockX * delta;
+    this.z += this.knockZ * delta;
+    this.vx = (this.knockX * delta) / dt;
+    this.vz = (this.knockZ * delta) / dt;
+    this.faceBoss(dt, input);
+    if (this.actionT >= HU.stagger - EPS) {
+      this.action = 'free';
+      this.actionT = 0;
+      this.vx = 0;
+      this.vz = 0;
+    }
+  }
+
+  /** GD §4.3b: paused during actions; resumes 0.4 s after the player is free, at 45/s. */
+  private stepStamina(dt: number): void {
+    if (this.action !== 'free') {
+      this.regenDelay = ST.regenDelay;
+      return;
+    }
+    if (this.regenDelay > EPS) {
+      this.regenDelay = Math.max(0, this.regenDelay - dt);
+      return;
+    }
+    this.stamina = Math.min(ST.max, this.stamina + ST.regenRate * dt);
   }
 
   /** Horizontal velocity decays toward 0 at `decel`. */
@@ -413,40 +689,52 @@ export interface Sphere {
 }
 
 const WHITE = new Color(0xffffff);
+const HEAL = new Color(CONFIG.colors.healFlash);
 
 /** The visual player: 7-part model on a roll pivot, driven by a PlayerMotor. */
 export class Player {
-  readonly motor = new PlayerMotor();
+  readonly motor: PlayerMotor;
   readonly root = new Group();
 
   private readonly rollPivot = new Group();
   private readonly neckPivot = new Group();
   private readonly shoulderL = new Group();
+  /** Rotated by ψ around the forward axis; the sword arm pitches inside it (GD §4.3). */
+  private readonly swingPlane = new Group();
   private readonly shoulderR = new Group();
   private readonly hipL = new Group();
   private readonly hipR = new Group();
+  private readonly flaskProp: Mesh;
   private readonly materials: MeshStandardMaterial[] = [];
   private readonly baseColors: Color[] = [];
   private readonly tintColors: Color[] = [];
-  private tinted = false;
+  private readonly healColors: Color[] = [];
+  private tint: 'none' | 'debug' | 'heal' = 'none';
 
   // Wobble springs (pitch angles in radians, head offset in meters).
   private readonly legL: SpringState = { x: 0, v: 0 };
   private readonly legR: SpringState = { x: 0, v: 0 };
   private readonly armL: SpringState = { x: 0, v: 0 };
-  private readonly armR: SpringState = { x: CONFIG.swing.restAngle, v: 0 };
+  private readonly armR: SpringState = { x: CB.restAngle, v: 0 };
+  private psi: number = CB.restTilt;
   private readonly headX: SpringState = { x: 0, v: 0 };
   private readonly headZ: SpringState = { x: 0, v: 0 };
   private walkPhase = 0;
+  /** Arm pose when the current combo hit started (each wind-up starts from here). */
+  private readonly hitFrom: ArmPose = { theta: CB.restAngle, psi: CB.restTilt };
+  private readonly pose: ArmPose = { theta: CB.restAngle, psi: CB.restTilt };
+  private healFlashLeft = 0;
+  private blinkT = 0;
 
   private readonly spheres: Sphere[] = P.hitSpheres.map((s) => ({ center: new Vector3(), radius: s.radius }));
   private readonly pos = new Vector3();
-  private readonly blade: Vector3[] = CONFIG.swing.bladePoints.map(() => new Vector3());
+  private readonly blade: Vector3[] = CB.bladePoints.map(() => new Vector3());
   private readonly debugTint: boolean;
 
-  constructor(debugTint: boolean) {
+  constructor(debugTint: boolean, bufferWindow?: number) {
     this.debugTint = debugTint;
-    this.buildModel();
+    this.motor = new PlayerMotor(bufferWindow);
+    this.flaskProp = this.buildModel();
     this.syncTransform();
   }
 
@@ -456,20 +744,33 @@ export class Player {
       s.x = 0;
       s.v = 0;
     }
-    this.armR.x = CONFIG.swing.restAngle;
+    this.armR.x = CB.restAngle;
     this.armR.v = 0;
+    this.psi = CB.restTilt;
     this.walkPhase = 0;
+    this.healFlashLeft = 0;
+    this.blinkT = 0;
+    this.root.visible = true;
+    this.flaskProp.visible = false;
     this.applyPose(0, 0);
     this.syncTransform();
+    this.updateTint();
   }
 
-  /** One fixed simulation step. Returns the motor's events (sound triggers). */
+  /** One fixed simulation step. Returns the motor's events (sound and HUD triggers). */
   update(dt: number, input: MotorInput): readonly PlayerEvent[] {
     const m = this.motor;
     const prevAction = m.action;
     m.step(dt, input);
     if (prevAction === 'rolling' && m.action === 'dizzy') this.headX.v += W.dizzyHeadKick; // dizzy landing kick
+    if (m.events.includes('attackStart')) {
+      this.hitFrom.theta = this.armR.x;
+      this.hitFrom.psi = this.psi;
+    }
+    if (m.events.includes('flaskHeal')) this.healFlashLeft = FL.healFlash;
+    this.healFlashLeft = Math.max(0, this.healFlashLeft - dt);
     this.updateWobble(dt);
+    this.updateBlink(dt);
     this.syncTransform();
     this.updateTint();
     return m.events;
@@ -477,11 +778,11 @@ export class Player {
 
   /**
    * The 3 blade points in world space (GD §5): 0.5, 1.3 and 2.1 m from the right shoulder along
-   * the arm direction. Reuses preallocated vectors.
+   * the arm direction (inside the tilted swing plane). Reuses preallocated vectors.
    */
   getBladePoints(): readonly Vector3[] {
     this.root.updateMatrixWorld(true);
-    const pts = CONFIG.swing.bladePoints;
+    const pts = CB.bladePoints;
     for (let i = 0; i < pts.length; i++) {
       this.blade[i].set(0, -pts[i], 0).applyMatrix4(this.shoulderR.matrixWorld);
     }
@@ -507,7 +808,7 @@ export class Player {
 
   // ---------------------------------------------------------------------------------------------
 
-  private buildModel(): void {
+  private buildModel(): Mesh {
     const M = P.model;
     const C = CONFIG.colors;
     const py = M.rollPivotHeight;
@@ -516,9 +817,10 @@ export class Player {
       this.materials.push(m);
       this.baseColors.push(new Color(color));
       this.tintColors.push(new Color(color).lerp(WHITE, R.debugTint));
+      this.healColors.push(HEAL.clone());
       return m;
     };
-    const mesh = (geo: BoxGeometry | SphereGeometry, material: Material, parent: Object3D, p: Vec3Like): Mesh => {
+    const mesh = (geo: BoxGeometry | SphereGeometry | CylinderGeometry, material: Material, parent: Object3D, p: Vec3Like): Mesh => {
       const m = new Mesh(geo, material);
       m.position.set(p.x, p.y, p.z);
       m.castShadow = true;
@@ -552,19 +854,23 @@ export class Player {
       e.castShadow = false;
     }
 
-    // Arms on shoulder pivots. Facing +Z, the character's right side is −X. The sword hangs
-    // from the right shoulder, continuing the arm's direction.
+    // Arms. Facing +Z, the character's right side is −X. The sword arm sits in a swing plane
+    // tilted around the forward axis; the sword continues the arm's direction.
     const armGeo = new BoxGeometry(M.arm.size.x, M.arm.size.y, M.arm.size.z);
     const armMat = mat(C.playerArms);
-    for (const [pivot, sx] of [
-      [this.shoulderL, 1],
-      [this.shoulderR, -1],
-    ] as const) {
-      pivot.position.set(sx * M.shoulderPivot.x, M.shoulderPivot.y - py, M.shoulderPivot.z);
-      this.rollPivot.add(pivot);
-      mesh(armGeo, armMat, pivot, M.arm.offset);
-    }
+    this.shoulderL.position.set(M.shoulderPivot.x, M.shoulderPivot.y - py, M.shoulderPivot.z);
+    this.rollPivot.add(this.shoulderL);
+    mesh(armGeo, armMat, this.shoulderL, M.arm.offset);
+    this.swingPlane.position.set(-M.shoulderPivot.x, M.shoulderPivot.y - py, M.shoulderPivot.z);
+    this.rollPivot.add(this.swingPlane);
+    this.swingPlane.add(this.shoulderR);
+    mesh(armGeo, armMat, this.shoulderR, M.arm.offset);
     mesh(new BoxGeometry(M.weapon.size.x, M.weapon.size.y, M.weapon.size.z), mat(C.weapon), this.shoulderR, M.weapon.offset);
+
+    // Flask in the left hand (visible only while drinking)
+    const F = M.flask;
+    const flask = mesh(new CylinderGeometry(F.radius, F.radius, F.height, F.segments), mat(C.flask), this.shoulderL, F.offset);
+    flask.visible = false;
 
     // Legs on hip pivots
     const legGeo = new BoxGeometry(M.leg.size.x, M.leg.size.y, M.leg.size.z);
@@ -577,6 +883,7 @@ export class Player {
       this.rollPivot.add(pivot);
       mesh(legGeo, legMat, pivot, M.leg.offset);
     }
+    return flask;
   }
 
   /** GD §4.4: limb springs, walk cycle, head spring, lean; roll tuck and somersault; dizzy sway. */
@@ -584,6 +891,7 @@ export class Player {
     const m = this.motor;
     const s = clamp(m.speed() / P.maxSpeed, 0, 1);
     const rolling = m.action === 'rolling';
+    const drinking = m.action === 'drink';
 
     // Forward/side acceleration in the player's local frame.
     const sin = Math.sin(m.yaw);
@@ -604,25 +912,38 @@ export class Player {
       legLT = w * W.legSwing * s;
       legRT = -w * W.legSwing * s;
       armLT = -w * W.armSwing * s + lag; // opposite phase to the same-side leg
-      armRT = CONFIG.swing.restAngle + w * W.armSwing * s + lag;
+      armRT = CB.restAngle + w * W.restArmSwing * s;
     }
     const k = W.limbStiffness;
     const c = W.limbDamping;
     for (const [spring, target] of [
       [this.legL, legLT],
       [this.legR, legRT],
-      [this.armL, armLT],
     ] as const) {
       springStep(spring, target, k, c, dt);
       spring.x = clamp(spring.x, -W.limbClamp, W.limbClamp);
     }
-    if (isSwingAction(m.action)) {
-      // Right arm while swinging: driven directly by the swing curve, no spring (GD §4.4).
-      this.armR.x = swingAngle(m.action, m.actionT);
-      this.armR.v = 0;
+    if (drinking) {
+      this.armL.x = FL.armAngle; // hand at the face, no spring
+      this.armL.v = 0;
     } else {
+      // After a drink the arm springs down from 150°; it may only fall back inside the ±80° clamp.
+      const prev = this.armL.x;
+      springStep(this.armL, armLT, k, c, dt);
+      this.armL.x = clamp(this.armL.x, -W.limbClamp, Math.max(W.limbClamp, prev));
+    }
+    this.flaskProp.visible = drinking;
+
+    if (m.action === 'attack') {
+      // Sword arm while attacking: driven directly by the combo curves, no spring (GD §4.4).
+      comboArmPose(m.comboHit, m.attackPhase, m.actionT, this.hitFrom, this.pose);
+      this.armR.x = this.pose.theta;
+      this.armR.v = 0;
+      this.psi = this.pose.psi;
+    } else {
+      // The rest pose is far outside the ±80° limb clamp, so the sword arm is not clamped.
       springStep(this.armR, armRT, k, c, dt);
-      this.armR.x = clamp(this.armR.x, -W.limbClamp, W.limbClamp);
+      this.psi += (CB.restTilt - this.psi) * Math.min(1, k * 0.05 * dt);
     }
 
     // Head offset spring pushed by −0.02 × horizontal acceleration (local frame).
@@ -641,10 +962,23 @@ export class Player {
     this.hipR.rotation.x = -this.legR.x;
     this.shoulderL.rotation.x = -this.armL.x;
     this.shoulderR.rotation.x = -this.armR.x;
+    // ψ > 0 tilts the top of the swing plane toward the character's right (−X).
+    this.swingPlane.rotation.z = this.psi;
     this.rollPivot.rotation.x = lean;
     this.rollPivot.rotation.z = sway;
     const M = P.model;
     this.neckPivot.position.set(M.neckPivot.x + this.headX.x, M.neckPivot.y - M.rollPivotHeight, M.neckPivot.z + this.headZ.x);
+  }
+
+  /** GD §4.6: the body blinks (visible ↔ hidden at 10 Hz) during the hurt invincibility. */
+  private updateBlink(dt: number): void {
+    if (this.motor.hurtInvuln > 0 && this.motor.hp > 0) {
+      this.blinkT += dt;
+      this.rollPivot.visible = Math.floor(this.blinkT * HU.blinkHz * 2) % 2 === 0;
+    } else {
+      this.blinkT = 0;
+      this.rollPivot.visible = true;
+    }
   }
 
   private syncTransform(): void {
@@ -652,14 +986,13 @@ export class Player {
     this.root.rotation.y = this.motor.yaw;
   }
 
-  /** ?debug: 30% white while invincible. */
+  /** Gold heal flash (GD §4.3c); with ?debug, 30% white while roll/god invincible. */
   private updateTint(): void {
-    if (!this.debugTint) return;
-    const want = this.motor.isInvincible();
-    if (want === this.tinted) return;
-    this.tinted = want;
-    for (let i = 0; i < this.materials.length; i++) {
-      this.materials[i].color.copy(want ? this.tintColors[i] : this.baseColors[i]);
-    }
+    const m = this.motor;
+    const want = this.healFlashLeft > 0 ? 'heal' : this.debugTint && (m.godMode || m.isRollInvincible()) ? 'debug' : 'none';
+    if (want === this.tint) return;
+    this.tint = want;
+    const colors = want === 'heal' ? this.healColors : want === 'debug' ? this.tintColors : this.baseColors;
+    for (let i = 0; i < this.materials.length; i++) this.materials[i].color.copy(colors[i]);
   }
 }

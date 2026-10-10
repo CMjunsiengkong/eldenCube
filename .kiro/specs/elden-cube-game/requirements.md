@@ -234,6 +234,28 @@ All with Vitest in a Node environment, seeded RNG where randomness is involved:
 
 ---
 
+### Requirement 22 — Combat rework (milestone 1.4b, GD §4.3–§4.6, §5, §6.2–§6.5a; changed 2026-10-10)
+
+1. WHEN the player presses attack while free THEN a 3-hit combo starts (Hit 1 kesagiri, Hit 2 rising backhand, Hit 3 overhead finisher) with the per-hit timings, lunges and damage of GD §4.3.
+2. WHEN an attack input arrives in the 0.5 s chain window (or is buffered just before it) THEN the next combo hit starts at the chain point; otherwise the combo resets as listed in GD §4.3. After Hit 3 the combo always resets; there is no separate attack cooldown.
+3. No committed action (combo hit, roll, dizzy recovery, flask, stagger) can be cancelled by player input. Only taking damage ends an action early.
+4. WHEN a roll, attack or flask press can't run THEN it is buffered only if it arrives within 0.20 s before the action becomes possible; the newest press wins; it runs at the first legal step after its checks; `bufferWindow = 0` disables buffering.
+5. The roll's dizzy recovery is 0.12 s and there is no roll cooldown.
+6. Stamina: max 90, roll 30, combo hit 20; an action needs stamina ≥ its cost; regeneration pauses during actions and resumes 0.4 s later at 45/s; a refused action flashes the bar.
+7. Flask: 3 charges; only below 2 HP; heals 1 HP at 0.60 s of a 1.10 s drink; walking at most 1.8 m/s; a hit before 0.60 s loses the charge; no stamina restore.
+8. Player HP 2: a non-lethal hit gives a 0.5 s stagger, 3.0 m knockback and 1.0 s blinking invincibility, cancels the current action and resets the combo; the second hit kills.
+9. Boss HP 20, damage 1/1/2, no invulnerability between hits; rage when HP ≤ 8 (transition cancels the attack and all hazards, then a 0.6 s rage cooldown starts — D10); defeat at 0.
+10. The boss cooldown (1.0 s / 0.6 s × easy) starts when the boss is free; hazards (rings, shards, circles, Rebuke ring) live on independently and are cleared by rage, defeat, death and reset. Grace 1.0 s; chase at 3.5 m/s beyond 5 m. The boss body is solid whenever it is grounded and not dashing.
+11. Cube Slam ends with a 2.0 s punish window (no turning or moving, crown wobble) and a Rebuke if the player is within 5.0 m at its end. Royal Charge has a 0.7 s telegraph and a 0.6 s recovery.
+12. Crown Rain: 3 waves (cage 7, wall 5, scatter 12 with ≥ 5 m spacing) landing at T, T + 0.4, T + 0.8 s (T = 0.8 / speed multiplier); the boss is free at launch; no Crown Rain while rain shards are alive; instanced rendering.
+13. Royal Rebuke: tell 0.35 s (× easy only), burst 0.10 s to 4.5 m (+0.4 player radius), recovery 0.30 s; triggered by poise 3 (outside punish windows), a close timer of 1.0 s (< 5.0 m while waiting; annoyed tell from 0.5 s), or the Slam window end within 5.0 m; never random and not in the attack history.
+14. The rage upgrades follow GD §6.5a with Crown Rain (Staggered Rain delays wave 0's center shard by 0.3 s), still off by default and tested through the `upgrades` override.
+15. HUD: 2 HP pips, a flask counter and a stamina bar top-left; the boss bar shows 20 HP as 5 segments that drain partially. Controls text includes `R Flask`.
+16. New sounds per AS §1.1: `rebuke_windup` (stoppable), `rebuke_burst`, `player_hurt`, `flask_drink`, `flask_heal`.
+17. Debug: key `4` triggers a Rebuke; the debug text shows the combo hit, the buffered input, HP, stamina, flasks, poise, close timer and the punish-window time.
+
+Requirements 6, 8, 11 and 12 above are superseded by this requirement where they conflict (no-buffering swing, single swing, 3-shard attack, anti-camping and missed-swing punish).
+
 ## Traceability — GD §13 acceptance checklist
 
 | GD §13 item | Requirement |
@@ -292,3 +314,5 @@ All with Vitest in a Node environment, seeded RNG where randomness is involved:
 - **D7 — Git:** the agent commits, the user pushes; rules in `.kiro/steering/git.md`.
 - **D8 — Booth laptop:** this Mac is the booth laptop; 60 fps and §13 checks run here.
 - **D9 — 3rd hit during an attack:** deliberate exception to GD §5 for the 3rd hit only: the attack is cancelled immediately (spawned ring/shards/circles removed with a small puff; long sounds stop) and the 1.0 s rage transition starts in the same step; the boss cannot take damage during it. Hits 1, 2, 4 never interrupt. GD §5 and §6.4 updated.
+- **D10 — After the rage transition:** a fresh rage cooldown (0.6 s with the new tempo) starts when the 1.0 s transition ends.
+- **D11 — Combat rework (2026-10-10, after the 1.4 playtest):** all of tiers A–C (combo, buffer, roll, stamina, flask, HP 2, boss tempo, hazards, Slam window, Charge recovery, Crown Rain, Royal Rebuke) are built before milestone 1.5, as milestone 1.4b on `feat/1.4b-combat-rework`. Approved: one-slot input buffer (0.20 s) instead of strict no pre-input, but no cancels; a fixed Slam punish window followed by Rebuke instead of "one hit ends the recovery"; kesagiri from the player's right shoulder to the left hip; the sword rests on the right shoulder (no sheath/draw).

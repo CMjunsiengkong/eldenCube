@@ -43,7 +43,12 @@ export function cooldownFor(phase: BossPhase, flags: Flags = getFlags()): number
   return (phase === 'rage' ? CONFIG.rage.cooldown : CONFIG.boss.cooldown) * (flags.easy ? CONFIG.easy.cooldownMult : 1);
 }
 
-/** Shard flight time = base / speed multiplier (decision D4). */
+/** Crown Rain wave-0 flight time = base / speed multiplier (decision D4). */
 export function shardFlightTime(phase: BossPhase, flags: Flags = getFlags()): number {
-  return CONFIG.shards.flightTime / speedMult(phase, flags);
+  return CONFIG.rain.flightTime / speedMult(phase, flags);
+}
+
+/** The Rebuke tell is scaled by ?easy only, never by rage (GD §6.5 D). */
+export function rebukeTellFor(flags: Flags = getFlags()): number {
+  return CONFIG.rebuke.tell * (flags.easy ? CONFIG.easy.telegraphMult : 1);
 }

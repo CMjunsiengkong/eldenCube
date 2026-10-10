@@ -318,8 +318,8 @@ These are implementation details that don't change any documented behaviour. Fla
 
 1. Pure cores (`FlowMachine`, `PlayerMotor`, `BossBrain`) are exported from the existing files instead of new files.
 2. Death and defeat timelines are measured from the hit, with the hit-stop counted inside the timer (§4.1).
-3. Input edges survive hit-stop and pause until the next simulation step. Otherwise they are dropped at the end of each step (no buffering).
-4. The right arm's resting wobble target is 20° (the swing rest angle) plus the walk term.
+3. Input edges survive hit-stop and pause until the next simulation step. Otherwise they are dropped at the end of each step; the GD §4.3d buffer lives in `PlayerMotor` (1.4b).
+4. The right arm's resting wobble target is the shoulder rest pose (θ 200°, ψ 40°) plus the walk term (1.4b).
 5. The title orbit start angle is 0 (camera on +Z, behind the player spawn).
 6. Easing curves are quadratic.
 7. Shards target y = 0.3 (resting on the ground) and snap to the target on landing.
@@ -327,3 +327,65 @@ These are implementation details that don't change any documented behaviour. Fla
 ## 19. Resolved: 3rd hit during an attack (D9)
 
 The 3rd hit cancels the running attack and starts the rage transition in the same simulation step. Spawned objects are removed with a small puff (6-cube debris puff per object, reusing the shard landing puff); `slam_rise`/`charge_windup` stop; the boss is untouchable for the 1.0 s transition. `Attack.dispose()` gains an optional `puff` flag. Unit test in `bossBrain.test.ts`.
+
+## 20. Combat rework (milestone 1.4b, D11)
+
+### 20.1 Player (`PlayerMotor`)
+- `action: 'free' | 'attack' | 'rolling' | 'dizzy' | 'drink' | 'stagger'`. While attacking: `comboHit: 1 | 2 | 3`, `attackPhase: 'windup' | 'active' | 'recovery'` and `phaseT`.
+- **Chain:** `chainOpen` is true from the chain point until the window (0.5 s) runs out. When the recovery ends inside the window, the action becomes `free` with `chainHit = next` for the rest of the window, so walking keeps it open.
+- **Buffer:** `buffered: { kind: 'attack' | 'roll' | 'flask', t } | null`. On a press that can't run, it is stored if the time until the action becomes possible is ≤ `bufferWindow`. That time is `actionRemaining()`, or the time to the chain point for an attack during Hit 1/2. Every step, `tryStart(kind)` tries the buffered press before new presses. Newest wins.
+- **Stamina:** `stamina`, `regenDelay`. `spend(cost)` returns false if `stamina < cost` and sets `refused = true`, which is an event for the HUD flash.
+- **HP and damage:**
+  - `hp`, `hurtInvuln`, and `takeHit(sourceX, sourceZ)` returns `'hurt' | 'dead' | 'ignored'`.
+  - `'ignored'` while `isInvincible()`.
+  - On a hurt: cancel the current action, reset the combo, clear the buffer, start the stagger with a knockback displacement on ease-out, start the hurt invincibility, and lose the flask charge if the heal hasn't landed yet.
+- **Flask:** `flasks`, `drinkT`. The heal happens at 0.60 s, emitted as the `flaskHeal` event.
+- **Events:** `attackActive(hit)`, `attackMiss`, `rollStart`, `rollEnd`, `footstep`, `staminaRefused`, `drinkStart`, `flaskHeal`, `hurt`.
+- **Blade arm (view):**
+  - `shoulderR` gets a parent `swingPlane` group, rotated by ψ around the player's local Z (forward) axis. The arm keeps its pitch θ.
+  - Positive ψ rolls the plane toward the character's right (local −X) at the top.
+  - The rest pose uses the same rig, so `getBladePoints()` stays `shoulderR.matrixWorld × (0, −d, 0)`.
+
+### 20.2 Boss (`BossBrain`)
+- `hp = 20`; `takeHit(damage)` returns `'hit' | 'rage' | 'defeated' | 'ignored'`. It is ignored in `rageTransition`, `defeated` and `gloat`. There is no invulnerability timer.
+- Rage starts when `hp ≤ 8` in phase 1. It sets `cancelRequested` and clears poise and the close timer. When the transition ends, the 0.6 s cooldown starts (D10).
+- **Modes:** `grace | cooldown | attacking | rageTransition | gloat | defeated`.
+  - The mode leaves `attacking` when `Game` reports that the attack's boss part is free; that call starts the cooldown.
+- `pendingRebuke`: set by poise ≥ 3 (`addPoise(poise, dmg, inWindow)`), by the close timer reaching 1.0 s while waiting, or by the Slam window ending within 5 m (the attack reports `wantsRebuke()`).
+  - While waiting, a pending Rebuke starts at once.
+  - While attacking, it starts once the boss is free, skipping the cooldown.
+- `chooseAttack(history, distance, rainAlive, rng)`: valid = slam, charge (only if distance > 6), rain (only if `!rainAlive`), minus the attack blocked by "last two the same". If the set is empty, ignore the block.
+- **Debug forcing:** `forceNext` (1/2/3) overrides the next pick. Key 4 sets `pendingRebuke`.
+
+### 20.3 Hazards (`attacks/Hazards.ts`)
+- `Hazards` owns:
+  - two shockwave ring meshes;
+  - one Rebuke ring mesh;
+  - three wave groups of shards and circles: an `InstancedMesh` for the cubes and one for the circles (max 12 each), with per-instance visibility through a zero scale.
+- **API:**
+  - `spawnRing(x, z, speed)`
+  - `spawnWave(targets[], launchPos, flightT, pulseHz)`
+  - `placeCircles(waveIndex, targets[])` (circles shown before launch)
+  - `launchWave(i)`
+  - `spawnRebuke(x, z)`
+  - `step(dt)`
+  - `check(spheres, playerPos) → source | null`
+  - `rainAlive`
+  - `clear(puff)`
+- `Game` steps and checks the hazards every FIGHT step, independently of the attack.
+- **Attacks:**
+  - `CubeSlam`: rise, hang, drop, impact (spawns a ring), [hop, impact 2], window 2.0 s. It is free after the window.
+  - `RoyalCharge`: telegraph 0.7, dash, skid [U-turn], recovery 0.6.
+  - `CrownRain`: cast (wave 0 circles), launch (waves 1 and 2 circles, all shards). It is free at launch.
+  - `RoyalRebuke`: tell 0.35, burst 0.10 (spawns the Rebuke ring), recovery 0.30.
+
+### 20.4 Tests
+- `playerMotor.test.ts`:
+  - **Combo:** phases, chain point, window, reset rules, damage per hit, one hit per hit, no cancels.
+  - **Buffer:** inside/outside 0.20 s, newest wins, never cancels, window 0.
+  - **Stamina:** budgets, regen, refusal.
+  - **Flask:** heal at 0.6, interrupt, blocks.
+  - **Damage:** stagger/knockback/invuln, death on the 2nd hit; roll with the new dizzy and no cooldown.
+- `bossBrain.test.ts`, `tactics.test.ts`, `attackSelection.test.ts`: updated for HP 20, rage ≤ 8, poise/close/window Rebuke triggers, cooldown from free, rain exclusion.
+- `attacks.test.ts`: Slam window and Rebuke request; Charge recovery; Crown Rain waves (timings, geometry, spacing, inside the arena, exact landing, free at launch); Rebuke timing and radius; hazards outliving their attack and being cleared.
+- `rageUpgrades.test.ts`: the same three variants through the override, with Staggered Rain on wave 0's center shard.

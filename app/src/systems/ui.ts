@@ -43,15 +43,46 @@ export function applyCssVariables(root: HTMLElement = document.documentElement):
     '--died-red': C.youDiedRed,
     '--health-full': C.healthFull,
     '--health-empty': C.healthEmpty,
+    '--hud-edge': px(U.hudEdge),
+    '--pip-size': px(U.pipSize),
+    '--pip-gap': px(U.pipGap),
+    '--pip-border': px(U.pipBorder),
+    '--pip-flash': `${U.pipFlash}s`,
+    '--flask-w': px(U.flaskIconWidth),
+    '--flask-h': px(U.flaskIconHeight),
+    '--flask-text': px(U.flaskTextSize),
+    '--flask-color': C.flaskHud,
+    '--stamina-w': px(U.staminaWidth),
+    '--stamina-h': px(U.staminaHeight),
+    '--stamina-full': C.staminaFull,
+    '--stamina-flash': `${U.staminaFlash}s`,
   };
   for (const [name, value] of Object.entries(vars)) root.style.setProperty(name, value);
 }
 
+/** Restarts a one-shot CSS animation class on an element (once per event, never per frame). */
+function restartClass(el: HTMLElement, cls: string): void {
+  el.classList.remove(cls);
+  void el.offsetWidth; // reflow so the animation runs again
+  el.classList.add(cls);
+}
+
+const PER_SEG = CONFIG.boss.hp / CONFIG.boss.healthSegments;
+
 export class UI {
   private readonly debugEl: HTMLElement;
   private readonly healthEl: HTMLElement;
-  private readonly segments: HTMLElement[];
+  private readonly playerHudEl: HTMLElement;
+  private readonly fills: HTMLElement[] = [];
+  private readonly losts: HTMLElement[] = [];
+  private readonly pips: HTMLElement[] = [];
+  private readonly flaskText: HTMLElement;
+  private readonly staminaBar: HTMLElement;
+  private readonly staminaFill: HTMLElement;
   private shownHp: number = CONFIG.boss.hp;
+  private shownPlayerHp: number = CONFIG.player.hp;
+  private shownFlasks = -1;
+  private shownStamina = -1;
 
   constructor(overlay: HTMLElement, debug: boolean) {
     applyCssVariables();
@@ -59,36 +90,86 @@ export class UI {
     this.debugEl.hidden = !debug;
     this.healthEl = requireChild(overlay, '#boss-health');
     const bar = requireChild(this.healthEl, '.health-bar');
-    this.segments = [];
-    for (let i = 0; i < CONFIG.boss.hp; i++) {
+    for (let i = 0; i < CONFIG.boss.healthSegments; i++) {
       const seg = document.createElement('div');
       seg.className = 'seg';
+      const fill = document.createElement('div');
+      fill.className = 'fill';
+      const lost = document.createElement('div');
+      lost.className = 'lost';
+      seg.append(fill, lost);
       bar.appendChild(seg);
-      this.segments.push(seg);
+      this.fills.push(fill);
+      this.losts.push(lost);
     }
+    this.playerHudEl = requireChild(overlay, '#player-hud');
+    const pipsEl = requireChild(this.playerHudEl, '.pips');
+    for (let i = 0; i < CONFIG.player.hp; i++) {
+      const pip = document.createElement('div');
+      pip.className = 'pip';
+      pipsEl.appendChild(pip);
+      this.pips.push(pip);
+    }
+    this.flaskText = requireChild(this.playerHudEl, '.flask-count');
+    this.staminaBar = requireChild(this.playerHudEl, '.stamina');
+    this.staminaFill = requireChild(this.staminaBar, '.fill');
   }
 
-  /** Shows/hides the boss health bar (FIGHT, DYING, BOSS_DEFEATED). */
+  /** Shows/hides the boss health bar and the player HUD (FIGHT, DYING, BOSS_DEFEATED). */
   showHealth(visible: boolean): void {
     this.healthEl.classList.toggle('visible', visible);
+    this.playerHudEl.classList.toggle('visible', visible);
   }
 
   /**
-   * GD §2: 5 equal segments; a lost segment flashes white for 0.15 s before turning empty
-   * (CSS animation on `.lost`). Segments are lost from the right.
+   * GD §2: 20 HP shown as 5 segments of 4, draining from the right. The part lost by a hit flashes
+   * white for 0.15 s before turning empty.
    */
   setHealth(hp: number): void {
     if (hp === this.shownHp) return;
-    for (let i = 0; i < this.segments.length; i++) {
-      const lost = i >= hp;
-      const seg = this.segments[i];
-      if (lost && !seg.classList.contains('lost')) {
-        seg.classList.add('lost'); // the flash animation runs once on add
-      } else if (!lost) {
-        seg.classList.remove('lost');
+    for (let i = 0; i < this.fills.length; i++) {
+      const before = Math.min(1, Math.max(0, (this.shownHp - i * PER_SEG) / PER_SEG));
+      const now = Math.min(1, Math.max(0, (hp - i * PER_SEG) / PER_SEG));
+      this.fills[i].style.width = `${now * 100}%`;
+      const lost = this.losts[i];
+      if (now < before) {
+        lost.style.left = `${now * 100}%`;
+        lost.style.width = `${(before - now) * 100}%`;
+        restartClass(lost, 'flash');
+      } else if (now > before) {
+        lost.classList.remove('flash');
       }
     }
     this.shownHp = hp;
+  }
+
+  /** GD §2 player HUD: HP pips (a lost pip flashes), flask counter, stamina bar (0…1). */
+  setPlayerHud(hp: number, flasks: number, stamina01: number): void {
+    if (hp !== this.shownPlayerHp) {
+      for (let i = 0; i < this.pips.length; i++) {
+        const full = i < hp;
+        const pip = this.pips[i];
+        const wasFull = !pip.classList.contains('empty');
+        pip.classList.toggle('empty', !full);
+        if (wasFull && !full) restartClass(pip, 'flash');
+      }
+      this.shownPlayerHp = hp;
+    }
+    if (flasks !== this.shownFlasks) {
+      this.flaskText.textContent = `×${flasks}`;
+      this.shownFlasks = flasks;
+    }
+    // Rounded to 0.5% so the DOM is touched only when the bar visibly changes.
+    const st = Math.round(stamina01 * 200) / 2;
+    if (st !== this.shownStamina) {
+      this.staminaFill.style.width = `${st}%`;
+      this.shownStamina = st;
+    }
+  }
+
+  /** GD §4.3b: the stamina bar flashes white for 0.3 s when an action is refused. */
+  flashStamina(): void {
+    restartClass(this.staminaBar, 'flash');
   }
 
   /** Sets the debug overlay text (caller throttles to CONFIG.ui.debugRefreshHz). */

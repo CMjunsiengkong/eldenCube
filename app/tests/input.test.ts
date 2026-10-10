@@ -10,6 +10,7 @@ describe('input mapping (GAME_DESIGN §3)', () => {
   it('Space rolls, F swings; both also count as any key', () => {
     expect(edgesForKey('Space', false)).toEqual(['anyStart', 'roll']);
     expect(edgesForKey('KeyF', false)).toEqual(['anyStart', 'swing']);
+    expect(edgesForKey('KeyR', false)).toEqual(['anyStart', 'flask']);
   });
 
   it('other keys only count as any key', () => {
@@ -22,6 +23,8 @@ describe('input mapping (GAME_DESIGN §3)', () => {
     expect(edgesForKey('Digit1', true)).toEqual(['anyStart', 'debug1']);
     expect(edgesForKey('Digit2', true)).toContain('debug2');
     expect(edgesForKey('Digit3', true)).toContain('debug3');
+    expect(edgesForKey('Digit4', true)).toContain('debug4');
+    expect(edgesForKey('Digit4', false)).not.toContain('debug4');
     expect(edgesForKey('KeyK', true)).toContain('debugK');
     expect(edgesForKey('KeyG', true)).toContain('debugG');
   });
