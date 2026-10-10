@@ -64,13 +64,24 @@ Rules: follow `requirements.md` and `design.md`; git per `.kiro/steering/git.md`
 - [x] 1.4.8 `?easy`; debug keys `1/2/3/K/G`; debug text (phase, attack, close timer, punish marker); hitbox wireframes. _Req 19_
 - [x] 1.4.9 Verify in Chrome: force each attack, avoid it by moving and by roll i-frames; both tactics visible in `?debug`; each upgrade on individually (temporary local edit, reverted) vs all off; console clean. Report. **Ask to merge.**
 
+## Milestone 1.4b — Combat rework (`feat/1.4b-combat-rework`, D11)
+
+- [ ] 1.4b.1 Config groups `combo`, `stamina`, `flask`, `hurt`, `buffer`, `rebuke`, `rain` and the new boss/charge/slam/roll values; remove the replaced `swing`/`tactics`/`shards` values; config tests. _Req 22_
+- [ ] 1.4b.2 `PlayerMotor`: combo (3 hits, chain point and window, reset rules, lunges, damage), roll (dizzy 0.12, no cooldown), input buffer, stamina, flask, HP/stagger/knockback/hurt invincibility + tests. _Req 22.1–22.8_
+- [ ] 1.4b.3 `Player` view: swing-plane rig (ψ), shoulder rest pose, combo arm curves, drink pose + flask prop, hurt blink, heal flash. _Req 22.1, 22.7, 22.8_
+- [ ] 1.4b.4 `BossBrain`: HP 20, damage, rage ≤ 8, cooldown from free, poise/close/window Rebuke triggers, `chooseAttack` with rain exclusion, grace 1.0, chase 3.5 m/s beyond 5 m + tests. _Req 22.9, 22.10, 22.13_
+- [ ] 1.4b.5 `attacks/Hazards.ts` (rings, instanced shards and circles, Rebuke ring, puffs, clear) and the attack interface with `isBossFree`/`inPunishWindow`. _Req 22.10, 22.12_
+- [ ] 1.4b.6 `CubeSlam` punish window + Rebuke request; `RoyalCharge` 0.7 s telegraph + 0.6 s recovery; `CrownRain` 3 waves; `RoyalRebuke`; rage upgrades adapted + tests (attacks, rage upgrades via override). _Req 22.11–22.14_
+- [ ] 1.4b.7 `Game`: combo hits with damage, player damage/death flow, solid boss body rule, hazards stepping, Rebuke wiring, debug key 4 and debug text; player HUD (HP pips, flasks, stamina) and the 20-HP boss bar. _Req 22.15, 22.17_
+- [ ] 1.4b.8 Verify in Chrome: fluid mashed combo, no cancels, buffer, stamina budgets, flask, 2-hit death, Slam window fits a full combo, Rebuke on each trigger, no idle while hazards fly, Crown Rain survivable, each upgrade via override; draw calls < 100; console clean. Report. **Ask to merge.**
+
 ## Milestone 1.5 — Game flow and feedback (`feat/1.5-flow`)
 
 - [ ] 1.5.1 `FlowMachine` (all states, sim vs real timers, locks, auto-return, fade, reset-once, pause flag) + `tests/flow.test.ts`. _Req 16.1, 16.4–16.8, 21.9_
 - [ ] 1.5.2 `Game` orchestration — start transition (overlay fade, camera blend, HUD fade, grace), start/resume click never swings (D2), attempt counter, `reset()`, pause on blur. _Req 16.2, 16.3, 16.7, 16.9, 5.2, 5.3_
 - [ ] 1.5.3 Player death — 7-part break-apart, boss gloat at debris center, camera look-at to debris, YOU DIED timing. _Req 15, 5.4_
 - [ ] 1.5.4 All screens and HUD per GD §2 (title, prompts, controls box, hint, sound indicator, attempts, YOU DIED, CUBE FELLED, continue prompt, fade layer, pause). Victory timing. _Req 17.1–17.3, 14.5_
-- [ ] 1.5.5 `systems/sfx.ts` — all 17 recipes per AS §1.2. _Req 18.7_
+- [ ] 1.5.5 `systems/sfx.ts` — all 22 recipes per AS §1.2 (incl. the 1.4b sounds). _Req 18.7_
 - [ ] 1.5.6 `systems/audio.ts` — unlock, master/duck gains, mute (`M` everywhere), `resolveSfxSources` + `tests/sfx.test.ts`, file loading with fallback, stoppable handles; wire every GD §10 trigger (incl. optional footstep, swing_ground). _Req 18.1–18.6, 18.8, 18.9, 16.10, 21.11_
 - [ ] 1.5.7 Font import, `public/favicon.svg`, `public/CREDITS.md`, `<title>`. _Req 17.4, 17.5_
 - [ ] 1.5.8 Verify in Chrome: full session title → death → title → win → title with keyboard and click only, no reload; locks; blur pause; mute; console clean. Report. **Ask to merge.**

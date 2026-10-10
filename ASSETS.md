@@ -39,6 +39,11 @@ sound file exists in app/src/assets/sfx/<id>.(mp3|ogg|wav)  and decodes OK ?
 | `shard_launch` | Should | Pop pop pop | 0.25 s | 0.4 |
 | `shard_land` | Should | Clinks | 0.10 s | 0.3 |
 | `rage` | Should | Angry growl | 0.8 s | 0.5 |
+| `rebuke_windup` | Must | Short rising crackle (the tell) | 0.35 s | 0.45 |
+| `rebuke_burst` | Should | Sharp burst / whip-crack | 0.25 s | 0.7 |
+| `player_hurt` | Must | Comic "oof" thump | 0.25 s | 0.7 |
+| `flask_drink` | Should | Gulp gulp | 0.5 s | 0.4 |
+| `flask_heal` | Should | Bright sparkle chime | 0.4 s | 0.4 |
 | `player_break` | **Must** | Clatter plus a falling slide whistle (the main joke) | 1.0 s | 0.6 |
 | `you_died` | Must | Low dramatic "dong" | 2.5 s | 0.8 |
 | `boss_break` | Must | Big crash plus small cubes bouncing | 1.2 s | 0.9 |
@@ -69,6 +74,11 @@ Building blocks (helpers in `sfx.ts`):
 | `shard_launch` | Three "pops" 0.08 s apart: sine 400 → 900 Hz lasting 0.06 s each. vol 0.4 |
 | `shard_land` | Triangle 1800 → 1200 Hz lasting 0.08 s, plus triangle 2600 Hz at half volume. vol 0.3 |
 | `rage` | Two sawtooths at 110 Hz and 116 Hz (the detune gives the growl) → lowpass sweeping 200 → 1500 Hz over 0.8 s. vol 0.5 |
+| `rebuke_windup` | Square 300 → 1200 Hz over the tell time (0.35 s) → bandpass Q 4 following the pitch, gain trembling with a 30 Hz LFO. vol 0.45. Stoppable |
+| `rebuke_burst` | Noise → highpass 1500 Hz decaying over 0.2 s (vol 0.7), plus sine 220 → 80 Hz over 0.15 s (vol 0.5) |
+| `player_hurt` | Sine 260 → 120 Hz over 0.18 s with a 12 Hz vibrato (vol 0.7), plus noise → lowpass 800 Hz lasting 0.06 s (vol 0.4) |
+| `flask_drink` | Two "gulps" 0.25 s apart: sine 180 → 120 → 200 Hz lasting 0.12 s each, through lowpass 600 Hz. vol 0.4 |
+| `flask_heal` | Triangle arpeggio 880, 1175, 1760 Hz, 0.08 s per note, each decaying over 0.15 s. vol 0.4 |
 | `player_break` | **Clatter:** 6 noise bursts → highpass 2000 Hz, 0.03 s each, at random times within 0.4 s (vol 0.4). **Slide whistle:** sine 1400 → 300 Hz (exponential) over 0.9 s, with a 6 Hz vibrato of ±20 Hz (vol 0.35) |
 | `you_died` | Sines at 98 Hz (vol 0.8), 196 Hz (0.4) and 294 Hz (0.2), attack 0.01 s, exponential decay over 2.5 s |
 | `boss_break` | Noise → lowpass 2000 Hz decaying over 1.0 s (vol 0.9), plus sine 60 → 30 Hz over 0.8 s (vol 0.8), plus 8 `shard_land`-style clinks at random times within 1.0 s (vol 0.25) |
@@ -109,7 +119,8 @@ There are **no textures, 3D models or image files** in the game. Every visual is
 | Player (7 primitives) | GAME_DESIGN §4.1 |
 | Boss, crown, face | GAME_DESIGN §6.1 |
 | Arena, outer field, edge ring, sky, fog, lights | GAME_DESIGN §8 |
-| Shockwave ring, warning circles, shards | GAME_DESIGN §6.5 |
+| Shockwave ring, warning circles, shards, Rebuke ring | GAME_DESIGN §6.5 |
+| Player HUD (HP pips, flask counter, stamina bar), flask prop | GAME_DESIGN §2, §4.3c |
 | Debris (player parts, 8 boss cubes, crown) | GAME_DESIGN §6.6, §9 |
 
 **Color palette** (also stored in `CONFIG.colors`):
@@ -127,6 +138,9 @@ There are **no textures, 3D models or image files** in the game. Every visual is
 | Eyes / pupils | `#FFFFFF` / `#111111` |
 | Shockwave | `#FF7B00` |
 | Warning circles | `#FF3B30` |
+| Rebuke ring | `#FFE066` |
+| Flask / heal flash | `#F4A259` / `#FFD166` |
+| Stamina bar | `#6BBF59` |
 | Arena grass | `#6AB04C` |
 | Outer field | `#5E9E44` |
 | Arena edge | `#4A7F35` |

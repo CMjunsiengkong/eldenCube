@@ -81,13 +81,15 @@ eldenCube/
 │   │   │   ├── Game.ts             # owns everything; the state machine (§4.2)
 │   │   │   └── Arena.ts            # floor, outer field, edge ring, sky, fog, lights
 │   │   ├── entities/
-│   │   │   ├── Player.ts           # model, movement, roll (i-frames), swing, wobble, hitbox, break-apart
-│   │   │   └── Boss.ts             # model, HP, phases, chase, hit reaction, attack scheduler, defeat
+│   │   │   ├── Player.ts           # model, movement, roll (i-frames), combo, stamina, flask, HP/stagger, input buffer, wobble, hitbox, break-apart
+│   │   │   └── Boss.ts             # model, HP, phases, chase, hit reaction, attack scheduler, poise/Rebuke triggers, defeat
 │   │   ├── attacks/
 │   │   │   ├── Attack.ts           # shared interface (§4.4)
+│   │   │   ├── Hazards.ts          # shockwave rings, shards, circles, Rebuke ring: live on after the boss is free
 │   │   │   ├── CubeSlam.ts
 │   │   │   ├── RoyalCharge.ts
-│   │   │   └── CrownShards.ts
+│   │   │   ├── CrownRain.ts
+│   │   │   └── RoyalRebuke.ts
 │   │   ├── systems/
 │   │   │   ├── input.ts            # key/mouse state, edge-triggered actions, blur handling
 │   │   │   ├── camera.ts           # title orbit, lock-on follow, title→fight blend, shake
@@ -156,35 +158,40 @@ onFrame(now):
 
 | Class | Owns | Key public API |
 |---|---|---|
-| `Player` | Three.js group, roll pivot, velocity, facing yaw, swing phase/timer, roll phase/timer (rolling → recovery → cooldown), limb springs | `update(dt, input, cameraBasis, bossPos)`; `getHitSpheres(): Sphere[]`; `isInvincible(): boolean` (roll i-frames or debug god mode); `getBladePoints(): Vector3[]`; `isSwingActive()`; `consumeSwingHit()`; `breakApart(hitSource): DebrisPiece[]`; `reset()` |
-| `Boss` | Three.js group, HP, phase, invulnerability timer, cooldown, attack history, current attack, close timer, punish flag | `update(dt, playerPos, playerVel)`; `getBox(): {center, halfSize, yaw}`; `takeHit(fromPos): 'hit' \| 'rage' \| 'defeated' \| 'ignored'`; `onPlayerMissedSwing(playerPos)`; `gloatAt(pos)` (stop attacking, face the remains; used in `DYING`); `cancelAttack()`; `breakApart(): DebrisPiece[]`; `reset()` |
+| `Player` | Three.js group, roll pivot, velocity, facing yaw, combo hit/phase/timer and chain window, roll phase/timer (rolling → dizzy), stamina and its regen delay, HP, hurt invincibility, stagger, flask charges/timer, the one-slot input buffer, limb springs | `update(dt, input, cameraBasis, bossPos)`; `getHitSpheres(): Sphere[]`; `isInvincible(): boolean` (roll i-frames, hurt invincibility or debug god mode); `takeHit(source): 'hurt' \| 'dead' \| 'ignored'`; `getBladePoints(): Vector3[]`; `isAttackActive()`; `attackDamage()`; `markAttackHit()`; `breakApart(hitSource): DebrisPiece[]`; `reset()` |
+| `Boss` | Three.js group, HP, phase, cooldown, attack history, current attack, poise counter, close timer, pending Rebuke | `update(dt, playerPos, playerVel)`; `getBox(): {center, halfSize, yaw}`; `takeHit(damage, fromPos): 'hit' \| 'rage' \| 'defeated' \| 'ignored'`; `gloatAt(pos)` (stop attacking, face the remains; used in `DYING`); `cancelAttack()`; `breakApart(): DebrisPiece[]`; `reset()` |
+
+The player's combo, buffer, stamina, flask and hurt timing live in the pure `PlayerMotor` core, exported from `Player.ts` and unit tested in Node. The boss's HP, scheduler and Rebuke triggers live in the pure `BossBrain`, exported from `Boss.ts`.
 
 ### 4.4 Attacks (`attacks/*.ts`)
 
 ```ts
 interface Attack {
-  readonly id: 'slam' | 'charge' | 'shards';
+  readonly id: 'slam' | 'charge' | 'rain' | 'rebuke';
   start(ctx: AttackContext): void;   // begins the telegraph
   update(dt: number, ctx: AttackContext): void;
-  checkPlayerHit(spheres: Sphere[]): Vector3 | null; // hit source, or null. Game calls it only when !player.isInvincible()
-  isFinished(): boolean;
-  dispose(): void;                    // removes meshes (circles, ring, shards) from the scene
+  checkPlayerHit(spheres: Sphere[]): Vector3 | null; // the boss body / burst only; hit source, or null
+  isBossFree(): boolean;              // the boss's own animation (incl. recovery / punish window) has ended
+  inPunishWindow(): boolean;          // damage now does not count toward poise (Slam window, Charge recovery)
+  dispose(puff?: boolean): void;      // stops long sounds, removes attack-owned meshes (shadow circle)
 }
 ```
 
-- `AttackContext` gives access to the boss, the player's position and velocity, the scene, audio, the camera shake, the speed multiplier (rage × easy) and the telegraph multiplier.
+- `AttackContext` gives access to the boss, the player's position and velocity, the scene, audio, the camera shake, the speed multiplier (rage × easy), the telegraph multiplier, the rage flag, the upgrade switches (an override, so tests never edit `config.ts`) and the **hazard system**.
+- **Hazards (`Hazards.ts`)** own everything that keeps moving after the boss is free: shockwave rings, shards in flight, warning circles and the Rebuke ring. Attacks spawn them into the shared system; `Game` steps them and checks them against the player every step. They are removed (optionally with a puff) by the rage transition, defeat, player death and reset. Shards and circles are drawn with `InstancedMesh` (one draw call per kind and wave), so Crown Rain stays within the draw-call budget.
+- The boss's cooldown starts when `isBossFree()` turns true, not when the hazards are gone (GAME_DESIGN §6.2).
 - The attack **selection rule** (GAME_DESIGN §6.5) is a **pure function** in `Boss.ts`, so it can be unit tested:
-  `chooseAttack(history, distanceToPlayer, closeTimer, rng) → id`
-- Optional rage upgrades (GAME_DESIGN §6.5a) are implemented **inside** each attack class (`CubeSlam`, `RoyalCharge`, `CrownShards`) as extra phases, enabled when `boss.phase === 'rage'` and the matching `CONFIG.rageUpgrades` switch is `true`. `isFinished()` returns `true` only after the extra phases.
-- The two tactics rules (GAME_DESIGN §6.2a) are also pure functions in `Boss.ts`:
-  - `updateCloseTimer(timer, distance, dt) → timer`
-  - `applyMissPunish(remainingCooldown, alreadyPunished) → { remaining, punished }`
-- `Player` reports a missed swing to `Game`, which calls `boss.onPlayerMissedSwing(playerPos)`.
+  `chooseAttack(history, distanceToPlayer, rainAlive, rng) → id`
+- Optional rage upgrades (GAME_DESIGN §6.5a) are implemented **inside** each attack class (`CubeSlam`, `RoyalCharge`, `CrownRain`) as extra phases, enabled when `ctx.rage` and the matching `ctx.upgrades` switch are both true. `isBossFree()` returns `true` only after the extra phases.
+- The Rebuke triggers (GAME_DESIGN §6.2a) are pure functions in `Boss.ts`:
+  - `updateCloseTimer(timer, distance, waiting, dt) → timer`
+  - `addPoise(poise, damage, inWindow) → { poise, trigger }`
 
 ### 4.5 Input (`systems/input.ts`)
 
 - Tracks held keys by `KeyboardEvent.code`.
-- Exposes **edge-triggered** actions that are consumed once per press: `rollPressed`, `swingPressed`, `mutePressed`, `anyStartPressed`. `anyStartPressed` is any key except `KeyM`, or a click.
+- Exposes **edge-triggered** actions that are consumed once per press: `rollPressed`, `attackPressed`, `flaskPressed` (`KeyR`), `mutePressed`, `anyStartPressed`. `anyStartPressed` is any key except `KeyM`, or a click.
+- Unconsumed edges are still dropped at the end of every simulation step. Buffering (GAME_DESIGN §4.3d) is done in `PlayerMotor`, which stores the press with its time, so it stays pure and testable.
 - Listens on `window` for keys and on the canvas for `pointerdown` (button 0).
 - On window `blur` or `visibilitychange` (hidden), clears all held keys and notifies `Game`.
 - Calls `preventDefault()` for `Space`. Blocks `contextmenu` on the canvas.
@@ -206,7 +213,8 @@ interface Attack {
 - It contains one child element per screen or HUD item from GAME_DESIGN §2.
 - `ui.show(state)` toggles CSS classes. Animations (blink, fade, scale) are CSS transitions and keyframes.
 - Clicks always reach the canvas or window (`pointer-events: none` on the overlay), so "click to continue" works anywhere.
-- Debug overlay (`?debug`): plain text, top-left. It updates at 4 Hz to avoid layout cost.
+- Player HUD (HP pips, flask counter, stamina bar) is top-left; the boss bar is bottom center with 5 segments that each drain partially (4 HP per segment).
+- Debug overlay (`?debug`): plain text, top-left **below the player HUD**. It updates at 4 Hz to avoid layout cost.
 
 ### 4.8 Audio (`systems/audio.ts`, `systems/sfx.ts`)
 
@@ -278,7 +286,7 @@ This is used for the limb pitches, the head offset and the boss squash.
 
 ## 6. `config.ts`
 
-- A single exported, deeply `readonly` object `CONFIG`, grouped as: `player`, `swing`, `roll`, `wobble`, `boss`, `tactics`, `rage`, `rageUpgrades` (three booleans, all `false` by default, plus their values), `slam`, `charge`, `shards`, `camera`, `arena`, `lights`, `colors`, `fx`, `ui`, `transitions`, `audio`, `easy`.
+- A single exported, deeply `readonly` object `CONFIG`, grouped as: `player`, `combo`, `roll`, `stamina`, `flask`, `hurt`, `buffer`, `wobble`, `boss`, `rebuke`, `rage`, `rageUpgrades` (three booleans, all `false` by default, plus their values), `slam`, `charge`, `rain`, `camera`, `arena`, `lights`, `colors`, `fx`, `ui`, `transitions`, `audio`, `easy`.
 - It contains **every** value marked or listed in GAME_DESIGN.md sections 1–11 (including transitions, UI timings, tactics and rage upgrades), with the same numbers. Use descriptive names with units in comments, e.g.:
   `player: { maxSpeed: 6, /* m/s */ accel: 10, /* m/s² */ ... }`.
 - `flags.ts` applies `?easy` multipliers when values are read (e.g. `effectiveTelegraph = CONFIG.slam.telegraph × telegraphMult`). `CONFIG` itself is never mutated.
@@ -307,7 +315,7 @@ The build fails if type checking or tests fail.
 
 | Level | What | Tool / method |
 |---|---|---|
-| Unit | `collision.ts` helpers; `springStep` stability (settles, no explosion at the fixed step); `chooseAttack` (no 3 in a row; no Charge within 6 m; close timer ≥ 3.0 s forces Slam, or Shards when Slam is blocked; over 1,000 seeded runs every valid attack appears); `updateCloseTimer` (+dt when close, −2·dt when not, never below 0); `applyMissPunish` (−0.8 s, floor 0.3 s, once per cooldown); boss HP / phase transitions (`takeHit` sequence → `hit, hit, rage, hit, defeated`; ignored during invulnerability and during the rage transition); swing phase timing (damage only in the active window, at most one hit per swing); roll timing (i-frames exactly 0.05–0.40 s; direction locked; no swing or roll during roll or recovery; no roll during cooldown); state flow (death → `TO_TITLE` after 2.0 s; victory → `TO_TITLE` on input after 1.0 s or automatically after 8 s; reset happens exactly once, at full black); `flags.ts` parsing; `resolveSfxSources` (an empty glob means every sound uses its recipe; `hit.mp3` maps to `hit`; mp3 beats ogg/wav for the same ID; unknown names are ignored) | Vitest |
+| Unit | `collision.ts` helpers; `springStep` stability (settles, no explosion at the fixed step); `chooseAttack` (no 3 in a row; no Charge within 6 m; no Crown Rain while rain shards are alive; falls back when nothing is valid; over 1,000 seeded runs every valid attack appears); `updateCloseTimer` (+dt when close and waiting, −2·dt otherwise, never below 0); `addPoise` (only outside windows, triggers at 3, resets); Rebuke triggers (poise, close 1.0 s, Slam window end within 5 m); cooldown starts when the boss is free, not when hazards end; boss HP / phase transitions (20 HP; damage 1/1/2; rage at ≤ 8 in the same step, cancelling the attack and hazards; defeat at 0; ignored during the rage transition); combo timing (phases, damage only in active windows, one hit per combo hit, chain point and 0.5 s window, reset rules, Hit 3 ends the combo, no cancels); input buffer (0.20 s window, newest wins, runs at the first legal step, never cancels; `bufferWindow = 0` drops all); stamina (3 rolls or 3 hits + 1 roll from full; ≥ cost rule; regen delay 0.4 s and 45/s; refusal); flask (heal at 0.60 s, interrupt loses the charge, blocked at full HP or 0 charges, 3 charges, no stamina restore); player damage (hurt → stagger 0.5 s, 3 m knockback, 1.0 s invincibility; second hit → dead); roll timing (i-frames exactly 0.05–0.40 s; direction locked; no attack or roll start during roll or recovery except via buffer); Crown Rain (wave timings T, T+0.4, T+0.8; cage and wall geometry; scatter spacing ≥ 5 m; all inside the arena; exact landing); rage upgrades through the `upgrades` override; state flow (death → `TO_TITLE` after 2.0 s; victory → `TO_TITLE` on input after 1.0 s or automatically after 8 s; reset happens exactly once, at full black); `flags.ts` parsing; `resolveSfxSources` (an empty glob means every sound uses its recipe; `hit.mp3` maps to `hit`; mp3 beats ogg/wav for the same ID; unknown names are ignored) | Vitest |
 | Debug visual | Hitbox wireframes, forced attacks, god mode, instant damage (`?debug`) | Manual, in the browser |
 | Acceptance | The full GAME_DESIGN §13 checklist | Manual, on the booth laptop |
 | Console hygiene | No errors or warnings during a full session | Chrome DevTools |

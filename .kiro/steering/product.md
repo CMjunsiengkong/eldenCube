@@ -4,7 +4,7 @@ inclusion: always
 
 # Product — The Elden Cube
 
-A small, funny 3D boss fight in the browser: a clumsy hero ("The Tarnished Intern") against a giant crowned cube ("The Elden Cube"). One hit kills the player; the cube takes 5 hits. Built with Kiro, hosted on AWS (S3 + CloudFront via CDK). The booth attraction at AWS Student Community Day 2026 (Sat 17 Oct 2026). Booth key message: "Plan before you build."
+A small, funny 3D boss fight in the browser: a clumsy hero ("The Tarnished Intern") against a giant crowned cube ("The Elden Cube"). Two hits kill the player (3 flasks restore 1 HP each); the cube takes 20 damage (about five 3-hit combos). Souls-style stamina, input buffer and punish windows (GAME_DESIGN §4.3–§6.5, changed 2026-10-10). Built with Kiro, hosted on AWS (S3 + CloudFront via CDK). The booth attraction at AWS Student Community Day 2026 (Sat 17 Oct 2026). Booth key message: "Plan before you build."
 
 ## Purpose
 - Draw visitors to the booth with a silly boss fight they want to try.
@@ -14,7 +14,7 @@ A small, funny 3D boss fight in the browser: a clumsy hero ("The Tarnished Inter
 ## Locked decisions (README)
 - Solo build with Kiro. Everything done, including polish, by **Tue 13 Oct 2026**.
 - Platform: desktop Chrome on the booth laptop. One player at a time.
-- Input: keyboard (WASD move, Space roll, F swing, M mute) + mouse/touchpad click to swing. No gamepad.
+- Input: keyboard (WASD move, Space roll, F attack, R flask, M mute) + mouse/touchpad click to attack. No gamepad.
 - 3D, simple geometric primitives only, flat green grass ground, no other scenery.
 - No stored data: no leaderboard, accounts, scores. Each play is a one-time session.
 - AWS: static hosting only (S3 + CloudFront, CDK). No AWS or network calls at runtime.

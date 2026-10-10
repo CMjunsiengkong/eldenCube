@@ -24,7 +24,7 @@ Latest stable version of each at project start, locked with `package-lock.json`.
 **Do not add:** a physics engine, a UI framework, a state library, an analytics SDK, any runtime network call, any CDN/third-party asset load.
 
 ## config.ts rule (ARCHITECTURE §6)
-- `app/src/config.ts` exports a single, deeply `readonly` object `CONFIG`, grouped as: `player`, `swing`, `roll`, `wobble`, `boss`, `tactics`, `rage`, `rageUpgrades`, `slam`, `charge`, `shards`, `camera`, `arena`, `lights`, `colors`, `fx`, `ui`, `transitions`, `audio`, `easy`.
+- `app/src/config.ts` exports a single, deeply `readonly` object `CONFIG`, grouped as: `player`, `combo`, `roll`, `stamina`, `flask`, `hurt`, `buffer`, `wobble`, `boss`, `rebuke`, `rage`, `rageUpgrades`, `slam`, `charge`, `rain`, `camera`, `arena`, `lights`, `colors`, `fx`, `ui`, `transitions`, `audio`, `easy`.
 - It contains **every** value from GAME_DESIGN §1–11 with exactly the documented numbers. Descriptive names, units in comments (e.g. `maxSpeed: 6, // m/s`).
 - No tunable number is hard-coded anywhere else.
 - `rageUpgrades.doubleSlam`, `.chargeUTurn`, `.staggeredShards` are all `false` by default.
@@ -35,7 +35,7 @@ Latest stable version of each at project start, locked with `package-lock.json`.
 - Units: meters, seconds, radians. Y up. Arena center = origin. +Z local = forward.
 - Fixed simulation step 1/60 s; max 5 steps per frame; frame dt clamped to 0.1 s.
 - Gameplay timers count simulation time; input locks, victory auto-return and `TO_TITLE` fades count real time.
-- Pure logic (collision helpers, `springStep`, `chooseAttack`, `updateCloseTimer`, `applyMissPunish`, boss HP/phase, swing/roll timing, state-flow timing, flags parsing, `resolveSfxSources`) must be importable and testable under Vitest in a Node environment (no DOM/WebGL required).
+- Pure logic (collision helpers, `springStep`, `chooseAttack`, `updateCloseTimer`, `addPoise`, boss HP/phase, combo/buffer/stamina/flask/roll/hurt timing, state-flow timing, flags parsing, `resolveSfxSources`) must be importable and testable under Vitest in a Node environment (no DOM/WebGL required).
 - Seedable RNG (`util/rng.ts`); tests use fixed seeds.
 - Rendering: `WebGLRenderer({ antialias: true })`, pixel ratio ≤ 2, `PCFShadowMap`, < 100 draw calls, one shadow-casting light, no post-processing. Reuse geometries/materials; never allocate per frame.
 - Keys via `KeyboardEvent.code`; ignore `event.repeat`.

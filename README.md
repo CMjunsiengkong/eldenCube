@@ -20,7 +20,7 @@ A small, funny 3D boss fight in the browser, built with **Kiro** and delivered o
 | Deadline | **Everything done (including polish) by Tue 13 Oct 2026**. Earlier is better |
 | Platform | Web browser (Chrome) on the booth laptop |
 | Players | One at a time, on the booth laptop |
-| Input | Laptop keyboard (WASD move, Space roll) plus a mouse or touchpad (click to swing). No gamepad |
+| Input | Laptop keyboard (WASD move, Space roll, R flask) plus a mouse or touchpad (click to attack). No gamepad |
 | Graphics | 3D, built only from simple geometric shapes, with a flat green grass ground and no other scenery |
 | Data | **No stored data**: no leaderboard, no accounts, no scores. Each play is a one-time session (like slowroads.io) |
 | AWS approach | **Static hosting only** (S3 + CloudFront, built with the CDK). No AWS calls while the game runs |
@@ -35,7 +35,7 @@ A small, funny 3D boss fight in the browser, built with **Kiro** and delivered o
 
 | File | Contents |
 |---|---|
-| [GAME_DESIGN.md](GAME_DESIGN.md) | Complete gameplay spec: states, screens, controls, player, swing, boss, attacks, camera, arena, audio triggers, debug flags, acceptance checklist |
+| [GAME_DESIGN.md](GAME_DESIGN.md) | Complete gameplay spec: states, screens, controls, player (combo, roll, stamina, flask, HP), boss, attacks, camera, arena, audio triggers, debug flags, acceptance checklist |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Complete technical spec: stack, repository layout, game loop, state machine, physics and collision, `config.ts`, testing, AWS CDK stack, deploy and teardown, cost, security, development environment, MCP servers and AWS profile setup (§13) |
 | [ASSETS.md](ASSETS.md) | Every non-code resource: procedural sound recipes, color palette, font, favicon, booth materials, tools |
 | [PROJECT_PLAN.md](PROJECT_PLAN.md) | Stage-by-stage build plan for the game (milestones with exit criteria), cut order, risks |
