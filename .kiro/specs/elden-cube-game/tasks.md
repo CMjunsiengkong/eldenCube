@@ -66,14 +66,14 @@ Rules: follow `requirements.md` and `design.md`; git per `.kiro/steering/git.md`
 
 ## Milestone 1.4b — Combat rework (`feat/1.4b-combat-rework`, D11)
 
-- [ ] 1.4b.1 Config groups `combo`, `stamina`, `flask`, `hurt`, `buffer`, `rebuke`, `rain` and the new boss/charge/slam/roll values; remove the replaced `swing`/`tactics`/`shards` values; config tests. _Req 22_
-- [ ] 1.4b.2 `PlayerMotor`: combo (3 hits, chain point and window, reset rules, lunges, damage), roll (dizzy 0.12, no cooldown), input buffer, stamina, flask, HP/stagger/knockback/hurt invincibility + tests. _Req 22.1–22.8_
-- [ ] 1.4b.3 `Player` view: swing-plane rig (ψ), shoulder rest pose, combo arm curves, drink pose + flask prop, hurt blink, heal flash. _Req 22.1, 22.7, 22.8_
-- [ ] 1.4b.4 `BossBrain`: HP 20, damage, rage ≤ 8, cooldown from free, poise/close/window Rebuke triggers, `chooseAttack` with rain exclusion, grace 1.0, chase 3.5 m/s beyond 5 m + tests. _Req 22.9, 22.10, 22.13_
-- [ ] 1.4b.5 `attacks/Hazards.ts` (rings, instanced shards and circles, Rebuke ring, puffs, clear) and the attack interface with `isBossFree`/`inPunishWindow`. _Req 22.10, 22.12_
-- [ ] 1.4b.6 `CubeSlam` punish window + Rebuke request; `RoyalCharge` 0.7 s telegraph + 0.6 s recovery; `CrownRain` 3 waves; `RoyalRebuke`; rage upgrades adapted + tests (attacks, rage upgrades via override). _Req 22.11–22.14_
-- [ ] 1.4b.7 `Game`: combo hits with damage, player damage/death flow, solid boss body rule, hazards stepping, Rebuke wiring, debug key 4 and debug text; player HUD (HP pips, flasks, stamina) and the 20-HP boss bar. _Req 22.15, 22.17_
-- [ ] 1.4b.8 Verify in Chrome: fluid mashed combo, no cancels, buffer, stamina budgets, flask, 2-hit death, Slam window fits a full combo, Rebuke on each trigger, no idle while hazards fly, Crown Rain survivable, each upgrade via override; draw calls < 100; console clean. Report. **Ask to merge.**
+- [x] 1.4b.1 Config groups `combo`, `stamina`, `flask`, `hurt`, `buffer`, `rebuke`, `rain` and the new boss/charge/slam/roll values; remove the replaced `swing`/`tactics`/`shards` values; config tests. _Req 22_
+- [x] 1.4b.2 `PlayerMotor`: combo (3 hits, chain point and window, reset rules, lunges, damage), roll (dizzy 0.12, no cooldown), input buffer, stamina, flask, HP/stagger/knockback/hurt invincibility + tests. _Req 22.1–22.8_
+- [x] 1.4b.3 `Player` view: swing-plane rig (ψ), shoulder rest pose, combo arm curves, drink pose + flask prop, hurt blink, heal flash. _Req 22.1, 22.7, 22.8_
+- [x] 1.4b.4 `BossBrain`: HP 20, damage, rage ≤ 8, cooldown from free, poise/close/window Rebuke triggers, `chooseAttack` with rain exclusion, grace 1.0, chase 3.5 m/s beyond 5 m + tests. _Req 22.9, 22.10, 22.13_
+- [x] 1.4b.5 `attacks/Hazards.ts` (rings, instanced shards and circles, Rebuke ring, puffs, clear) and the attack interface with `isBossFree`/`inPunishWindow`. _Req 22.10, 22.12_
+- [x] 1.4b.6 `CubeSlam` punish window + Rebuke request; `RoyalCharge` 0.7 s telegraph + 0.6 s recovery; `CrownRain` 3 waves; `RoyalRebuke`; rage upgrades adapted + tests (attacks, rage upgrades via override). _Req 22.11–22.14_
+- [x] 1.4b.7 `Game`: combo hits with damage, player damage/death flow, solid boss body rule, hazards stepping, Rebuke wiring, debug key 4 and debug text; player HUD (HP pips, flasks, stamina) and the 20-HP boss bar. _Req 22.15, 22.17_
+- [x] 1.4b.8 Verify in Chrome: fluid mashed combo, no cancels, buffer, stamina budgets, flask, 2-hit death, Slam window fits a full combo, Rebuke on each trigger, no idle while hazards fly, Crown Rain survivable, each upgrade via override; draw calls < 100; console clean. Report. **Ask to merge.**
 
 ## Milestone 1.5 — Game flow and feedback (`feat/1.5-flow`)
 
