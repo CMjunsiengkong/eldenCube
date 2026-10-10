@@ -77,14 +77,14 @@ Rules: follow `requirements.md` and `design.md`; git per `.kiro/steering/git.md`
 
 ## Milestone 1.5 — Game flow and feedback (`feat/1.5-flow`)
 
-- [ ] 1.5.1 `FlowMachine` (all states, sim vs real timers, locks, auto-return, fade, reset-once, pause flag) + `tests/flow.test.ts`. _Req 16.1, 16.4–16.8, 21.9_
-- [ ] 1.5.2 `Game` orchestration — start transition (overlay fade, camera blend, HUD fade, grace), start/resume click never swings (D2), attempt counter, `reset()`, pause on blur. _Req 16.2, 16.3, 16.7, 16.9, 5.2, 5.3_
-- [ ] 1.5.3 Player death — 7-part break-apart, boss gloat at debris center, camera look-at to debris, YOU DIED timing. _Req 15, 5.4_
-- [ ] 1.5.4 All screens and HUD per GD §2 (title, prompts, controls box, hint, sound indicator, attempts, YOU DIED, CUBE FELLED, continue prompt, fade layer, pause). Victory timing. _Req 17.1–17.3, 14.5_
-- [ ] 1.5.5 `systems/sfx.ts` — all 22 recipes per AS §1.2 (incl. the 1.4b sounds). _Req 18.7_
-- [ ] 1.5.6 `systems/audio.ts` — unlock, master/duck gains, mute (`M` everywhere), `resolveSfxSources` + `tests/sfx.test.ts`, file loading with fallback, stoppable handles; wire every GD §10 trigger (incl. optional footstep, swing_ground). _Req 18.1–18.6, 18.8, 18.9, 16.10, 21.11_
-- [ ] 1.5.7 Font import, `public/favicon.svg`, `public/CREDITS.md`, `<title>`. _Req 17.4, 17.5_
-- [ ] 1.5.8 Verify in Chrome: full session title → death → title → win → title with keyboard and click only, no reload; locks; blur pause; mute; console clean. Report. **Ask to merge.**
+- [x] 1.5.1 `FlowMachine` (all states, sim vs real timers, locks, auto-return, fade, reset-once, pause flag) + `tests/flow.test.ts`. _Req 16.1, 16.4–16.8, 21.9_
+- [x] 1.5.2 `Game` orchestration — start transition (overlay fade, camera blend, HUD fade, grace), start/resume click never swings (D2), attempt counter, `reset()`, pause on blur. _Req 16.2, 16.3, 16.7, 16.9, 5.2, 5.3_
+- [x] 1.5.3 Player death — 7-part break-apart, boss gloat at debris center, camera look-at to debris, YOU DIED timing. _Req 15, 5.4_
+- [x] 1.5.4 All screens and HUD per GD §2 (title, prompts, controls box, hint, sound indicator, attempts, YOU DIED, CUBE FELLED, continue prompt, fade layer, pause). Victory timing. _Req 17.1–17.3, 14.5_
+- [x] 1.5.5 `systems/sfx.ts` — all 22 recipes per AS §1.2 (incl. the 1.4b sounds). _Req 18.7_
+- [x] 1.5.6 `systems/audio.ts` — unlock, master/duck gains, mute (`M` everywhere), `resolveSfxSources` + `tests/sfx.test.ts`, file loading with fallback, stoppable handles; wire every GD §10 trigger (incl. optional footstep, swing_ground). _Req 18.1–18.6, 18.8, 18.9, 16.10, 21.11_
+- [x] 1.5.7 Font import, `public/favicon.svg`, `public/CREDITS.md`, `<title>`. _Req 17.4, 17.5_
+- [x] 1.5.8 Verify in Chrome: full session title → death → title → win → title with keyboard and click only, no reload; locks; blur pause; mute; console clean. Report. **Ask to merge.**
 
 ## Milestone 1.6 — Tests, tuning, bug bash (`feat/1.6-tuning`)
 
