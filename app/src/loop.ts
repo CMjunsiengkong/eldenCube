@@ -20,6 +20,12 @@ export interface TimeControl {
   setTimeScale(scale: number, seconds: number): void;
 }
 
+/** What Game needs from the loop: time control plus pause and a timing reset. */
+export interface GameClock extends TimeControl {
+  paused: boolean;
+  resetTiming(): void;
+}
+
 export interface LoopTarget {
   update(dt: number): void;
   realUpdate(frameDt: number): void;
@@ -28,7 +34,7 @@ export interface LoopTarget {
 
 type Scheduler = (cb: (now: number) => void) => unknown;
 
-export class Loop implements TimeControl {
+export class Loop implements GameClock {
   /** While true, only `realUpdate` and `render` run. */
   paused = false;
 

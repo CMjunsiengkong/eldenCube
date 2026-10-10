@@ -9,6 +9,19 @@
   <body>
     <canvas id="game" aria-label="The Elden Cube game"></canvas>
     <div id="overlay">
+      <div id="title-screen" class="screen">
+        <h1 class="title">THE ELDEN CUBE</h1>
+        <div id="start-prompt">Press any key to begin</div>
+        <div id="attempts"></div>
+        <div class="controls-box">WASD Move · Space Roll · Click Attack · R Flask · M Mute</div>
+      </div>
+      <div id="controls-hint" class="hud">WASD · Space · Click · R</div>
+      <div id="sound-indicator">Sound: ON (M)</div>
+      <div id="result" class="screen">
+        <div class="result-text"></div>
+        <div id="continue-prompt">Click or press any key to continue</div>
+      </div>
+      <div id="pause"><div class="pause-text">Paused — click to continue</div></div>
       <div id="player-hud" class="hud">
         <div class="hud-row">
           <div class="pips"></div>
@@ -17,6 +30,7 @@
         <div class="stamina"><div class="fill"></div></div>
       </div>
       <div id="debug" hidden></div>
+      <div id="fade"></div>
       <div id="boss-health" class="hud">
         <div class="health-label">The Elden Cube</div>
         <div class="health-bar"></div>

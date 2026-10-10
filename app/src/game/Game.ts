@@ -1,11 +1,10 @@
 /**
  * Owns everything; the state machine (ARCHITECTURE §4.2).
  *
- * Milestone 1.4b: the 3-hit combo deals damage; the boss runs Slam / Charge / Crown Rain and the
- * Royal Rebuke; hazards live on after the boss is free; the player has 2 HP (stagger on the first
- * hit). Death leads to a minimal DYING placeholder (2.0 s, then an instant reset back into FIGHT).
- * The full state machine (TITLE → … → TO_TITLE), player break-apart, screens and audio arrive in
- * milestone 1.5.
+ * - `FlowMachine` (pure, unit tested) owns the state, its sim / real timers, the input locks and
+ *   the fade, and emits commands that `Game` executes.
+ * - `Game` orchestrates the world: the fight (combo, boss, attacks, hazards), the player's death
+ *   and break-apart, the boss defeat, audio triggers, screens and the return transition.
  */
 import {
   BoxGeometry,
@@ -26,41 +25,208 @@ import {
 } from 'three';
 import { CONFIG } from '../config';
 import { getFlags, rebukeTellFor, speedMult, telegraphMult } from '../flags';
-import type { LoopTarget, TimeControl } from '../loop';
+import type { GameClock, LoopTarget } from '../loop';
 import { moveDirFromAxis, Player, type MotorInput, type PlayerEvent } from '../entities/Player';
 import { Boss, type HitResult } from '../entities/Boss';
-import { SILENT, type Attack, type AttackContext, type MoveId } from '../attacks/Attack';
+import type { Attack, AttackContext, MoveId } from '../attacks/Attack';
 import { CubeSlam } from '../attacks/CubeSlam';
 import { RoyalCharge } from '../attacks/RoyalCharge';
 import { CrownRain } from '../attacks/CrownRain';
 import { RoyalRebuke } from '../attacks/RoyalRebuke';
 import { Hazards, WAVES } from '../attacks/Hazards';
-import { disposeDebris, stepDebris, type DebrisPiece } from '../fx/debris';
+import { debrisCenter, stepDebris, type DebrisPiece } from '../fx/debris';
 import { Puffs } from '../fx/effects';
+import { Audio } from '../systems/audio';
 import { CameraController } from '../systems/camera';
 import { pointInOBB } from '../systems/collision';
 import { Input } from '../systems/input';
 import { UI } from '../systems/ui';
+import { easeInOut, lerp } from '../util/math';
 import { createRng } from '../util/rng';
 import { Arena } from './Arena';
 
 export type GameState = 'TITLE' | 'FIGHT' | 'DYING' | 'BOSS_DEFEATED' | 'VICTORY_SCREEN' | 'TO_TITLE';
 
+export type FlowCommand =
+  | 'startFight' // TITLE → FIGHT (attempt counter already increased)
+  | 'breakPlayer' // DYING @0.10
+  | 'showYouDied' // DYING @0.60
+  | 'showVictory' // BOSS_DEFEATED → VICTORY_SCREEN @1.50
+  | 'continueReady' // the victory input lock ended
+  | 'beginToTitle' // the return transition starts (fade-out)
+  | 'reset' // full black: reset the world exactly once
+  | 'titleReady'; // the title input lock ended: show the start prompt
+
+const T = CONFIG.transitions;
+const DEATH = CONFIG.fx.death;
+const EPS = 1e-9;
+
+/**
+ * Pure game flow (GD §1, §9; design §4.1). Gameplay timers (dying, defeat delay) count simulation
+ * time in `update`; input locks, the victory auto-return and the fades count real time in
+ * `realUpdate`. Commands accumulate in `commands`; the owner processes and clears them.
+ */
+export class FlowMachine {
+  state: GameState = 'TITLE';
+  /** Valid only in FIGHT (window blur / hidden tab). */
+  paused = false;
+  /** Black fade layer opacity 0…1. */
+  fade = 0;
+  /** Audio duck factor: 1 normal, 0.3 during the fade. */
+  duck = 1;
+  attempts = 0;
+  titleUnlocked = false;
+  continueUnlocked = false;
+  /** TO_TITLE: the world has been reset (fade-in phase). */
+  resetDone = false;
+  readonly commands: FlowCommand[] = [];
+
+  private simT = 0;
+  private realT = 0;
+  private broke = false;
+  private youDied = false;
+
+  constructor() {
+    this.enterTitle();
+  }
+
+  /** Simulation step (not called while paused or during hit-stop). */
+  update(dt: number): void {
+    if (this.state === 'DYING') {
+      this.simT += dt;
+      if (!this.broke && this.simT >= DEATH.breakAt - EPS) {
+        this.broke = true;
+        this.commands.push('breakPlayer');
+      }
+      if (!this.youDied && this.simT >= DEATH.youDiedAt - EPS) {
+        this.youDied = true;
+        this.commands.push('showYouDied');
+      }
+      if (this.simT >= DEATH.duration - EPS) this.beginToTitle();
+    } else if (this.state === 'BOSS_DEFEATED') {
+      this.simT += dt;
+      if (this.simT >= CONFIG.boss.defeat.victoryDelay - EPS) {
+        this.state = 'VICTORY_SCREEN';
+        this.realT = 0;
+        this.continueUnlocked = false;
+        this.commands.push('showVictory');
+      }
+    }
+  }
+
+  /** Every frame, real time. `anyStart`: any key except M, or a click, this frame. */
+  realUpdate(dt: number, anyStart: boolean): void {
+    switch (this.state) {
+      case 'TITLE':
+        this.realT += dt;
+        if (!this.titleUnlocked && this.realT >= T.titleInputLock - EPS) {
+          this.titleUnlocked = true;
+          this.commands.push('titleReady');
+        }
+        if (this.titleUnlocked && anyStart) {
+          this.state = 'FIGHT';
+          this.paused = false;
+          this.attempts++;
+          this.commands.push('startFight');
+        }
+        break;
+      case 'VICTORY_SCREEN':
+        this.realT += dt;
+        if (!this.continueUnlocked && this.realT >= T.victoryInputLock - EPS) {
+          this.continueUnlocked = true;
+          this.commands.push('continueReady');
+        }
+        if ((this.continueUnlocked && anyStart) || this.realT >= T.victoryIdleReturn - EPS) this.beginToTitle();
+        break;
+      case 'TO_TITLE': {
+        this.realT += dt;
+        if (!this.resetDone) {
+          const u = Math.min(1, this.realT / T.fadeOut);
+          this.fade = easeInOut(u);
+          if (u >= 1) {
+            this.fade = 1;
+            this.resetDone = true;
+            this.realT = 0;
+            this.commands.push('reset');
+          }
+        } else {
+          const u = Math.min(1, this.realT / T.fadeIn);
+          this.fade = 1 - easeInOut(u);
+          if (u >= 1) {
+            this.fade = 0;
+            this.enterTitle();
+          }
+        }
+        this.duck = lerp(1, T.audioDuck, this.fade);
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  /** The player's HP reached 0 (hit-stop counted inside the timer, design §4.1). */
+  playerDied(hitStop: number): void {
+    if (this.state !== 'FIGHT') return;
+    this.state = 'DYING';
+    this.simT = hitStop;
+    this.broke = false;
+    this.youDied = false;
+  }
+
+  /** The boss's HP reached 0. */
+  bossDefeated(hitStop: number): void {
+    if (this.state !== 'FIGHT') return;
+    this.state = 'BOSS_DEFEATED';
+    this.simT = hitStop;
+  }
+
+  /** Window blur / hidden tab: pause, only during FIGHT. */
+  pause(): boolean {
+    if (this.state !== 'FIGHT') return false;
+    this.paused = true;
+    return true;
+  }
+
+  resume(): void {
+    this.paused = false;
+  }
+
+  private beginToTitle(): void {
+    this.state = 'TO_TITLE';
+    this.realT = 0;
+    this.resetDone = false;
+    this.paused = false;
+    this.commands.push('beginToTitle');
+  }
+
+  private enterTitle(): void {
+    this.state = 'TITLE';
+    this.realT = 0;
+    this.titleUnlocked = false;
+    this.fade = 0;
+    this.duck = 1;
+  }
+}
+
 const CAM = CONFIG.camera;
 const B = CONFIG.boss;
-const DEATH = CONFIG.fx.death;
 
-/** No-op time control until the loop is attached (tests / construction order). */
-const NO_TIME: TimeControl = { hitStop: () => undefined, setTimeScale: () => undefined };
+/** No-op clock until the loop is attached (construction order). */
+const NO_CLOCK: GameClock = { paused: false, hitStop: () => undefined, setTimeScale: () => undefined, resetTiming: () => undefined };
+
+/** Which world simulation runs (TO_TITLE keeps the previous one until the reset). */
+type World = 'title' | 'fight' | 'dying' | 'lap';
 
 export class Game implements LoopTarget {
   readonly scene = new Scene();
   readonly camera: PerspectiveCamera;
   readonly input: Input;
-  state: GameState = 'FIGHT';
+  readonly flow = new FlowMachine();
 
   private readonly renderer: WebGLRenderer;
   private readonly ui: UI;
+  private readonly audio = new Audio();
   private readonly debug: boolean;
   private readonly rng = createRng(Date.now());
   private readonly cameraCtl: CameraController;
@@ -72,11 +238,8 @@ export class Game implements LoopTarget {
   private readonly attacks: Record<MoveId, Attack>;
   private attack: Attack | null = null;
   private readonly ctx: AttackContext;
-  private time: TimeControl = NO_TIME;
-  /** Simulation time in BOSS_DEFEATED (from the 5th hit, design §4.1). */
-  private defeatT = 0;
-  /** Simulation time in DYING (from the hit; starts at the hit-stop length, design §4.1). */
-  private dyingT = 0;
+  private time: GameClock = NO_CLOCK;
+  private world: World = 'title';
   private lastHit: HitResult | null = null;
   private rebukeMarker = 0;
   private hitboxes: DebugHitboxes | null = null;
@@ -85,6 +248,7 @@ export class Game implements LoopTarget {
   private readonly camFwd = { x: 0, z: -1 };
   private readonly playerVel = new Vector3();
   private readonly gloatTarget = new Vector3();
+  private readonly deathSource = new Vector3();
   private readonly motorInput: MotorInput = {
     moveX: 0,
     moveZ: 0,
@@ -109,6 +273,8 @@ export class Game implements LoopTarget {
     this.camera = new PerspectiveCamera(CAM.fov, window.innerWidth / window.innerHeight, CAM.near, CAM.far);
     new Arena(this.scene);
     this.input = new Input(canvas, this.debug);
+    this.input.onGesture = () => this.audio.unlock();
+    this.input.onFocusLost = () => this.onFocusLost();
     this.ui = new UI(overlay, this.debug);
 
     this.boss = new Boss(this.rng);
@@ -117,18 +283,18 @@ export class Game implements LoopTarget {
     this.scene.add(this.player.root);
     this.puffs = new Puffs(this.scene, this.rng);
     this.hazards = new Hazards(this.scene, this.puffs);
+    this.hazards.sound = this.audio;
     this.attacks = { slam: new CubeSlam(), charge: new RoyalCharge(), rain: new CrownRain(), rebuke: new RoyalRebuke() };
 
     this.cameraCtl = new CameraController(this.camera, this.rng);
-    this.cameraCtl.snapLockOn(this.player.position, this.boss.pos);
-    this.cameraCtl.update(0, this.player.position, this.boss.pos);
+    this.cameraCtl.setOrbit();
 
     this.ctx = {
       boss: this.boss,
       playerPos: new Vector3(),
       playerVel: this.playerVel,
       scene: this.scene,
-      audio: SILENT, // milestone 1.5
+      audio: this.audio,
       shake: (a, d) => this.cameraCtl.shake(a, d),
       speedMult: 1,
       telegraphMult: 1,
@@ -143,33 +309,39 @@ export class Game implements LoopTarget {
     if (this.debug) this.hitboxes = new DebugHitboxes(this.scene);
     this.ui.setHealth(this.boss.brain.hp);
     this.syncPlayerHud();
-    this.ui.showHealth(true);
+    this.ui.setSound(!this.audio.muted);
+    this.ui.setScreen('title');
   }
 
-  /** The loop provides hit-stop and time scale (ARCHITECTURE §4.1). */
-  setTimeControl(time: TimeControl): void {
+  /** Legacy name used by the 1.4 debug scripts. */
+  get state(): GameState {
+    return this.flow.state;
+  }
+
+  /** The loop provides hit-stop, time scale, pause and a timing reset (ARCHITECTURE §4.1). */
+  setTimeControl(time: GameClock): void {
     this.time = time;
   }
 
   /** Fixed simulation step. */
   update(dt: number): void {
-    switch (this.state) {
-      case 'FIGHT':
-        this.debugKeys();
-        this.updateFight(dt, true);
+    this.flow.update(dt);
+    this.processCommands();
+    switch (this.world) {
+      case 'title':
+        this.boss.idle(dt);
         break;
-      case 'DYING':
+      case 'fight':
+        if (this.flow.state === 'FIGHT') {
+          this.debugKeys();
+          this.updateFight(dt, true);
+        }
+        break;
+      case 'dying':
         this.updateDying(dt);
         break;
-      case 'BOSS_DEFEATED':
-        this.updateFight(dt, false); // free victory lap: move and roll, no swing
-        this.defeatT += dt;
-        if (this.defeatT >= B.defeat.victoryDelay - 1e-9) this.state = 'VICTORY_SCREEN';
-        break;
-      case 'VICTORY_SCREEN':
-        this.updateFight(dt, false);
-        break;
-      default:
+      case 'lap':
+        this.updateFight(dt, false); // free victory lap: move and roll, no attack, no flask
         break;
     }
     stepDebris(this.debris, dt);
@@ -179,8 +351,24 @@ export class Game implements LoopTarget {
     this.input.endStep();
   }
 
-  /** Every frame, real time. */
+  /** Every frame, real time (also while paused and during hit-stop). */
   realUpdate(frameDt: number): void {
+    if (this.input.consume('mute')) this.ui.setSound(!this.audio.toggleMute());
+
+    if (this.flow.paused) {
+      if (this.input.consume('resumeClick')) this.resume();
+      if (this.debug) this.updateDebug(frameDt);
+      return;
+    }
+    this.input.consume('resumeClick');
+
+    const s = this.flow.state;
+    const anyStart = (s === 'TITLE' || s === 'VICTORY_SCREEN') && this.input.consume('anyStart');
+    this.flow.realUpdate(frameDt, anyStart);
+    this.processCommands();
+    this.ui.setFade(this.flow.fade);
+    this.audio.setDuck(this.flow.duck);
+
     this.cameraCtl.update(frameDt, this.player.position, this.boss.pos);
     if (this.hitboxes) this.hitboxes.sync(this.player, this.boss, this.hazards);
     if (this.debug) this.updateDebug(frameDt);
@@ -216,18 +404,105 @@ export class Game implements LoopTarget {
       this.onBossDefeated();
       return result;
     }
-    // GD §6.3 hit reaction (sound `hit` in 1.5); Hit 3 hits harder.
+    // GD §6.3 hit reaction; Hit 3 hits harder.
     const H = heavy ? B.hit.heavy : B.hit;
     this.time.hitStop(H.hitStop);
     this.cameraCtl.shake(H.shake.amplitude, H.shake.duration);
     this.boss.onHit(from, heavy);
+    this.audio.play('hit', { pitch: heavy ? 0.85 : 1 });
     if (result === 'rage') {
-      // GD §6.4 rage transition (sound `rage` in 1.5).
+      // GD §6.4 rage transition.
       this.boss.onRage();
       this.cameraCtl.shake(CONFIG.rage.cameraShake.amplitude, CONFIG.rage.cameraShake.duration);
+      this.audio.play('rage');
     }
     return result;
   }
+
+  // --- flow commands ------------------------------------------------------------------------------
+
+  private processCommands(): void {
+    const cmds = this.flow.commands;
+    for (let i = 0; i < cmds.length; i++) {
+      switch (cmds[i]) {
+        case 'startFight':
+          this.onStartFight();
+          break;
+        case 'breakPlayer':
+          this.debris.push(...this.player.breakApart(this.deathSource, this.scene, this.rng));
+          this.audio.play('player_break');
+          break;
+        case 'showYouDied':
+          this.ui.showResult('died');
+          this.audio.play('you_died');
+          break;
+        case 'showVictory':
+          this.ui.setScreen('victory');
+          this.audio.play('victory');
+          break;
+        case 'continueReady':
+          this.ui.showContinuePrompt(true);
+          break;
+        case 'beginToTitle':
+          break;
+        case 'reset':
+          this.reset();
+          break;
+        case 'titleReady':
+          this.ui.showStartPrompt(true);
+          break;
+      }
+    }
+    cmds.length = 0;
+  }
+
+  /** TITLE → FIGHT (GD §1): overlay and HUD fades (CSS), camera blend, grace starts now. */
+  private onStartFight(): void {
+    // The starting key / click never attacks, rolls or drinks (D2).
+    this.input.consume('swing');
+    this.input.consume('roll');
+    this.input.consume('flask');
+    this.ui.setAttempts(this.flow.attempts);
+    this.ui.setScreen('fight');
+    this.cameraCtl.blendToLockOn(T.cameraBlend, this.player.position, this.boss.pos);
+    this.boss.brain.reset();
+    this.world = 'fight';
+  }
+
+  /** GD §1 reset at full black: everything back to spawn, title orbit and overlay. Never reloads. */
+  private reset(): void {
+    this.cancelAttack();
+    this.hazards.clear(false);
+    for (const p of this.debris) p.object.removeFromParent();
+    this.debris.length = 0;
+    this.puffs.clear();
+    this.player.reset();
+    this.boss.reset(this.scene);
+    this.time.resetTiming();
+    this.ui.setHealth(this.boss.brain.hp);
+    this.lastHit = null;
+    this.rebukeMarker = 0;
+    this.syncPlayerHud();
+    this.cameraCtl.setOrbit();
+    this.ui.setScreen('title');
+    this.world = 'title';
+  }
+
+  private onFocusLost(): void {
+    if (!this.flow.pause()) return;
+    this.time.paused = true;
+    this.ui.setPaused(true);
+  }
+
+  /** The click that resumes never attacks (D2): every pending edge is dropped. */
+  private resume(): void {
+    this.flow.resume();
+    this.time.paused = false;
+    this.input.clearAll();
+    this.ui.setPaused(false);
+  }
+
+  // --- fight --------------------------------------------------------------------------------------
 
   private updateFight(dt: number, fighting: boolean): void {
     const axis = this.input.moveAxis();
@@ -250,7 +525,7 @@ export class Game implements LoopTarget {
     if (broken) return;
 
     if (fighting) this.checkWeaponHit();
-    if (this.state !== 'FIGHT') return; // the final hit just happened
+    if (this.flow.state !== 'FIGHT') return; // the final hit just happened
 
     const start = this.boss.update(dt, this.player.position, this.hazards.rainAlive);
     this.refreshContext();
@@ -277,36 +552,35 @@ export class Game implements LoopTarget {
     }
   }
 
-  /**
-   * GD §4.6 / §9: a non-lethal hit staggers the player (hit-stop, shake, HUD pip flash); the
-   * second hit kills (placeholder DYING until 1.5: cancel everything, the boss gloats, reset after 2.0 s).
-   */
+  /** GD §4.6 / §9: the first hit staggers the player; the second one kills (DYING). */
   private onPlayerHit(source: Vector3): void {
     const r = this.player.motor.takeHit(source.x, source.z);
     if (r === 'ignored') return;
     if (r === 'hurt') {
-      // `player_hurt` sound in 1.5.
       this.time.hitStop(CONFIG.hurt.hitStop);
       this.cameraCtl.shake(CONFIG.hurt.shake.amplitude, CONFIG.hurt.shake.duration);
+      this.audio.play('player_hurt');
       return;
     }
+    // Death @0.00: hit-stop, all hazards removed, long sounds stopped (attack.dispose), boss gloats.
     this.time.hitStop(DEATH.hitStop);
     this.cancelAttack();
     this.hazards.clear(false);
     this.boss.brain.gloat();
+    this.deathSource.copy(source);
     this.gloatTarget.copy(this.player.position);
-    this.state = 'DYING';
-    this.dyingT = DEATH.hitStop;
+    this.flow.playerDied(DEATH.hitStop);
+    this.ui.setScreen('dying');
+    this.world = 'dying';
   }
 
+  /** GD §9: the boss stops and turns to face the remains; the camera looks at them. */
   private updateDying(dt: number): void {
-    this.dyingT += dt;
-    if (this.dyingT >= DEATH.breakAt - 1e-9) this.player.root.visible = false; // placeholder for the break-apart
-    this.boss.update(dt, this.gloatTarget);
-    if (this.dyingT >= DEATH.duration - 1e-9) {
-      this.resetWorld();
-      this.state = 'FIGHT';
+    if (this.player.isBroken) {
+      debrisCenter(this.debris, this.gloatTarget);
+      this.cameraCtl.setLookOverride(this.gloatTarget);
     }
+    this.boss.update(dt, this.gloatTarget);
   }
 
   private refreshContext(): void {
@@ -341,20 +615,52 @@ export class Game implements LoopTarget {
     }
   }
 
-  /** GD §6.6: hit-stop 0.20 s, 8 cubes + crown, shake, 0.5× time scale for 1.0 s. */
+  /** GD §6.6: hit-stop 0.20 s, 8 cubes + crown, shake, 0.5× time scale for 1.0 s, `boss_break`. */
   private onBossDefeated(): void {
     const D = B.defeat;
     this.time.hitStop(D.hitStop);
     this.debris.push(...this.boss.breakApart(this.scene));
     this.cameraCtl.shake(D.shake.amplitude, D.shake.duration);
     this.time.setTimeScale(D.timeScale, D.timeScaleDuration);
-    this.state = 'BOSS_DEFEATED';
-    this.defeatT = D.hitStop;
+    this.audio.play('boss_break');
+    this.flow.bossDefeated(D.hitStop);
+    this.ui.setScreen('defeated');
+    this.world = 'lap';
   }
 
-  /** Sound triggers (GD §10) are wired in 1.5; the HUD reacts to refusals now. */
+  /** GD §10 sound triggers from the player, and the stamina refusal flash. */
   private onPlayerEvents(events: readonly PlayerEvent[]): void {
-    if (events.includes('staminaRefused')) this.ui.flashStamina();
+    const m = this.player.motor;
+    for (const e of events) {
+      switch (e) {
+        case 'rollStart':
+          this.audio.play('roll');
+          break;
+        case 'rollEnd':
+          this.audio.play('roll_end');
+          break;
+        case 'footstep':
+          this.audio.play('footstep');
+          break;
+        case 'attackActive':
+          this.audio.play('swing', { pitch: CONFIG.combo.hits[m.comboHit].pitch });
+          break;
+        case 'attackMiss':
+          this.audio.play('swing_ground');
+          break;
+        case 'drinkStart':
+          this.audio.play('flask_drink');
+          break;
+        case 'flaskHeal':
+          this.audio.play('flask_heal');
+          break;
+        case 'staminaRefused':
+          this.ui.flashStamina();
+          break;
+        default:
+          break;
+      }
+    }
   }
 
   private syncPlayerHud(): void {
@@ -386,10 +692,11 @@ export class Game implements LoopTarget {
     const atk = this.attack ? `${this.attack.id}:${this.attack.phaseName}` : '-';
     const win = this.attack instanceof CubeSlam && this.attack.windowLeft > 0 ? ` window ${this.attack.windowLeft.toFixed(2)}` : '';
     const act = m.action === 'attack' ? `hit${m.comboHit + 1}:${m.attackPhase}` : m.action;
+    const f = this.flow;
     this.ui.setDebugText(
       [
         `FPS ${this.fps.toFixed(0)}`,
-        `state ${this.state}`,
+        `state ${f.state}${f.paused ? ' (paused)' : ''}  attempts ${f.attempts}  fade ${f.fade.toFixed(2)}`,
         `draw calls ${info.calls}`,
         `player ${act} t=${m.actionT.toFixed(2)} chain=${m.chainNext >= 0 ? m.chainNext + 1 : '-'} buf=${m.buffered ?? '-'}${m.godMode ? ' GOD' : ''}`,
         `hp ${m.hp}  stamina ${m.stamina.toFixed(0)}  flasks ${m.flasks}  i-frames ${m.isInvincible() ? 'ON' : 'off'}`,
@@ -397,24 +704,9 @@ export class Game implements LoopTarget {
         `boss hp ${b.hp} ${b.phase} ${b.mode} last=${this.lastHit ?? '-'}`,
         `attack ${atk}${win}  next in ${b.waiting ? b.cooldownLeft.toFixed(2) : '-'}${b.forceNext ? ` forced=${b.forceNext}` : ''}`,
         `poise ${b.poise}  close ${b.closeTimer.toFixed(2)}${b.annoyed ? ' ANNOYED' : ''}${this.rebukeMarker > 0 ? `  REBUKE(${b.lastRebuke})` : ''}`,
+        `sound ${this.audio.muted ? 'OFF' : 'ON'}${this.audio.unlocked ? '' : ' (locked)'}`,
       ].join('\n'),
     );
-  }
-
-  /** Placeholder reset (milestone 1.5 calls it at full black during TO_TITLE). */
-  private resetWorld(): void {
-    this.cancelAttack();
-    this.hazards.clear(false);
-    disposeDebris(this.debris, true);
-    this.puffs.clear();
-    this.player.reset();
-    this.player.root.visible = true;
-    this.boss.reset(this.scene);
-    this.ui.setHealth(this.boss.brain.hp);
-    this.lastHit = null;
-    this.rebukeMarker = 0;
-    this.syncPlayerHud();
-    this.cameraCtl.snapLockOn(this.player.position, this.boss.pos);
   }
 }
 

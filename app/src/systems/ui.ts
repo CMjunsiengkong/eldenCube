@@ -43,6 +43,7 @@ export function applyCssVariables(root: HTMLElement = document.documentElement):
     '--died-red': C.youDiedRed,
     '--health-full': C.healthFull,
     '--health-empty': C.healthEmpty,
+    '--victory-gold': C.uiGold,
     '--hud-edge': px(U.hudEdge),
     '--pip-size': px(U.pipSize),
     '--pip-gap': px(U.pipGap),
@@ -69,6 +70,9 @@ function restartClass(el: HTMLElement, cls: string): void {
 
 const PER_SEG = CONFIG.boss.hp / CONFIG.boss.healthSegments;
 
+/** Which screen layout is shown (GD §2). TO_TITLE keeps the previous one until the reset. */
+export type Screen = 'title' | 'fight' | 'dying' | 'defeated' | 'victory';
+
 export class UI {
   private readonly debugEl: HTMLElement;
   private readonly healthEl: HTMLElement;
@@ -83,9 +87,32 @@ export class UI {
   private shownPlayerHp: number = CONFIG.player.hp;
   private shownFlasks = -1;
   private shownStamina = -1;
+  private readonly overlay: HTMLElement;
+  private readonly titleEl: HTMLElement;
+  private readonly startPrompt: HTMLElement;
+  private readonly attemptsEl: HTMLElement;
+  private readonly hintEl: HTMLElement;
+  private readonly soundEl: HTMLElement;
+  private readonly resultEl: HTMLElement;
+  private readonly resultText: HTMLElement;
+  private readonly continuePrompt: HTMLElement;
+  private readonly pauseEl: HTMLElement;
+  private readonly fadeEl: HTMLElement;
+  private shownFade = -1;
 
   constructor(overlay: HTMLElement, debug: boolean) {
     applyCssVariables();
+    this.overlay = overlay;
+    this.titleEl = requireChild(overlay, '#title-screen');
+    this.startPrompt = requireChild(overlay, '#start-prompt');
+    this.attemptsEl = requireChild(overlay, '#attempts');
+    this.hintEl = requireChild(overlay, '#controls-hint');
+    this.soundEl = requireChild(overlay, '#sound-indicator');
+    this.resultEl = requireChild(overlay, '#result');
+    this.resultText = requireChild(this.resultEl, '.result-text');
+    this.continuePrompt = requireChild(overlay, '#continue-prompt');
+    this.pauseEl = requireChild(overlay, '#pause');
+    this.fadeEl = requireChild(overlay, '#fade');
     this.debugEl = requireChild(overlay, '#debug');
     this.debugEl.hidden = !debug;
     this.healthEl = requireChild(overlay, '#boss-health');
@@ -115,10 +142,66 @@ export class UI {
     this.staminaFill = requireChild(this.staminaBar, '.fill');
   }
 
-  /** Shows/hides the boss health bar and the player HUD (FIGHT, DYING, BOSS_DEFEATED). */
-  showHealth(visible: boolean): void {
-    this.healthEl.classList.toggle('visible', visible);
-    this.playerHudEl.classList.toggle('visible', visible);
+  /**
+   * GD §2 layout per screen. Boss bar: FIGHT, DYING, BOSS_DEFEATED. Player HUD: FIGHT, DYING.
+   * Controls hint: FIGHT. Title overlay: TITLE. Result: VICTORY_SCREEN (YOU DIED via showResult).
+   */
+  setScreen(screen: Screen): void {
+    const fightish = screen === 'fight' || screen === 'dying';
+    this.titleEl.classList.toggle('visible', screen === 'title');
+    this.healthEl.classList.toggle('visible', fightish || screen === 'defeated');
+    this.playerHudEl.classList.toggle('visible', fightish);
+    this.hintEl.classList.toggle('visible', screen === 'fight');
+    if (screen === 'title') {
+      this.showStartPrompt(false);
+      this.hideResult();
+    }
+    if (screen === 'victory') this.showResult('victory');
+    this.overlay.dataset.screen = screen;
+  }
+
+  /** "YOU DIED" (55 % dim, red) or "CUBE FELLED" (40 % dim, gold), fading in with a 1.1 → 1.0 scale. */
+  showResult(kind: 'died' | 'victory'): void {
+    this.resultText.textContent = kind === 'died' ? 'YOU DIED' : 'CUBE FELLED';
+    this.resultEl.classList.toggle('died', kind === 'died');
+    this.resultEl.classList.toggle('victory', kind === 'victory');
+    this.showContinuePrompt(false);
+    restartClass(this.resultEl, 'visible');
+  }
+
+  private hideResult(): void {
+    this.resultEl.classList.remove('visible', 'died', 'victory');
+    this.showContinuePrompt(false);
+  }
+
+  showStartPrompt(visible: boolean): void {
+    this.startPrompt.classList.toggle('visible', visible);
+  }
+
+  showContinuePrompt(visible: boolean): void {
+    this.continuePrompt.classList.toggle('visible', visible);
+  }
+
+  /** "Attempts: N", shown on the start screen only after the first fight. */
+  setAttempts(n: number): void {
+    this.attemptsEl.textContent = n > 0 ? `Attempts: ${n}` : '';
+  }
+
+  setSound(on: boolean): void {
+    this.soundEl.textContent = on ? 'Sound: ON (M)' : 'Sound: OFF (M)';
+  }
+
+  setPaused(paused: boolean): void {
+    this.pauseEl.classList.toggle('visible', paused);
+  }
+
+  /** The black fade layer (inline opacity, touched only when the value changes). */
+  setFade(opacity: number): void {
+    const o = Math.round(opacity * 1000) / 1000;
+    if (o === this.shownFade) return;
+    this.shownFade = o;
+    this.fadeEl.style.opacity = String(o);
+    this.fadeEl.style.visibility = o > 0 ? 'visible' : 'hidden';
   }
 
   /**

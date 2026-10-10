@@ -302,6 +302,8 @@ export class Boss implements AttackBoss {
   private readonly rng: Rng;
   private time = 0;
   private broken = false;
+  /** The cloned body material of the last break-apart (disposed on reset). */
+  private debrisMat: MeshStandardMaterial | null = null;
 
   constructor(rng: Rng, flags: Flags = getFlags()) {
     this.rng = rng;
@@ -370,6 +372,8 @@ export class Boss implements AttackBoss {
     this.bodyColor.copy(this.phase1Color);
     this.bodyMat.color.copy(this.phase1Color);
     this.bodyMat.emissive.setRGB(0, 0, 0);
+    this.debrisMat?.dispose();
+    this.debrisMat = null;
     if (this.broken) {
       // Re-attach the crown (it was a debris piece) with its original local transform.
       this.crown.removeFromParent();
@@ -427,6 +431,15 @@ export class Boss implements AttackBoss {
     this.applyFlash();
     this.syncTransform();
     return start;
+  }
+
+  /** TITLE: only the idle visuals run (bob, springs); no brain, no turning, no attacks. */
+  idle(dt: number): void {
+    this.time += dt;
+    this.flash.step(dt);
+    this.squash.step(dt);
+    this.applyFlash();
+    this.syncTransform();
   }
 
   /** The boss body is solid for the player while it is on the ground and not dashing (GD §6.2). */
@@ -501,6 +514,7 @@ export class Boss implements AttackBoss {
     const pieces: DebrisPiece[] = [];
     this.root.updateMatrixWorld(true);
     const mat = new MeshStandardMaterial({ color: this.bodyColor.clone(), roughness: B.model.roughness });
+    this.debrisMat = mat;
     const half = D.pieceSize / 2;
     const cos = Math.cos(this.yaw);
     const sin = Math.sin(this.yaw);

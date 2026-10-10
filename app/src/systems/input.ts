@@ -55,6 +55,8 @@ export function moveAxisFromHeld(held: ReadonlySet<string>): { x: number; z: num
 export class Input {
   /** Called on window blur or when the tab becomes hidden. */
   onFocusLost: () => void = () => undefined;
+  /** Called synchronously inside every key / click handler (audio unlock needs a user gesture). */
+  onGesture: () => void = () => undefined;
 
   private readonly held = new Set<string>();
   private readonly edges = new Set<InputEdge>();
@@ -68,6 +70,7 @@ export class Input {
     this.listen(window, 'keyup', (e) => this.held.delete((e as KeyboardEvent).code));
     this.listen(canvas, 'pointerdown', (e) => {
       if ((e as PointerEvent).button !== 0) return;
+      this.onGesture();
       this.edges.add('swing');
       this.edges.add('anyStart');
       this.edges.add('resumeClick');
@@ -118,6 +121,7 @@ export class Input {
   private onKeyDown(e: KeyboardEvent): void {
     if (e.code === 'Space') e.preventDefault(); // never scroll the page
     if (e.repeat) return;
+    this.onGesture();
     if ((MOVE_CODES as readonly string[]).includes(e.code)) this.held.add(e.code);
     for (const edge of edgesForKey(e.code, this.debug)) this.edges.add(edge);
   }
