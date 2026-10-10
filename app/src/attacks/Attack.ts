@@ -24,6 +24,8 @@ export interface SoundOptions {
   duration?: number;
   /** × the sound's relative loudness. */
   volume?: number;
+  /** Pitch multiplier (a file plays it as playbackRate). */
+  pitch?: number;
 }
 
 export interface SoundSink {

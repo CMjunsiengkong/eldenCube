@@ -20,6 +20,9 @@ import {
   type Object3D,
 } from 'three';
 import { CONFIG } from '../config';
+import { createPiece, randomSpin, type DebrisPiece } from '../fx/debris';
+import type { Rng } from '../util/rng';
+import { randRange } from '../util/math';
 import { createSphereOBBResult, sphereOBB, type Vec3Like } from '../systems/collision';
 import { approach, clamp, easeIn, easeInOut, easeOut, springStep, turnToward, type SpringState } from '../util/math';
 
@@ -689,6 +692,18 @@ export interface Sphere {
 }
 
 const WHITE = new Color(0xffffff);
+
+/** One of the 7 parts that fall apart on death (GD §9), with its rest transform for reset. */
+interface BodyPart {
+  readonly mesh: Mesh;
+  readonly parent: Object3D;
+  readonly position: Vector3;
+  readonly rotationX: number;
+  readonly rotationY: number;
+  readonly rotationZ: number;
+  /** Half the smallest dimension (the radius for spheres). */
+  readonly groundR: number;
+}
 const HEAL = new Color(CONFIG.colors.healFlash);
 
 /** The visual player: 7-part model on a roll pivot, driven by a PlayerMotor. */
@@ -705,6 +720,8 @@ export class Player {
   private readonly hipL = new Group();
   private readonly hipR = new Group();
   private readonly flaskProp: Mesh;
+  private readonly parts: BodyPart[] = [];
+  private broken = false;
   private readonly materials: MeshStandardMaterial[] = [];
   private readonly baseColors: Color[] = [];
   private readonly tintColors: Color[] = [];
@@ -740,6 +757,14 @@ export class Player {
 
   reset(): void {
     this.motor.reset();
+    if (this.broken) {
+      for (const p of this.parts) {
+        p.parent.add(p.mesh);
+        p.mesh.position.copy(p.position);
+        p.mesh.rotation.set(p.rotationX, p.rotationY, p.rotationZ);
+      }
+      this.broken = false;
+    }
     for (const s of [this.legL, this.legR, this.armL, this.headX, this.headZ]) {
       s.x = 0;
       s.v = 0;
@@ -801,6 +826,46 @@ export class Player {
     return this.motor.isInvincible();
   }
 
+  get isBroken(): boolean {
+    return this.broken;
+  }
+
+  /**
+   * GD §9: the 7 parts detach keeping their world transforms. Each flies 3–6 m/s horizontally
+   * away from the hit source, 4–7 m/s up, with a random spin up to 10 rad/s. Parts are restored
+   * by `reset()` (their shared materials are never disposed).
+   */
+  breakApart(source: Vec3Like, scene: Object3D, rng: Rng): DebrisPiece[] {
+    const D = CONFIG.fx.death;
+    this.root.updateMatrixWorld(true);
+    this.flaskProp.visible = false;
+    this.rollPivot.visible = true;
+    const pieces: DebrisPiece[] = [];
+    const wp = new Vector3();
+    for (const part of this.parts) {
+      scene.attach(part.mesh);
+      part.mesh.getWorldPosition(wp);
+      let dx = wp.x - source.x;
+      let dz = wp.z - source.z;
+      const d = Math.hypot(dx, dz);
+      if (d > 1e-6) {
+        dx /= d;
+        dz /= d;
+      } else {
+        const a = rng() * Math.PI * 2;
+        dx = Math.cos(a);
+        dz = Math.sin(a);
+      }
+      const p = createPiece(part.mesh, part.groundR);
+      const h = randRange(rng, D.horizontalSpeed[0], D.horizontalSpeed[1]);
+      p.vel.set(dx * h, randRange(rng, D.upwardSpeed[0], D.upwardSpeed[1]), dz * h);
+      randomSpin(rng, D.maxSpin, p.angVel);
+      pieces.push(p);
+    }
+    this.broken = true;
+    return pieces;
+  }
+
   /** Feet position (y = 0). Returns a reused vector; do not keep a reference across steps. */
   get position(): Vector3 {
     return this.pos.set(this.motor.x, 0, this.motor.z);
@@ -827,16 +892,21 @@ export class Player {
       parent.add(m);
       return m;
     };
+    const part = (m: Mesh, groundR: number): void => {
+      this.parts.push({ mesh: m, parent: m.parent!, position: m.position.clone(), rotationX: m.rotation.x, rotationY: m.rotation.y, rotationZ: m.rotation.z, groundR });
+    };
+    const half = (v: { x: number; y: number; z: number }): number => Math.min(v.x, v.y, v.z) / 2;
 
     this.root.add(this.rollPivot);
     this.rollPivot.position.y = py;
 
     // Body
-    mesh(new BoxGeometry(M.body.size.x, M.body.size.y, M.body.size.z), mat(C.playerBody), this.rollPivot, {
+    const body = mesh(new BoxGeometry(M.body.size.x, M.body.size.y, M.body.size.z), mat(C.playerBody), this.rollPivot, {
       x: M.body.center.x,
       y: M.body.center.y - py,
       z: M.body.center.z,
     });
+    part(body, half(M.body.size));
 
     // Head on the neck pivot, eyes on the head
     this.neckPivot.position.set(M.neckPivot.x, M.neckPivot.y - py, M.neckPivot.z);
@@ -847,6 +917,7 @@ export class Player {
       this.neckPivot,
       M.head.offset,
     );
+    part(head, M.head.radius);
     const eyeGeo = new SphereGeometry(M.eyes.radius, 8, 6);
     const eyeMat = mat(C.pupils);
     for (const sx of [-1, 1]) {
@@ -860,12 +931,12 @@ export class Player {
     const armMat = mat(C.playerArms);
     this.shoulderL.position.set(M.shoulderPivot.x, M.shoulderPivot.y - py, M.shoulderPivot.z);
     this.rollPivot.add(this.shoulderL);
-    mesh(armGeo, armMat, this.shoulderL, M.arm.offset);
+    part(mesh(armGeo, armMat, this.shoulderL, M.arm.offset), half(M.arm.size));
     this.swingPlane.position.set(-M.shoulderPivot.x, M.shoulderPivot.y - py, M.shoulderPivot.z);
     this.rollPivot.add(this.swingPlane);
     this.swingPlane.add(this.shoulderR);
-    mesh(armGeo, armMat, this.shoulderR, M.arm.offset);
-    mesh(new BoxGeometry(M.weapon.size.x, M.weapon.size.y, M.weapon.size.z), mat(C.weapon), this.shoulderR, M.weapon.offset);
+    part(mesh(armGeo, armMat, this.shoulderR, M.arm.offset), half(M.arm.size));
+    part(mesh(new BoxGeometry(M.weapon.size.x, M.weapon.size.y, M.weapon.size.z), mat(C.weapon), this.shoulderR, M.weapon.offset), half(M.weapon.size));
 
     // Flask in the left hand (visible only while drinking)
     const F = M.flask;
@@ -881,7 +952,7 @@ export class Player {
     ] as const) {
       pivot.position.set(sx * M.hipPivot.x, M.hipPivot.y - py, M.hipPivot.z);
       this.rollPivot.add(pivot);
-      mesh(legGeo, legMat, pivot, M.leg.offset);
+      part(mesh(legGeo, legMat, pivot, M.leg.offset), half(M.leg.size));
     }
     return flask;
   }
