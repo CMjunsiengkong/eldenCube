@@ -739,6 +739,14 @@ const RAW = {
   /** GD §10 + ASSETS.md §1.1 — audio. */
   audio: {
     masterVolume: 0.8, // 0 when muted
+    /** GD §10 background music (1.5c): fight only, sped up for a funny tone. */
+    bgm: {
+      volume: 0.35, // relative to the sound effects (tune)
+      rate: 1.12, // playback rate: faster and ≈ +2 semitones (tune)
+      fadeIn: 0.5, // s at fight start (tune)
+      fadeOut: 1.5, // s on death or victory (tune)
+      pausedLevel: 0.3, // × volume while paused
+    },
     footstepInterval: 0.3, // s while walking (not rolling)
     footstepMinSpeed: 1, // m/s
     /** Relative loudness per sound ID (ASSETS.md §1.1); a sound file plays at this gain. */

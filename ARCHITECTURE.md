@@ -243,6 +243,7 @@ interface Attack {
   - A file plays at the same relative loudness as its recipe (ASSETS.md §1.1).
 - Adding or removing a file in `src/assets/sfx/` takes effect on the next `npm run dev` reload or build, with **no code change**.
 - Long sounds (`charge_windup`, `slam_rise`) return a handle with `stop()`. The attack calls it if it is cancelled (player died, boss defeated).
+- *(1.5c)* **Background music:** `import.meta.glob('../assets/bgm/*.{mp3,ogg,wav}')` finds an optional `bgm` file (pure `resolveBgmSource`). It is decoded on unlock and played as a looping `AudioBufferSourceNode` at `CONFIG.audio.bgm.rate` (pitch and speed up) through its own gain → master (not the duck). `Game` calls `startMusic()` on fight start and `fadeOutMusic()` on death and defeat; `setMusicPaused()` drops it to 30% while paused. If the file is still decoding when the fight starts, the music starts as soon as it is ready.
 
 ## 5. Physics and collision (no engine)
 

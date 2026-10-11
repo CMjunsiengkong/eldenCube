@@ -499,6 +499,7 @@ export class Game implements LoopTarget {
     this.ui.setScreen('fight');
     this.cameraCtl.blendToLockOn(T.cameraBlend, this.player.position, this.boss.pos);
     this.boss.brain.reset();
+    this.audio.startMusic(); // GD §10: music only during the fight
     this.world = 'fight';
   }
 
@@ -512,6 +513,7 @@ export class Game implements LoopTarget {
     this.vfx.clear();
     this.player.reset();
     this.boss.reset(this.scene);
+    this.audio.stopMusic();
     this.time.resetTiming();
     this.ui.setHealth(this.boss.brain.hp);
     this.lastHit = null;
@@ -526,6 +528,7 @@ export class Game implements LoopTarget {
     if (!this.flow.pause()) return;
     this.time.paused = true;
     this.ui.setPaused(true);
+    this.audio.setMusicPaused(true);
   }
 
   /** The click that resumes never attacks (D2): every pending edge is dropped. */
@@ -534,6 +537,7 @@ export class Game implements LoopTarget {
     this.time.paused = false;
     this.input.clearAll();
     this.ui.setPaused(false);
+    this.audio.setMusicPaused(false);
   }
 
   // --- fight --------------------------------------------------------------------------------------
@@ -604,6 +608,7 @@ export class Game implements LoopTarget {
     this.deathSource.copy(source);
     this.gloatTarget.copy(this.player.position);
     this.flow.playerDied(DEATH.hitStop);
+    this.audio.fadeOutMusic();
     this.ui.setScreen('dying');
     this.world = 'dying';
   }
@@ -658,6 +663,7 @@ export class Game implements LoopTarget {
     this.time.setTimeScale(D.timeScale, D.timeScaleDuration);
     this.audio.play('boss_break');
     this.flow.bossDefeated(D.hitStop);
+    this.audio.fadeOutMusic();
     this.ui.setScreen('defeated');
     this.world = 'lap';
   }

@@ -42,4 +42,4 @@ A small, funny 3D boss fight in the browser: a clumsy hero ("The Tarnished Inter
 - Boss voice, taunts, dialogue, subtitles, AI-generated content.
 - A physics engine (only exception: optional ragdoll stretch item in PROJECT_PLAN, isolated in `fx/`).
 - A UI framework (React, Vue, …), a state library, an analytics SDK, any runtime network call.
-- No music by default.
+- Background music only as one looping file, played during the fight only, sped up for a funny tone (GD §10, 1.5c).

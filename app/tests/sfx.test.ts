@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { resolveSfxSources, SFX_IDS } from '../src/systems/audio';
+import { CONFIG } from '../src/config';
+import { resolveBgmSource, resolveSfxSources, SFX_IDS } from '../src/systems/audio';
 import { RECIPE_IDS } from '../src/systems/sfx';
 
 describe('resolveSfxSources (ARCHITECTURE §4.8)', () => {
@@ -35,5 +36,18 @@ describe('resolveSfxSources (ARCHITECTURE §4.8)', () => {
   it('every one of the 22 sound IDs has a recipe', () => {
     expect(SFX_IDS).toHaveLength(22);
     expect(new Set(RECIPE_IDS)).toEqual(new Set(SFX_IDS));
+  });
+});
+
+describe('background music file (GAME_DESIGN §10, ASSETS §1.4, 1.5c)', () => {
+  it('picks bgm.* with mp3 > ogg > wav; other names and no file give null', () => {
+    expect(resolveBgmSource({})).toBeNull();
+    expect(resolveBgmSource({ '../assets/bgm/song.mp3': 'u0' })).toBeNull();
+    expect(resolveBgmSource({ '../assets/bgm/bgm.wav': 'w', '../assets/bgm/bgm.ogg': 'o' })).toBe('o');
+    expect(resolveBgmSource({ '../assets/bgm/bgm.ogg': 'o', '../assets/bgm/bgm.mp3': 'm' })).toBe('m');
+  });
+
+  it('plays sped up and pitched up for a funny tone', () => {
+    expect(CONFIG.audio.bgm.rate).toBeGreaterThan(1);
   });
 });
