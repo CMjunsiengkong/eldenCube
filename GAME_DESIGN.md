@@ -1,6 +1,6 @@
 # Game Design — The Elden Cube
 
-A one-on-one boss fight that parodies hard "souls-like" games. The hero is extremely clumsy, and the boss is a giant cube wearing a crown. **Two hits kill the player (a flask restores one). The cube takes 20 damage, about five full combos.**
+A one-on-one boss fight that parodies hard "souls-like" games. The hero is extremely clumsy, and the boss is a giant cube wearing a crown. **Three hits kill the player (a flask restores one). The cube takes 20 damage, about five full combos.**
 
 This document is the **complete gameplay specification**. Every value an implementer needs is here. Any value marked *(tune)* is a starting value that may change during playtesting. All tunable values must live in `app/src/config.ts` (see ARCHITECTURE.md §6), never hard-coded elsewhere.
 
@@ -52,7 +52,7 @@ This document is the **complete gameplay specification**. Every value an impleme
 - The boss's 1.0 s grace period starts when the fight starts.
 
 **General rules**
-- **Reset** means: player back to spawn with 2 HP, full stamina and 3 flask charges, boss back to spawn with full HP in Phase 1, all projectiles, debris and effects removed, all timers cleared. **Never reload the page.**
+- **Reset** means: player back to spawn with 3 HP, full stamina and 3 flask charges, sword sheathed, boss back to spawn with full HP in Phase 1, all projectiles, debris and effects (particles, burn marks) removed, all timers cleared. **Never reload the page.**
 - **Attempt counter:** increases by 1 each time a fight starts. It is held in memory only and resets on page reload.
 - **Page loses focus** (window `blur` or tab hidden) during `FIGHT`: pause the simulation, clear all held keys and show a *"Paused — click to continue"* overlay. A click resumes play.
 - Target length per attempt: **30–120 s**. Target for a first-time player: **win in about 3–6 attempts**.
@@ -65,7 +65,7 @@ This document is the **complete gameplay specification**. Every value an impleme
 | Start prompt | TITLE | *"Press any key to begin"*: system sans-serif, 24px, white, blinking (opacity 1 ↔ 0.3, 1 s cycle) |
 | Controls box | TITLE | `WASD Move · Space Roll · Click Attack · R Flask · M Mute`: 18px, white, semi-transparent dark panel, bottom center |
 | Boss health bar | FIGHT, DYING, BOSS_DEFEATED | Bottom center, width `min(60vw, 640px)`, height 14px. Label above, left-aligned: **The Elden Cube** in Cinzel 700, 20px, white. 5 equal segments with a 4px gap; each segment holds 4 of the boss's 20 HP and drains from the right. Full = `#C1121F`, empty = `rgba(0,0,0,0.5)`. The part lost by a hit flashes white for 0.15 s before turning empty |
-| Player HUD | FIGHT, DYING | Top-left, 24px from the edges. **HP:** 2 pips (22 × 22px squares, 6px gap, 2px white border; full `#C1121F`, empty `rgba(0,0,0,0.5)`); a lost pip flashes white for 0.15 s. **Flask counter** to the right of the pips: an amber `#F4A259` rounded rectangle 14 × 22px and `×N`, 18px, white. **Stamina bar** below the pips: 240 × 8px, full `#6BBF59`, empty `rgba(0,0,0,0.5)`, no numbers; it flashes white for 0.3 s when an action is refused for lack of stamina. The HUD fades with the boss health bar |
+| Player HUD | FIGHT, DYING | Top-left, 24px from the edges. **HP:** 3 pips (22 × 22px squares, 6px gap, 2px white border; full `#C1121F`, empty `rgba(0,0,0,0.5)`); a lost pip flashes white for 0.15 s. **Flask counter** to the right of the pips: an amber `#F4A259` rounded rectangle 14 × 22px and `×N`, 18px, white. **Stamina bar** below the pips: 240 × 8px, full `#6BBF59`, empty `rgba(0,0,0,0.5)`, no numbers; it flashes white for 0.3 s when an action is refused for lack of stamina. The HUD fades with the boss health bar |
 | Controls hint | FIGHT | Bottom-left, 14px, 70% opacity: `WASD · Space · Click · R` |
 | Sound indicator | All | Top-right, 14px: `Sound: ON (M)` or `Sound: OFF (M)` |
 | Attempt counter | TITLE (only after the first fight) | Below the start prompt: `Attempts: N`, 18px, light grey |
@@ -85,7 +85,7 @@ This document is the **complete gameplay specification**. Every value an impleme
 | `Space` | Roll (dodge with invincibility, §4.3a) | Costs stamina. Pressed while busy, it may be buffered (§4.3d) |
 | Left mouse button (also touchpad click) | Attack (3-hit combo, §4.3) | Costs stamina. Chains into the next combo hit; may be buffered (§4.3d) |
 | `F` | Attack | Alternative to clicking |
-| `R` | Drink a flask (§4.3c) | Only with HP below 2 and charges left; may be buffered (§4.3d) |
+| `R` | Drink a flask (§4.3c) | Only with HP below 3 and charges left; may be buffered (§4.3d) |
 | `M` | Toggle mute | Works in every state; never counts as "any key" |
 
 - Read keys with `KeyboardEvent.code` (`KeyW`, `KeyA`, `KeyS`, `KeyD`, `Space`, `KeyF`, `KeyR`, `KeyM`), so the controls work on any keyboard layout.
@@ -100,18 +100,39 @@ This document is the **complete gameplay specification**. Every value an impleme
 
 ### 4.1 Model
 
-The model has 7 primitives with flat colors (`MeshStandardMaterial`, roughness 0.8, metalness 0) and no textures. Each part casts a shadow.
+*(Reworked 2026-10-11, milestone 1.5b: rounded limbs with elbows and knees, a real sword, sheathed on the back.)*
+
+The model is built from rounded primitives (capsules, spheres, rounded boxes) with flat colors (`MeshStandardMaterial`, roughness 0.8, metalness 0) and no textures. Every material gets the shared **rim light** (a fresnel edge glow, §8) so the silhouette reads at night. Each visible part casts a shadow.
 
 | Part | Geometry (meters) | Color | Attached to | Position (relative to its parent) |
 |---|---|---|---|---|
 | Root (invisible) | — | — | world | At the feet. Rotates on Y (yaw) to face the facing direction (+Z local = forward) |
 | Roll pivot (invisible) | — | — | root | `(0, 0.90, 0)`. **All visible parts are children of this pivot**, so the roll spins the whole body around the waist. Positions below are given relative to the root; subtract 0.90 in Y when parenting to the pivot |
-| Body | Box 0.60 W × 0.80 H × 0.35 D | `#3A86FF` | roll pivot | center `(0, 1.00, 0)` |
+| Torso | Rounded box 0.60 W × 0.80 H × 0.35 D, corner radius 0.08 | `#3A86FF` | roll pivot | center `(0, 1.00, 0)` |
+| Belt | Rounded box 0.62 × 0.10 × 0.37 | `#6B4226` | torso | `(0, −0.30, 0)` |
 | Head | Sphere r 0.25 | `#FFD6A5` | neck pivot at `(0, 1.40, 0)` on the roll pivot | `(0, 0.30, 0)` from the pivot |
-| Eyes (decorative, optional) | 2 spheres r 0.04 | `#111111` | head | `(±0.09, 0.05, 0.22)` |
-| Left / right arm | Box 0.16 × 0.60 × 0.16 | `#2B66C4` | shoulder pivot at `(±0.40, 1.35, 0)` on the roll pivot | `(0, -0.30, 0)` from the pivot (hangs down) |
-| Left / right leg | Box 0.20 × 0.60 × 0.20 | `#1D3557` | hip pivot at `(±0.15, 0.60, 0)` on the roll pivot | `(0, -0.30, 0)` from the pivot |
-| Weapon (oversized sword) | Box 0.12 × 1.60 × 0.06 | `#CED4DA` | right shoulder pivot (moves with the arm) | center `(0, -1.30, 0)`. The blade runs from 0.5 m to 2.1 m away from the shoulder, continuing in the arm's direction |
+| Eyes | 2 spheres r 0.04 | `#111111` | head | `(±0.09, 0.05, 0.22)` |
+| Upper arm (×2) | Capsule r 0.08, total length 0.30 | `#2B66C4` | shoulder pivot at `(±0.40, 1.35, 0)` | hangs down: center `(0, −0.15, 0)` |
+| **Elbow pivot** (×2) | — | — | shoulder pivot | `(0, −0.30, 0)` |
+| Forearm (×2) | Capsule r 0.075, total length 0.28 | `#2B66C4` | elbow pivot | center `(0, −0.14, 0)` |
+| Hand (×2) | Sphere r 0.07 | `#FFD6A5` | elbow pivot | `(0, −0.30, 0)`. The right hand is the **hand socket** of the sword |
+| Thigh (×2) | Capsule r 0.10, total length 0.30 | `#1D3557` | hip pivot at `(±0.15, 0.60, 0)` | center `(0, −0.15, 0)` |
+| **Knee pivot** (×2) | — | — | hip pivot | `(0, −0.30, 0)` |
+| Shin (×2) | Capsule r 0.09, total length 0.26 | `#1D3557` | knee pivot | center `(0, −0.13, 0)` |
+| Boot (×2) | Rounded box 0.18 × 0.10 × 0.28 | `#3D2B1F` | knee pivot | `(0, −0.25, 0.04)` (sole at the ground when standing) |
+| Scabbard | Rounded box 0.06 × 1.42 × 0.16 | `#4A3426` | back socket | along the sheathed blade |
+| **Sword** | One merged mesh (below) | — | the hand socket or the back socket (§4.3) | — |
+
+**Sword** (local frame: the grip center at the origin, the blade toward −Y, the edges facing ±Z, so the edge leads in every swing):
+
+| Piece | Geometry | Color | Position |
+|---|---|---|---|
+| Pommel | Sphere r 0.05 | `#D4A017` | `(0, 0.14, 0)` |
+| Grip | Cylinder r 0.03, length 0.22 | `#5C3A21` | center `(0, 0, 0)` |
+| Crossguard | Rounded box 0.06 × 0.05 × 0.34 | `#D4A017` | `(0, −0.13, 0)` |
+| Blade | Diamond cross-section (0.12 wide, 0.035 thick), flat-shaded, tapering from `y = −0.15` to a point at `y = −1.50` | `#CED4DA`, metalness 0.6, roughness 0.35 | — |
+
+With the hand 0.60 m from the shoulder, the tip is **2.1 m** from the shoulder, as before. The **back socket** holds the sword diagonally behind the torso: the grip over the right shoulder at `(−0.22, 1.55, −0.26)` (relative to the root), the blade pointing down toward the left at 35° from vertical, flat against the back.
 
 Total height is about 1.95 m.
 
@@ -131,13 +152,14 @@ The clumsiness comes from **momentum and delay**. Input is **never randomly drop
 
 ### 4.3 Attack combo
 
-The sword normally **rests on the right shoulder**, pointing up and back (the rest pose), so there is no draw time. Pressing attack starts a **3-hit combo**.
+**Sheathing** *(1.5b)*: when idle, the sword is **sheathed on the back** (§4.1) and the right arm hangs and swings like the left one. Pressing attack starts a **3-hit combo** and draws the sword **inside Hit 1's wind-up**: the hand sweeps up past the right shoulder, and the sword blends from the back socket to the hand socket over 0.08 s *(tune)* when the wind-up is 55% done *(tune)*. **No combat timing changes.** While drawn and free, the sword **rests on the right shoulder** (the rest pose below). After the combo ends, once the player has been free for **1.5 s** *(tune)* (an open chain window counts as busy), the sword is put away: the arm reaches back to the rest pose over 0.20 s, the sword blends to the back socket over 0.12 s, then the arm drops. Any action interrupts the put-away; an attack then starts from wherever the sword is, and the draw continues smoothly. Rolls, drinks and staggers never draw the sword. Sheathing is visual only.
 
 Each hit is a slash in a **swing plane**:
 - **θ** is the right shoulder pivot's pitch: 0° means the arm points straight down, +90° forward, 180° straight up.
 - **ψ** (plane tilt) rotates the swing plane around the player's forward axis. ψ > 0 puts the high end of the arc on the player's right and the low end on the left. ψ = 0 is a vertical overhead plane.
 - The **rest pose** is θ 200°, ψ 40°.
 - Every wind-up starts from the arm's current θ and ψ, and blends ψ to the hit's tilt linearly over the wind-up.
+- **Elbow** *(1.5b)*: during each wind-up the elbow cocks (a bend of up to 35° *(tune)*, `sin(π·u)` over the wind-up) and blends from its starting bend to straight; it is **exactly straight during every active phase**, so the blade lies along the shoulder→hand axis and the hit detection of §5 is unchanged. In the recovery it holds straight during the follow-through, then blends back to the rest bend.
 
 | | Hit 1 — *Kesagiri* (right shoulder → left hip) | Hit 2 — rising backhand (left hip → right shoulder) | Hit 3 — overhead finisher |
 |---|---|---|---|
@@ -202,12 +224,12 @@ Why these numbers: the Slam shockwave band (1.0 m plus the 0.4 m player radius o
 | Rule | Value *(tune)* |
 |---|---|
 | Charges | 3 per fight (shown on the HUD) |
-| Effect | Restores **1 HP** (never above 2). Does **not** restore stamina |
-| Allowed | Only when free (or buffered, §4.3d), with HP below 2 and at least 1 charge. Otherwise the press does nothing |
+| Effect | Restores **1 HP** (never above 3). Does **not** restore stamina |
+| Allowed | Only when free (or buffered, §4.3d), with HP below 3 and at least 1 charge. Otherwise the press does nothing |
 | Timeline | 0.00 s: a charge is used and the drink starts (`flask_drink`). **0.60 s:** +1 HP, the body flashes gold `#FFD166` for 0.2 s, the HUD pip refills (`flask_heal`). **1.10 s:** done |
 | During the drink | Walking is allowed at up to 1.8 m/s (30% of max speed). No roll and no attack (both can be buffered in the last 0.20 s). Stamina regeneration is paused |
 | Interrupted | If the player is hit before 0.60 s, the charge is lost and no HP is restored |
-| Visual | The left arm is driven to θ 150° (hand at the face). A flask (cylinder r 0.07, height 0.18, `#F4A259`) is attached to the left hand and is visible only while drinking |
+| Visual | *(1.5b)* The left arm is driven to the drink pose: shoulder θ 70°, rolled 50° inward, elbow bent 105° *(tune)*, so the hand reaches the face; the head tips back 15°. A flask (cylinder r 0.07, height 0.18, `#F4A259`) sits in the left hand, visible only while drinking. **Heal aura** at 0.60 s: about 36 gold `#FFD166` glowing particles rise and swirl around the body for about 1 s, plus a soft gold ring expanding on the ground (0.4 s). Visual only |
 
 ### 4.3d Input buffer
 
@@ -229,12 +251,15 @@ Each limb pivot's pitch follows a **target angle through a damped spring**: `k =
 |---|---|
 | Legs | Walk cycle: `±sin(phase) × 35° × s`, left and right in opposite phase. `s = horizontal speed / maxSpeed`. The phase advances at `2π × 1.8 Hz × s` |
 | Left arm (not drinking) | Opposite phase to the same-side leg, `25° × s`, plus a lag of `−0.03 rad per m/s²` of forward acceleration (the arms flail when stopping) |
-| Right arm at rest | The rest pose (θ 200°, ψ 40°) through the spring, plus a walk swing of `±5° × s` |
+| Right arm, sword sheathed | Like the left arm (opposite phase to the right leg, `25° × s`) |
+| Right arm, sword drawn and free | The rest pose (θ 200°, ψ 40°) through the spring, plus a walk swing of `±5° × s` |
+| Elbows *(1.5b)* | Spring targets: rest bend 12°; walking adds `20° × s` on the forward swing; roll tuck 100°; stagger 60° (arms flail); left elbow 120° while drinking (driven directly) |
+| Knees *(1.5b)* | Spring targets: rest bend 4°; walking bends the knee of the swinging-back leg by up to `45° × s` (`max(0, −sin(phase)) × 45° × s` for the left leg, opposite phase for the right); roll tuck 110°; dizzy and stagger 25° |
 | Right arm while attacking | Driven **directly** by the combo curves (§4.3), with no spring |
 | Left arm while drinking | Driven directly to θ 150° (§4.3c) |
 | Head | Position offset on a spring (`k = 80`, `damping = 6`) pushed by `−0.02 × horizontal acceleration`; also nods `±5° × s` with the walk cycle |
-| Body | Leans forward `8° × s` |
-| During a roll | All four limbs target 70° (tucked); the walk cycle pauses |
+| Body | Leans forward `8° × s`; leans back 12° during a stagger *(tune)*; breathes when idle (torso scale Y `1 ± 0.015`, 0.3 Hz) |
+| During a roll | All four limbs target 70° (tucked), elbows 100° and knees 110°; the walk cycle pauses |
 
 ### 4.5 Hitbox
 
@@ -244,7 +269,7 @@ Two spheres, each with radius 0.40, at heights 0.50 and 1.30 above the feet. The
 
 | Rule | Value *(tune)* |
 |---|---|
-| HP | **2**. Every boss attack hit costs 1 HP |
+| HP | **3** *(changed from 2 on 2026-10-11)*. Every boss attack hit costs 1 HP |
 | Non-lethal hit | HP −1; hit-stop 0.10 s; `player_hurt` sound; camera shake 0.25 m for 0.3 s; the lost HUD pip flashes |
 | Stagger | **0.5 s.** The current action (combo, roll, flask) ends at once and the combo resets. Input is ignored, except buffering in the last 0.20 s. The player is knocked **3.0 m** horizontally away from the hit source (ease-out over the stagger; the arena wall and boss body still apply). Stamina regeneration is paused |
 | Hurt invincibility | **1.0 s** from the hit: nothing can hurt the player. The body blinks (visible ↔ hidden at 10 Hz) |
@@ -266,16 +291,25 @@ The hit source is the same as in §9.
 
 ### 6.1 Model
 
+*(Reworked 2026-10-11, milestone 1.5b: a gelatinous "slime cube" that matches the player's rounded style.)*
+
 | Part | Geometry | Color | Position (boss local; +Z local = the face that looks at the player) |
 |---|---|---|---|
-| Cube body | Box 4 × 4 × 4 | `#6A4C93` (Phase 1), turning to `#D62828` in rage | center `(0, 2, 0)` |
-| Crown band | Cylinder r 1.4, height 0.4, 5 sides | `#FFC300`, metalness 0.6, roughness 0.3 | `(0, 4.2, 0)` |
+| Cube body | **Rounded box** 4 × 4 × 4, corner radius 0.5 | `#6A4C93` (Phase 1), turning to `#D62828` in rage; roughness 0.35, plus the shared rim light (§8) in a lighter tint of the body color | center `(0, 2, 0)` |
+| Crown band | Cylinder r 1.4, height 0.4, 5 sides | `#FFC300`, metalness 0.6, roughness 0.3, faint emissive glow 0.15 | `(0, 4.2, 0)` |
 | Crown points | 5 cones r 0.30, height 0.8 | `#FFC300` | On the band's 5 corners at y 4.8 |
-| Eyes | 2 boxes 0.7 × 0.7 × 0.1 | `#FFFFFF` | `(±0.8, 2.6, 2.01)` |
-| Pupils | 2 boxes 0.3 × 0.3 × 0.1 | `#111111` | `(±0.8, 2.5, 2.06)` |
-| Eyebrows (angry) | 2 boxes 1.0 × 0.18 × 0.1 | `#111111` | `(±0.8, 3.15, 2.06)`, tilted 20° downward toward the middle |
+| Eyes | 2 rounded boxes 0.7 × 0.7 × 0.1 | `#FFFFFF` | `(±0.8, 2.6, 2.01)` |
+| Pupils | 2 rounded boxes 0.3 × 0.3 × 0.1 | `#111111` | `(±0.8, 2.5, 2.06)` |
+| Eyebrows (angry) | 2 rounded boxes 1.0 × 0.18 × 0.1 | `#111111` | `(±0.8, 3.15, 2.06)`, tilted 20° downward toward the middle |
 
-The whole boss casts and receives shadows.
+The whole boss casts and receives shadows. The **hit box stays the 4 m box** of §5; every deformation below is visual only.
+
+**Slime motion** (visual only; all values *(tune)*). The body, face and crown deform together (one transform on the boss's visual group, pivot at the ground):
+- **Squash and stretch with constant volume:** a vertical scale `sy` follows its target through an underdamped spring (k 180, damping 9); the horizontal scale is `1 / √sy`. `sy` is clamped to [0.55, 1.45]. Attack poses set the target (§6.5); impacts kick the spring.
+- **Lean (shear):** the top lags behind the boss's horizontal acceleration (`−0.012 m per m/s²` of shear per meter of height, spring k 120, damping 7, max 0.35), so dashes, skids and knockbacks make it wobble like jelly. A hit also kicks the lean away from the player.
+- **Breathing:** while waiting, `sy` targets `1 + 0.03 · sin(2π · 0.8 Hz · t)`, on top of the idle bounce.
+- The hit squash of §6.3 multiplies on top.
+- **Defeat:** the 8 pieces of §6.6 are rounded 2 m cubes in the body color.
 
 ### 6.2 Stats and general behavior
 
@@ -339,11 +373,11 @@ Every attack is **telegraphed**, and every attack hit costs the player **1 HP** 
 #### A. Cube Slam (the main punish window)
 | Step | Phase 1 | Rage |
 |---|---|---|
-| Telegraph: the boss rises to y = +4 (ease-out); a dark circle (r 2.2, 50% opacity) stays on the ground under it; `slam_rise` sound | 1.0 s | 0.6 s |
+| Telegraph: the boss rises to y = +4 (ease-out) and **stretches upward** (`sy` target 1.30); a dark circle (r 2.2, 50% opacity) with a glowing orange outline that pulses at 3 Hz stays on the ground under it; `slam_rise` sound | 1.0 s | 0.6 s |
 | Hang at the top | 0.15 s | 0.15 s |
-| Drop to y = 0 (ease-in) | 0.20 s | 0.20 s |
-| Impact: `slam_impact` sound, camera shake 0.35 m for 0.4 s, the shockwave ring spawns (a hazard) | — | — |
-| Shockwave: a ring band centered on the impact point expands from radius 2.2 to 14 m. It is drawn as a flat ring 1.0 m wide and 0.3 m tall, color `#FF7B00`, fading out near the end | 8 m/s | 11.2 m/s |
+| Drop to y = 0 (ease-in), stretched further (`sy` target 1.40) | 0.20 s | 0.20 s |
+| Impact: the body **splats** (the stretch spring is kicked down to about `sy` 0.6 and wobbles back during the window), `slam_impact` sound, camera shake 0.35 m for 0.4 s, a burst of about 60 dust and ember particles from the footprint, the shockwave ring spawns (a hazard) | — | — |
+| Shockwave: a ring band centered on the impact point expands from radius 2.2 to 14 m. It is drawn as a glowing energy band exactly 1.0 m wide and 0.3 m tall (additive, color `#FF7B00` with a hot `#FFD27A` core, flickering streaks, fading out near the end). Embers ride its front (spawned on the current radius, moving outward at the ring speed), so the effect never hides where the kill band is | 8 m/s | 11.2 m/s |
 | **Punish window:** the boss is stuck. It does not turn or move, and its crown wobbles ±10° at 3 Hz. Damage taken now does not count toward poise. At the end: Rebuke if the player is within 5.0 m, otherwise the boss is free | 2.0 s from the impact | 2.0 s |
 
 **Kill rules:**
@@ -355,9 +389,9 @@ Every attack is **telegraphed**, and every attack hit costs the player **1 HP** 
 #### B. Royal Charge
 | Step | Phase 1 | Rage |
 |---|---|---|
-| Telegraph: the boss shakes ±0.1 m and its emissive color pulses red; `charge_windup` sound | 0.7 s | 0.42 s |
+| Telegraph: the boss shakes ±0.1 m, its emissive color pulses red and it crouches (`sy` target 0.85); `charge_windup` sound | 0.7 s | 0.42 s |
 | Lock: at the end of the telegraph, fix the dash direction toward the player's current horizontal position | — | — |
-| Dash in a straight line (`charge_dash` sound). It stops when the boss center reaches radius 27 m, or after 2.0 s | 18 m/s | 25.2 m/s |
+| Dash in a straight line (`charge_dash` sound), stretched along the dash by the slime lean; dust kicks up behind it. It stops when the boss center reaches radius 27 m, or after 2.0 s | 18 m/s | 25.2 m/s |
 | Skid: slow to 0 | 0.3 s | 0.3 s |
 | Recovery (a small punish window): no turning; damage taken does not count toward poise; then the boss is free | 0.6 s | 0.6 s |
 
@@ -378,8 +412,8 @@ Every attack is **telegraphed**, and every attack hit costs the player **1 HP** 
 - **Wave 2, "scatter"** (placed at launch): 12 circles at random positions in the arena. Each is at least 5.0 m from every other wave-2 circle (rejection sampling; a circle that can't be placed in 30 tries is skipped). 12 shards.
 - All circles are kept inside the arena (center at most 28.8 m from the arena center).
 - Circles: r 1.2, `#FF3B30`, 50% opacity, pulsing. Each wave pulses together.
-- Shards: gold cubes (0.6 m, `#FFC300`, spinning) on ballistic arcs that land **exactly** on their circle centers.
-- Landing: `shard_land` plays once per wave. Each landing shard makes a small puff (2 debris cubes) and is removed with its circle.
+- Shards: **fireballs** *(1.5b)*: a glowing core (r 0.35, `#FFB347`, unlit) with a trail of fire particles, on ballistic arcs that land **exactly** on their circle centers.
+- Landing: `shard_land` plays once per wave. Each landing shard **explodes** in a burst of about 14 fire particles and leaves a **burning mark** (a dark scorch r 0.9 with 3 small flame tongues) that lasts **3.0 s** and fades out smoothly from 1.8 s *(tune)*. Burning marks are purely cosmetic (no damage), look nothing like the red warning circles, are smaller than the kill radius, and are removed only by reset (they fade out on their own after a rage transition, a death or a defeat).
 
 Why: the waves land 0.4 s apart, longer than the 0.35 s of roll i-frames, so one roll can't dodge two waves. The 5 m scatter spacing leaves gaps of at least 1.8 m between kill zones.
 
@@ -393,8 +427,8 @@ Why: the waves land 0.4 s apart, longer than the 0.35 s of roll i-frames, so one
 | Step | Both phases *(tune)* |
 |---|---|
 | Tell: the body squashes to `(1.1, 0.85, 1.1)`, the crown flashes white twice, `rebuke_windup` sound | 0.35 s (×1.3 with `?easy`; not scaled by rage) |
-| Burst: a flat ring `#FFE066` expands from radius 2.0 to 4.5 m around the boss center (0.3 m tall); `rebuke_burst` sound; camera shake 0.2 m for 0.2 s | 0.10 s |
-| Recovery, then the boss is free | 0.30 s |
+| Burst *(1.5b)*: a **360° spike burst**: 2 staggered rows of 24 spikes (cones, `#FFE066`, glowing) shoot out of the body horizontally at heights 0.5 m and 1.4 m, their tips reaching **4.5 m** from the boss center. The rows are offset by half a spike, so the gaps at 4.5 m (about 0.6 m) are narrower than the player. `rebuke_burst` sound; camera shake 0.2 m for 0.2 s. During the tell, short spike tips (0.3 m) poke out of the body as an extra warning | 0.10 s |
+| Recovery (the spikes hold for 0.10 s, then retract into the body), then the boss is free | 0.30 s |
 
 **Kill rule:** during the burst, the player is hit if their horizontal distance from the boss center is at most `4.5 + 0.4` m.
 
@@ -443,20 +477,27 @@ On the hit that brings HP to 0:
 
 ## 8. Arena and environment
 
+*(Reworked 2026-10-11, milestone 1.5b: a moonlit dusk arena lit by torches. Values *(tune)*.)*
+
 | Item | Spec |
 |---|---|
-| Arena floor | Circle with radius 30 m and 64 segments, color `#6AB04C`, receives shadows. Optional: vary the green ±6% per vertex using vertex colors (still no texture) |
-| Outer field | Circle with radius 200 m, color `#5E9E44`, 1 cm below the arena, so the horizon is green grass in every direction |
+| Arena floor | Circle with radius 30 m and 64 segments, color `#6AB04C`, receives shadows. Vary the green ±6% per vertex using vertex colors (still no texture) |
+| Outer field | Circle with radius 200 m, color `#5E9E44`, 1 cm below the arena; it fades into the night fog |
 | Arena edge marker | Flat ring from radius 29.8 to 30.2 m, color `#4A7F35` (shows where the invisible wall is) |
-| Sky | Background color `#BFE3FF`; linear fog in the same color, from 60 m to 180 m |
-| Lights | Hemisphere light (sky `#FFFFFF`, ground `#557733`, intensity 1.0 *(tune)*). Directional "sun" from `(10, 20, 8)`, intensity 2.0 *(tune)*, casting shadows with a 1024² map. The shadow camera covers ±35 m around the origin; bias −0.0005 |
+| Sky | **Moonlit dusk, nearly dark:** background `#0B1020`; linear fog in the same color, from 35 m to 110 m |
+| Ambient | Hemisphere light (sky `#3B4A7A`, ground `#141A10`, intensity 0.9) |
+| Moon | Directional light `#A8B8FF` from `(−14, 26, 12)`, intensity 1.3, the **only** shadow caster: 1024² map, the shadow camera covers ±35 m around the origin, bias −0.0005 |
+| Torches | **6 torches** evenly around the arena at radius 32 m (outside the wall, never in the way): a dark wooden pole (cylinder r 0.08, 2.2 m), an iron bowl on top, and a flickering flame (additive glowing billboards). Each has a warm point light `#FF9A3C` (intensity 40, range 22 m, decay 2) **without shadows**, flickering ±15% with smooth noise. Lights are never added or removed during play |
+| Rim light | Every character material adds a fresnel edge glow (player: cool `#9DB7FF`, strength 0.35; boss: a light tint of its body color, strength 0.45), so silhouettes read against the dark |
+| Tone mapping | ACES filmic, exposure 1.0. Telegraph and UI-like effects (warning circles, slam outline, shockwave, rebuke spikes' glow, particles) are unlit and not tone mapped, so they stay vivid |
+| Readability | Every telegraph is unlit or emissive, so it reads at night. Check on the booth laptop in a bright hall |
 
 ## 9. Player death (HP reaches 0; state `DYING`, 2.0 s total)
 
 | Time after the hit | What happens |
 |---|---|
 | 0.00 s | Hit-stop for 0.10 s. State becomes `DYING`. All hazards are removed. Long sounds (`slam_rise`, `charge_windup`, `rebuke_windup`) stop |
-| 0.10 s | The 7 parts detach from the hierarchy and keep their world positions and rotations. Each part gets a horizontal velocity of 3–6 m/s away from the hit source, an upward velocity of 4–7 m/s, and a random spin of up to 10 rad/s. Debris physics applies (ARCHITECTURE.md §5.6). `player_break` sound (clatter plus a falling slide whistle) |
+| 0.10 s | The 12 parts (torso, head, upper arms, forearms with hands, thighs, shins with boots, scabbard, sword) detach from the hierarchy and keep their world positions and rotations. Each part gets a horizontal velocity of 3–6 m/s away from the hit source, an upward velocity of 4–7 m/s, and a random spin of up to 10 rad/s. Debris physics applies (ARCHITECTURE.md §5.6). `player_break` sound (clatter plus a falling slide whistle) |
 | 0.10 s → | The boss cancels any attack or telegraph, stops moving, and turns at its normal rate to **face the remains** (the average position of the debris). It keeps its idle bounce, as if it is gloating |
 | 0.60 s | "YOU DIED" fades in over 0.5 s (§2), with the `you_died` sound |
 | 2.00 s | The **return transition** to the start screen begins (§1, `TO_TITLE`) |
@@ -537,7 +578,7 @@ Do **not** build any of these:
 - [ ] Attacking chains a 3-hit combo (kesagiri, rising backhand, overhead finisher) through the 0.5 s chain window; mashing produces a fluid combo; nothing cancels a committed hit; only active phases damage, one hit at most per combo hit
 - [ ] Buffered inputs (last 0.20 s of an action) run at the first legal moment and never cancel anything
 - [ ] Stamina allows exactly 3 rolls, or 3 hits + 1 roll, from full; refused actions flash the bar; it refills in about 2 s after a 0.4 s pause
-- [ ] The player survives the first hit (stagger, knockback, 1.0 s blinking invincibility) and dies on the second; a flask restores 1 HP after 0.6 s, can be interrupted, and has 3 charges
+- [ ] The player survives the first two hits (stagger, knockback, 1.0 s blinking invincibility) and dies on the third; a flask restores 1 HP after 0.6 s, can be interrupted, and has 3 charges
 
 **Boss**
 - [ ] All 4 attacks are telegraphed and can be avoided as described (roll through the ring, strafe or roll past the charge, read the Crown Rain waves, roll the Rebuke); each can also be survived with well-timed roll i-frames
@@ -551,6 +592,8 @@ Do **not** build any of these:
 
 **Feedback**
 - [ ] The player falls apart on death; the boss breaks into 8 cubes plus the crown on defeat
+- [ ] *(1.5b)* Elbows and knees bend in every animation; the sword is sheathed on the back when idle, drawn during Hit 1's wind-up and put away 1.5 s after the combo; the boss squashes, stretches and wobbles like jelly; the Slam splats; the Rebuke is a spike burst; Crown Rain shards are fireballs that leave fading burn marks; the flask shows a heal aura
+- [ ] *(1.5b)* The night arena is readable: every telegraph is clearly visible, the torches flicker, draw calls stay under 100
 - [ ] The player HUD (HP pips, flask counter, stamina bar) and the 20-HP boss bar read clearly
 - [ ] All Must and Should sounds play (ASSETS.md §1); `M` mutes everything
 

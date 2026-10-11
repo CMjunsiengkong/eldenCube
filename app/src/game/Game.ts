@@ -9,6 +9,7 @@
 import {
   BoxGeometry,
   EdgesGeometry,
+  type Object3D,
   Group,
   InstancedMesh,
   LineBasicMaterial,
@@ -36,6 +37,7 @@ import { RoyalRebuke } from '../attacks/RoyalRebuke';
 import { Hazards, WAVES } from '../attacks/Hazards';
 import { debrisCenter, stepDebris, type DebrisPiece } from '../fx/debris';
 import { Puffs } from '../fx/effects';
+import { Vfx } from '../fx/vfx';
 import { Audio } from '../systems/audio';
 import { CameraController } from '../systems/camera';
 import { pointInOBB } from '../systems/collision';
@@ -234,6 +236,8 @@ export class Game implements LoopTarget {
   private readonly boss: Boss;
   private readonly debris: DebrisPiece[] = [];
   private readonly puffs: Puffs;
+  private readonly vfx: Vfx;
+  private readonly arena: Arena;
   private readonly hazards: Hazards;
   private readonly attacks: Record<MoveId, Attack>;
   private attack: Attack | null = null;
@@ -271,7 +275,7 @@ export class Game implements LoopTarget {
     this.debug = getFlags().debug;
 
     this.camera = new PerspectiveCamera(CAM.fov, window.innerWidth / window.innerHeight, CAM.near, CAM.far);
-    new Arena(this.scene);
+    this.arena = new Arena(this.scene);
     this.input = new Input(canvas, this.debug);
     this.input.onGesture = () => this.audio.unlock();
     this.input.onFocusLost = () => this.onFocusLost();
@@ -282,7 +286,8 @@ export class Game implements LoopTarget {
     this.player = new Player(this.debug);
     this.scene.add(this.player.root);
     this.puffs = new Puffs(this.scene, this.rng);
-    this.hazards = new Hazards(this.scene, this.puffs);
+    this.vfx = new Vfx(this.scene);
+    this.hazards = new Hazards(this.scene, this.puffs, this.vfx);
     this.hazards.sound = this.audio;
     this.attacks = { slam: new CubeSlam(), charge: new RoyalCharge(), rain: new CrownRain(), rebuke: new RoyalRebuke() };
 
@@ -304,6 +309,7 @@ export class Game implements LoopTarget {
       rng: this.rng,
       effects: this.puffs,
       hazards: this.hazards,
+      vfx: this.vfx,
     };
 
     if (this.debug) this.hitboxes = new DebugHitboxes(this.scene);
@@ -311,6 +317,31 @@ export class Game implements LoopTarget {
     this.syncPlayerHud();
     this.ui.setSound(!this.audio.muted);
     this.ui.setScreen('title');
+    this.prewarm();
+  }
+
+  /**
+   * ARCHITECTURE §4.6 (1.5b): compile every shader before the first frame. Pooled objects that are
+   * normally detached or hidden are attached and shown for the compile, then restored, so the first
+   * Slam, Crown Rain or Rebuke never stutters.
+   */
+  private prewarm(): void {
+    const pool: Object3D[] = [
+      ...this.hazards.scenePool,
+      ...(this.attacks.slam as CubeSlam).scenePool,
+      ...this.puffs.warmupPieces,
+      ...this.vfx.scenePool,
+    ];
+    const saved = pool.map((o) => ({ o, parent: o.parent, visible: o.visible }));
+    for (const s of saved) {
+      if (!s.parent) this.scene.add(s.o);
+      s.o.visible = true;
+    }
+    this.renderer.compile(this.scene, this.camera);
+    for (const s of saved) {
+      s.o.visible = s.visible;
+      if (!s.parent) s.o.removeFromParent();
+    }
   }
 
   /** Legacy name used by the 1.4 debug scripts. */
@@ -346,6 +377,8 @@ export class Game implements LoopTarget {
     }
     stepDebris(this.debris, dt);
     this.puffs.step(dt);
+    this.arena.step(dt, this.vfx);
+    this.vfx.step(dt);
     this.rebukeMarker = Math.max(0, this.rebukeMarker - dt);
     this.syncPlayerHud();
     this.input.endStep();
@@ -476,6 +509,7 @@ export class Game implements LoopTarget {
     for (const p of this.debris) p.object.removeFromParent();
     this.debris.length = 0;
     this.puffs.clear();
+    this.vfx.clear();
     this.player.reset();
     this.boss.reset(this.scene);
     this.time.resetTiming();
@@ -552,7 +586,7 @@ export class Game implements LoopTarget {
     }
   }
 
-  /** GD §4.6 / §9: the first hit staggers the player; the second one kills (DYING). */
+  /** GD §4.6 / §9: a non-lethal hit staggers the player; the hit that takes the last HP kills (DYING). */
   private onPlayerHit(source: Vector3): void {
     const r = this.player.motor.takeHit(source.x, source.z);
     if (r === 'ignored') return;
@@ -653,6 +687,7 @@ export class Game implements LoopTarget {
           break;
         case 'flaskHeal':
           this.audio.play('flask_heal');
+          this.vfx.healAura(m.x, m.z);
           break;
         case 'staminaRefused':
           this.ui.flashStamina();

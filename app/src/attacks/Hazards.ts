@@ -7,21 +7,27 @@
  * Shards and circles are drawn with InstancedMesh: one shard mesh for all waves and one circle
  * mesh per wave (per-wave pulsing), plus one separate disc for wave 0's center circle (its own
  * pulse rate with Staggered Rain). Nothing is allocated per frame.
+ *
+ * 1.5b visuals: shards are fireballs (glowing cores with fire trails) that explode and leave
+ * burning marks; shockwave rings are glowing bands with embers riding their front; the Rebuke is
+ * a spike burst. All of it is visual: the kill rules are unchanged.
  */
 import {
-  BoxGeometry,
   CircleGeometry,
+  IcosahedronGeometry,
   InstancedMesh,
   Matrix4,
   MeshBasicMaterial,
-  MeshStandardMaterial,
   Object3D,
   Quaternion,
   Vector3,
+  type Mesh,
   type Scene,
 } from 'three';
 import { CONFIG } from '../config';
-import { GroundDisc, discGeometry, ShockwaveRing, type Puffs } from '../fx/effects';
+import { GroundDisc, discGeometry, ShockwaveRing, SpikeBurst, type Puffs } from '../fx/effects';
+import type { Vfx } from '../fx/vfx';
+import { easeIn, easeOut } from '../util/math';
 import { inCircle, inRingBand, sphereSphere, type Vec3Like } from '../systems/collision';
 import type { Sphere } from '../entities/Player';
 import { SILENT, type SoundSink } from './Attack';
@@ -42,6 +48,8 @@ interface Ring {
   radius: number;
   speed: number;
   alive: boolean;
+  /** Fractional embers carried to the next step. */
+  emberAcc: number;
 }
 
 interface Shard {
@@ -82,20 +90,24 @@ export class Hazards {
   /** Wave 0's center circle as its own disc (Staggered Rain pulses it slower). */
   private readonly centerDisc: GroundDisc;
   private centerPulseHz: number = RN.circlePulseHz;
-  private readonly rebukeRing = new ShockwaveRing(RB.ringWidth, RB.ringHeight, CONFIG.colors.rebukeRing);
+  private readonly spikes = new SpikeBurst();
   private rebukeT = -1;
   private readonly source = new Vector3();
   private readonly dummy = new Object3D();
+  private readonly vfx: Vfx | null;
+  /** Simulation time (shader streaks). */
+  private time = 0;
 
-  constructor(scene: Scene, puffs: Puffs) {
+  constructor(scene: Scene, puffs: Puffs, vfx: Vfx | null = null) {
     this.scene = scene;
     this.puffs = puffs;
-    for (let i = 0; i < RING_POOL; i++) this.rings.push({ mesh: new ShockwaveRing(), center: new Vector3(), radius: 0, speed: 0, alive: false });
+    this.vfx = vfx;
+    for (let i = 0; i < RING_POOL; i++) this.rings.push({ mesh: new ShockwaveRing(), center: new Vector3(), radius: 0, speed: 0, alive: false, emberAcc: 0 });
 
-    const band = CONFIG.boss.model.crownBand;
-    const shardMat = new MeshStandardMaterial({ color: CONFIG.colors.crown, metalness: band.metalness, roughness: band.roughness });
-    this.shardMesh = new InstancedMesh(new BoxGeometry(RN.size, RN.size, RN.size), shardMat, WAVES * MAX);
-    this.shardMesh.castShadow = true;
+    // Fireball cores: unlit, so they glow at night (the trail is drawn by the particles).
+    const shardMat = new MeshBasicMaterial({ color: CONFIG.colors.fireballCore, toneMapped: false });
+    this.shardMesh = new InstancedMesh(new IcosahedronGeometry(CONFIG.vfx.fireball.coreRadius, 1), shardMat, WAVES * MAX);
+    this.shardMesh.castShadow = false;
     this.shardMesh.frustumCulled = false;
     const circleGeo: CircleGeometry = discGeometry(RN.circleRadius);
     for (let w = 0; w < WAVES; w++) {
@@ -123,6 +135,7 @@ export class Hazards {
     ring.radius = SL.ringStartRadius;
     ring.speed = speed;
     ring.alive = true;
+    ring.emberAcc = 0;
     ring.mesh.setRadius(ring.radius);
     ring.mesh.show(this.scene, x, z);
   }
@@ -169,11 +182,22 @@ export class Hazards {
     if (!this.shardMesh.parent) this.scene.add(this.shardMesh);
   }
 
-  /** The Rebuke burst ring (visual; the kill check is in RoyalRebuke). */
+  /** The Rebuke spike burst (visual; the kill check is in RoyalRebuke). */
   spawnRebuke(x: number, z: number): void {
     this.rebukeT = 0;
-    this.rebukeRing.setRadius(RB.startRadius);
-    this.rebukeRing.show(this.scene, x, z);
+    this.spikes.show(this.scene, x, z, RB.startRadius);
+  }
+
+  /** During the Rebuke tell (`u` 0 → 1): spike tips poke out of the body as an extra warning. */
+  rebukeTell(x: number, z: number, u: number): void {
+    if (this.rebukeT >= 0) return;
+    const S = RB.spikes;
+    this.spikes.show(this.scene, x, z, S.innerRadius + (S.tellTip - S.innerRadius) * easeOut(Math.min(1, u)));
+  }
+
+  /** Every normally detached mesh (shader warm-up). */
+  get scenePool(): readonly (Mesh | InstancedMesh)[] {
+    return [...this.rings.map((r) => r.mesh.mesh), ...this.waves.map((w) => w.circles), this.shardMesh, this.centerDisc.mesh, this.spikes.mesh];
   }
 
   // --- queries -----------------------------------------------------------------------------------
@@ -218,6 +242,7 @@ export class Hazards {
   // --- simulation --------------------------------------------------------------------------------
 
   step(dt: number): void {
+    this.time += dt;
     // Rings
     const travel = SL.ringEndRadius - SL.ringStartRadius;
     for (const r of this.rings) {
@@ -229,18 +254,36 @@ export class Hazards {
         continue;
       }
       r.mesh.setRadius(r.radius);
+      r.mesh.setTime(this.time);
       const u = (r.radius - SL.ringStartRadius) / travel;
-      r.mesh.material.opacity = u <= SL.ringFadeStart ? 1 : Math.max(0, 1 - (u - SL.ringFadeStart) / (1 - SL.ringFadeStart));
+      const fade = u <= SL.ringFadeStart ? 1 : Math.max(0, 1 - (u - SL.ringFadeStart) / (1 - SL.ringFadeStart));
+      r.mesh.setOpacity(fade);
+      if (this.vfx) {
+        // Embers ride the front (spawned on the current radius, moving outward at the ring speed).
+        r.emberAcc += CONFIG.vfx.ringEmbers.perSecond * dt * fade;
+        const n = Math.floor(r.emberAcc);
+        r.emberAcc -= n;
+        if (n > 0) this.vfx.ringEmbers(r.center.x, r.center.z, r.radius, r.speed, n);
+      }
     }
 
-    // Rebuke ring: expands over the burst, then fades over the recovery.
+    // Rebuke spikes: shoot out over the burst (slight overshoot), hold, then retract.
     if (this.rebukeT >= 0) {
       this.rebukeT += dt;
-      const u = Math.min(1, this.rebukeT / RB.burst);
-      this.rebukeRing.setRadius(RB.startRadius + (RB.endRadius - RB.startRadius) * u);
-      const f = (this.rebukeT - RB.burst) / RB.recovery;
-      this.rebukeRing.material.opacity = f <= 0 ? 1 : Math.max(0, 1 - f);
-      if (f >= 1) this.hideRebuke();
+      const S = RB.spikes;
+      let tip: number;
+      if (this.rebukeT <= RB.burst) {
+        const u = this.rebukeT / RB.burst;
+        tip = RB.startRadius + (RB.endRadius + S.overshoot - RB.startRadius) * easeOut(u);
+      } else if (this.rebukeT <= RB.burst + S.hold) {
+        const u = (this.rebukeT - RB.burst) / S.hold;
+        tip = RB.endRadius + S.overshoot * (1 - u);
+      } else {
+        const u = Math.min(1, (this.rebukeT - RB.burst - S.hold) / (RB.recovery - S.hold));
+        tip = RB.endRadius + (S.innerRadius - RB.endRadius) * easeIn(u);
+        if (u >= 1) this.hideRebuke();
+      }
+      if (this.rebukeT >= 0) this.spikes.setTip(tip);
     }
 
     // Shards
@@ -261,13 +304,15 @@ export class Hazards {
           s.landedNow = true;
           wave.landedThisStep = true;
           circlesDirty = true;
-          this.puffs.spawn(s.target.x, RN.landHeight, s.target.z, 'crown', RN.landPuffPieces);
+          if (this.vfx) this.vfx.fireExplosion(s.target.x, s.target.z);
+          else this.puffs.spawn(s.target.x, RN.landHeight, s.target.z, 'crown', RN.landPuffPieces);
           continue;
         }
         anyFlying = true;
         s.vel.y -= G * dt;
         s.pos.addScaledVector(s.vel, dt);
         s.spin += RN.spinRate * dt;
+        this.vfx?.fireballTrail(s.pos.x, s.pos.y, s.pos.z);
       }
       if (wave.landedThisStep) this.sound.play('shard_land');
       if (circlesDirty) this.writeCircles(w);
@@ -331,7 +376,13 @@ export class Hazards {
       w.count = 0;
       w.circles.removeFromParent();
     }
-    if (puff && this.rebukeT >= 0) this.puffs.spawn(this.rebukeRing.mesh.position.x, RB.ringHeight, this.rebukeRing.mesh.position.z, 'rebuke');
+    if (puff && this.spikes.visible) {
+      const c = this.spikes.mesh.position;
+      for (let k = 0; k < 4; k++) {
+        const a = (k / 4) * Math.PI * 2;
+        this.puffs.spawn(c.x + Math.cos(a) * RB.startRadius, RB.spikes.rows[0], c.z + Math.sin(a) * RB.startRadius, 'rebuke');
+      }
+    }
     this.hideRebuke();
     this.centerDisc.hide();
     this.shardMesh.removeFromParent();
@@ -342,7 +393,7 @@ export class Hazards {
 
   private hideRebuke(): void {
     this.rebukeT = -1;
-    this.rebukeRing.hide();
+    this.spikes.hide();
   }
 
   private writeCircles(w: number): void {

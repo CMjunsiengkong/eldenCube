@@ -1,7 +1,8 @@
 /** Bootstrap: WebGL check, renderer, Game, loop start (ARCHITECTURE §4.6). */
 import '@fontsource/cinzel/700.css';
 import './styles.css';
-import { PCFShadowMap, SRGBColorSpace, WebGLRenderer } from 'three';
+import { ACESFilmicToneMapping, PCFShadowMap, SRGBColorSpace, WebGLRenderer } from 'three';
+import { CONFIG } from './config';
 import { Game } from './game/Game';
 import { getFlags } from './flags';
 import { Loop } from './loop';
@@ -39,6 +40,9 @@ async function main(): Promise<void> {
   renderer.shadowMap.enabled = true;
   // ARCHITECTURE §4.6: PCFShadowMap (three r186 removed PCFSoftShadowMap).
   renderer.shadowMap.type = PCFShadowMap;
+  // 1.5b night look: tone mapping runs inside the normal shaders (not post-processing).
+  renderer.toneMapping = ACESFilmicToneMapping;
+  renderer.toneMappingExposure = CONFIG.lights.exposure;
 
   // Wait for the bundled Cinzel font so the title never flashes in a fallback font.
   await document.fonts.ready;

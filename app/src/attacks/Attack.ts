@@ -5,6 +5,7 @@ import type { Sphere } from '../entities/Player';
 import type { Vec3Like } from '../systems/collision';
 import type { Puffs } from '../fx/effects';
 import type { Hazards } from './Hazards';
+import type { Vfx } from '../fx/vfx';
 import type { Rng } from '../util/rng';
 
 /** The random attacks (GD §6.5 A–C). The Royal Rebuke (D) is triggered, never picked. */
@@ -64,6 +65,8 @@ export interface AttackBoss {
   crownTilt: number;
   /** Resets everything above (and y = 0). */
   clearAttackPose(): void;
+  /** Kicks the slime stretch spring (negative = splat down; visual only, GD §6.1). */
+  splat(velocity: number): void;
   getBox(): BossBox;
 }
 
@@ -91,8 +94,10 @@ export interface AttackContext {
   upgrades: RageUpgrades;
   rng: Rng;
   effects: Puffs;
-  /** Rings, shards, circles and the Rebuke ring: they outlive the attack that spawned them. */
+  /** Rings, shards, circles and the Rebuke spikes: they outlive the attack that spawned them. */
   hazards: Hazards;
+  /** Particles and other visual effects (absent in unit tests). */
+  vfx?: Vfx;
 }
 
 export interface Attack {

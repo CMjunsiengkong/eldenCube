@@ -1,6 +1,7 @@
 /**
  * Visual effects helpers (ARCHITECTURE §3 fx/effects.ts): hit flash timer, squash, color fade,
- * flat ground discs (slam shadow, warning circles), the shockwave ring mesh and debris puffs.
+ * flat ground discs (slam shadow, warning circles), the glowing shockwave band (1.5b), the Royal
+ * Rebuke spike burst (1.5b) and debris puffs.
  * All meshes are created once and reused; nothing is allocated per frame.
  */
 import {
@@ -8,10 +9,19 @@ import {
   BufferAttribute,
   BufferGeometry,
   CircleGeometry,
+  Color,
+  ConeGeometry,
   DoubleSide,
+  InstancedMesh,
+  Matrix4,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
+  NormalBlending,
+  Quaternion,
+  RingGeometry,
+  ShaderMaterial,
+  Vector3,
   type Scene,
 } from 'three';
 import { CONFIG } from '../config';
@@ -135,14 +145,39 @@ export class GroundDisc {
 /** Shared circle geometry factory (one geometry per radius). */
 export const discGeometry = (radius: number): CircleGeometry => new CircleGeometry(radius, 32);
 
+const BAND_VERTEX = /* glsl */ `
+attribute vec3 aBand; // x: 0 inner .. 1 outer, y: 0 bottom .. 1 top, z: angle 0 .. 1
+varying vec3 vBand;
+void main() {
+  vBand = aBand;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}`;
+
+const BAND_FRAGMENT = /* glsl */ `
+varying vec3 vBand;
+uniform vec3 uColor;
+uniform vec3 uCore;
+uniform float uOpacity;
+uniform float uTime;
+void main() {
+  float across = 1.0 - abs(vBand.x - 0.5) * 2.0; // 1 in the middle of the band
+  float a6 = vBand.z * 6.2831853;
+  float streak = 0.78 + 0.22 * sin(a6 * 26.0 + uTime * 9.0) * sin(a6 * 7.0 - uTime * 5.0);
+  float hot = smoothstep(0.25, 1.0, across) * (1.0 - 0.55 * vBand.y);
+  vec3 col = mix(uColor, uCore, hot) * streak;
+  float a = uOpacity * (0.6 + 0.4 * across) * (1.0 - 0.45 * vBand.y);
+  gl_FragColor = vec4(col, a);
+  #include <colorspace_fragment>
+}`;
+
 /**
- * The Cube Slam shockwave (GD §6.5 A): a flat band 1.0 m wide and 0.3 m tall around the boss.
- * One mesh (top face + inner and outer walls) whose vertices are rewritten in place when the
- * radius changes, so the width stays exactly 1.0 m at every radius.
+ * The Cube Slam shockwave (GD §6.5 A): a band exactly 1.0 m wide and 0.3 m tall around the
+ * impact, drawn as a glowing energy band (1.5b). One mesh (top face + inner and outer walls) whose
+ * vertices are rewritten in place when the radius changes, so the width stays exactly 1.0 m.
  */
 export class ShockwaveRing {
   readonly mesh: Mesh;
-  readonly material: MeshBasicMaterial;
+  readonly material: ShaderMaterial;
   private readonly positions: Float32Array;
   private readonly attr: BufferAttribute;
   private readonly segments: number;
@@ -157,10 +192,26 @@ export class ShockwaveRing {
     this.segments = S.ringSegments;
     const n = this.segments + 1;
     this.positions = new Float32Array(n * 4 * 3);
+    const band = new Float32Array(n * 4 * 3);
     const geo = new BufferGeometry();
     this.attr = new BufferAttribute(this.positions, 3);
     geo.setAttribute('position', this.attr);
     // Per boundary j: 0 inner-bottom, 1 inner-top, 2 outer-top, 3 outer-bottom.
+    const corners = [
+      [0, 0],
+      [0, 1],
+      [1, 1],
+      [1, 0],
+    ];
+    for (let j = 0; j <= this.segments; j++) {
+      for (let k = 0; k < 4; k++) {
+        const o = (j * 4 + k) * 3;
+        band[o] = corners[k][0];
+        band[o + 1] = corners[k][1];
+        band[o + 2] = j / this.segments;
+      }
+    }
+    geo.setAttribute('aBand', new BufferAttribute(band, 3));
     const idx: number[] = [];
     const v = (j: number, k: number): number => j * 4 + k;
     for (let j = 0; j < this.segments; j++) {
@@ -173,14 +224,38 @@ export class ShockwaveRing {
       }
     }
     geo.setIndex(idx);
-    this.material = new MeshBasicMaterial({ color, transparent: true, side: DoubleSide });
+    this.material = new ShaderMaterial({
+      vertexShader: BAND_VERTEX,
+      fragmentShader: BAND_FRAGMENT,
+      uniforms: {
+        uColor: { value: new Color(color) },
+        uCore: { value: new Color(CONFIG.colors.shockwaveCore) },
+        uOpacity: { value: 1 },
+        uTime: { value: 0 },
+      },
+      transparent: true,
+      depthWrite: false,
+      blending: NormalBlending, // true colors on the green floor (additive turns orange yellow)
+      side: DoubleSide,
+      toneMapped: false,
+    });
     this.mesh = new Mesh(geo, this.material);
     this.mesh.frustumCulled = false; // the bounding sphere would change with every radius
+    this.mesh.renderOrder = 3;
     this.setRadius(S.ringStartRadius);
   }
 
   get visible(): boolean {
     return this.mesh.parent !== null;
+  }
+
+  setOpacity(opacity: number): void {
+    this.material.uniforms.uOpacity.value = opacity;
+  }
+
+  /** Simulation time for the flickering streaks. */
+  setTime(t: number): void {
+    this.material.uniforms.uTime.value = t;
   }
 
   setRadius(r: number): void {
@@ -203,7 +278,7 @@ export class ShockwaveRing {
 
   show(scene: Scene, x: number, z: number): void {
     this.mesh.position.set(x, 0, z);
-    this.material.opacity = 1;
+    this.setOpacity(1);
     if (!this.mesh.parent) scene.add(this.mesh);
   }
 
@@ -211,6 +286,97 @@ export class ShockwaveRing {
     this.mesh.removeFromParent();
   }
 }
+
+/** A glowing outline ring lying on the ground (the Slam telegraph outline, 1.5b). */
+export class GroundRing {
+  readonly mesh: Mesh;
+  readonly material: MeshBasicMaterial;
+
+  constructor(inner: number, outer: number, color: number, lift: number) {
+    const geo = new RingGeometry(inner, outer, 48);
+    geo.rotateX(-Math.PI / 2);
+    this.material = new MeshBasicMaterial({ color, transparent: true, depthWrite: false, side: DoubleSide, toneMapped: false });
+    this.mesh = new Mesh(geo, this.material);
+    this.mesh.position.y = lift;
+    this.mesh.renderOrder = 2;
+  }
+
+  show(scene: Scene, x: number, z: number, opacity: number): void {
+    this.mesh.position.x = x;
+    this.mesh.position.z = z;
+    this.material.opacity = opacity;
+    if (!this.mesh.parent) scene.add(this.mesh);
+  }
+
+  hide(): void {
+    this.mesh.removeFromParent();
+  }
+}
+
+const RS = CONFIG.rebuke.spikes;
+const spikeQ = new Quaternion();
+const spikeM = new Matrix4();
+const spikeP = new Vector3();
+const spikeS = new Vector3();
+const UP = new Vector3(0, 1, 0);
+
+/**
+ * The Royal Rebuke burst (GD §6.5 D, 1.5b): 2 staggered rows of radial spikes (cones) in one
+ * instanced mesh. `setTip(r)` extends every spike so its tip is `r` m from the boss center.
+ */
+export class SpikeBurst {
+  readonly mesh: InstancedMesh;
+  private readonly count: number;
+
+  constructor() {
+    // Unit cone: base at x = 0, tip at x = 1 (pointing outward along +X).
+    const geo = new ConeGeometry(RS.baseRadius, 1, RS.radialSegments);
+    geo.translate(0, 0.5, 0);
+    geo.rotateZ(-Math.PI / 2);
+    const color = new Color(CONFIG.colors.rebukeRing);
+    const mat = new MeshStandardMaterial({ color, emissive: color, emissiveIntensity: RS.glow, metalness: 0.3, roughness: 0.4 });
+    this.count = RS.perRow * RS.rows.length;
+    this.mesh = new InstancedMesh(geo, mat, this.count);
+    this.mesh.castShadow = true;
+    this.mesh.frustumCulled = false;
+  }
+
+  get visible(): boolean {
+    return this.mesh.parent !== null;
+  }
+
+  show(scene: Scene, x: number, z: number, tip: number): void {
+    this.mesh.position.set(x, 0, z);
+    this.setTip(tip);
+    if (!this.mesh.parent) scene.add(this.mesh);
+  }
+
+  /** Every spike starts at `RS.innerRadius` (inside the body) and ends at radius `tip`. */
+  setTip(tip: number): void {
+    const len = Math.max(0.01, tip - RS.innerRadius);
+    let i = 0;
+    for (let row = 0; row < RS.rows.length; row++) {
+      const offset = row % 2 === 0 ? 0 : 0.5; // the rows are offset by half a spike
+      for (let k = 0; k < RS.perRow; k++, i++) {
+        const a = ((k + offset) / RS.perRow) * Math.PI * 2;
+        // A small fixed pitch per spike looks less mechanical.
+        const pitch = RS.pitchJitter * Math.sin(k * 2.39 + row * 1.3);
+        spikeQ.setFromAxisAngle(UP, -a);
+        spikeP.set(Math.cos(a) * RS.innerRadius, RS.rows[row], Math.sin(a) * RS.innerRadius);
+        spikeS.set(len, 1, 1);
+        spikeM.compose(spikeP, spikeQ, spikeS);
+        if (pitch !== 0) spikeM.multiply(PITCH.makeRotationZ(pitch));
+        this.mesh.setMatrixAt(i, spikeM);
+      }
+    }
+    this.mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  hide(): void {
+    this.mesh.removeFromParent();
+  }
+}
+const PITCH = new Matrix4();
 
 export type PuffColor = 'crown' | 'shockwave' | 'warning' | 'rebuke';
 
@@ -281,6 +447,11 @@ export class Puffs {
       this.active[i] = this.active[this.active.length - 1];
       this.active.pop();
     }
+  }
+
+  /** One pooled piece per material (shader warm-up). */
+  get warmupPieces(): readonly Mesh[] {
+    return this.pool.slice(0, 1).map((p) => p.object as Mesh);
   }
 
   /** Visible puff pieces (tests, debug). */

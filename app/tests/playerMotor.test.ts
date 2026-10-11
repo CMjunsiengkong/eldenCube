@@ -115,6 +115,7 @@ const CB = CONFIG.combo;
 const ST = CONFIG.stamina;
 const FL = CONFIG.flask;
 const HU = CONFIG.hurt;
+const MAX_HP = CONFIG.player.hp;
 const BW = CONFIG.buffer.window;
 const DEG = Math.PI / 180;
 
@@ -555,11 +556,11 @@ describe('flask (GAME_DESIGN §4.3c)', () => {
 });
 
 describe('player damage (GAME_DESIGN §4.6)', () => {
-  it('first hit: hurt, 0.5 s stagger with 3.0 m knockback, 1.0 s invincibility; second hit: dead', () => {
+  it('a non-lethal hit: hurt, 0.5 s stagger with 3.0 m knockback, 1.0 s invincibility; the third hit: dead', () => {
     const m = freshMotor(); // at (0, 15)
     expect(m.takeHit(0, 0)).toBe('hurt');
     expect(m.events).toContain('hurt');
-    expect(m.hp).toBe(1);
+    expect(m.hp).toBe(MAX_HP - 1);
     expect(m.action).toBe('stagger');
     expect(m.takeHit(0, 0)).toBe('ignored'); // invincible
     const n = until(m, () => m.action === 'free');
@@ -568,6 +569,8 @@ describe('player damage (GAME_DESIGN §4.6)', () => {
     expect(m.isInvincible()).toBe(true);
     const n2 = until(m, () => !m.isInvincible());
     expect((n + n2) * STEP).toBeCloseTo(HU.invulnerability, 6);
+    expect(m.takeHit(0, 0)).toBe('hurt'); // 3 HP: the second hit still staggers
+    until(m, () => !m.isInvincible());
     expect(m.takeHit(0, 0)).toBe('dead');
     expect(m.hp).toBe(0);
   });
@@ -588,16 +591,17 @@ describe('player damage (GAME_DESIGN §4.6)', () => {
     m.step(STEP, ROLL());
     until(m, () => m.isRollInvincible());
     expect(m.takeHit(0, 0)).toBe('ignored');
-    expect(m.hp).toBe(2);
+    expect(m.hp).toBe(MAX_HP);
   });
 
-  it('reset restores 2 HP, full stamina and 3 flasks', () => {
+  it('reset restores 3 HP, full stamina and 3 flasks', () => {
     const m = freshMotor();
     m.takeHit(0, 0);
     m.stamina = 0;
     m.flasks = 0;
     m.reset();
-    expect([m.hp, m.stamina, m.flasks, m.hurtInvuln]).toEqual([2, ST.max, 3, 0]);
+    expect([m.hp, m.stamina, m.flasks, m.hurtInvuln]).toEqual([MAX_HP, ST.max, 3, 0]);
+    expect(MAX_HP).toBe(3);
   });
 });
 
