@@ -38,7 +38,7 @@ const RAW = {
     faceMoveMinSpeed: 0.5, // m/s; above this (with input) face the movement direction
     radius: 0.4, // m; arena wall clamp uses arenaRadius − radius = 29.6
     bossPushSpeed: 4, // m/s outward velocity after boss body contact (tune)
-    hp: 2, // GD §4.6: hits before death (tune)
+    hp: 3, // GD §4.6: hits before death (tune; 2 → 3 on 2026-10-11)
     /** GD §4.5: the ONLY shapes that can hurt the player. */
     hitSpheres: [
       { height: 0.5, radius: 0.4 }, // m above the feet
