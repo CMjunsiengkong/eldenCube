@@ -44,23 +44,53 @@ const RAW = {
       { height: 0.5, radius: 0.4 }, // m above the feet
       { height: 1.3, radius: 0.4 },
     ],
-    /** GD §4.1 model (positions relative to the root, feet at y = 0; +Z = forward). */
+    /** GD §4.1 model (1.5b; positions relative to the root, feet at y = 0; +Z = forward). */
     model: {
       roughness: 0.8,
       metalness: 0,
       rollPivotHeight: 0.9, // m
-      body: { size: { x: 0.6, y: 0.8, z: 0.35 }, center: { x: 0, y: 1.0, z: 0 } },
+      body: { size: { x: 0.6, y: 0.8, z: 0.35 }, center: { x: 0, y: 1.0, z: 0 }, cornerRadius: 0.08 },
+      belt: { size: { x: 0.62, y: 0.1, z: 0.37 }, offset: { x: 0, y: -0.3, z: 0 } }, // relative to the torso
+      neck: { radius: 0.09, length: 0.22, offset: 0.42 }, // capsule above the torso center (closes the head gap) (tune, agent-chosen)
       neckPivot: { x: 0, y: 1.4, z: 0 },
       head: { radius: 0.25, offset: { x: 0, y: 0.3, z: 0 } }, // offset from the neck pivot
       eyes: { radius: 0.04, offset: { x: 0.09, y: 0.05, z: 0.22 } }, // ±x, relative to the head
       shoulderPivot: { x: 0.4, y: 1.35, z: 0 }, // ±x
-      arm: { size: { x: 0.16, y: 0.6, z: 0.16 }, offset: { x: 0, y: -0.3, z: 0 } },
+      upperArm: { radius: 0.08, length: 0.3 }, // total capsule length (m)
+      elbow: 0.3, // m below the shoulder pivot
+      forearm: { radius: 0.075, length: 0.28 },
+      hand: { radius: 0.07, offset: 0.3 }, // m below the elbow pivot: the sword's hand socket
       hipPivot: { x: 0.15, y: 0.6, z: 0 }, // ±x
-      leg: { size: { x: 0.2, y: 0.6, z: 0.2 }, offset: { x: 0, y: -0.3, z: 0 } },
-      weapon: { size: { x: 0.12, y: 1.6, z: 0.06 }, offset: { x: 0, y: -1.3, z: 0 } }, // on the right shoulder pivot
+      thigh: { radius: 0.1, length: 0.3 },
+      knee: 0.3, // m below the hip pivot
+      shin: { radius: 0.09, length: 0.26 },
+      boot: { size: { x: 0.18, y: 0.1, z: 0.28 }, offset: { x: 0, y: -0.25, z: 0.04 } }, // relative to the knee pivot
+      capsuleCapSegments: 4, // tessellation (visual only) (tune, agent-chosen)
+      capsuleRadialSegments: 10,
+      roundedBoxSegments: 2,
       sphereSegments: 16, // head/eye tessellation (visual only) (tune, agent-chosen)
+      /** GD §4.1 sword (local frame: grip center at the origin, blade toward −Y, edges facing ±Z). */
+      sword: {
+        pommel: { radius: 0.05, y: 0.14 },
+        grip: { radius: 0.03, length: 0.22 },
+        guard: { size: { x: 0.06, y: 0.05, z: 0.34 }, y: -0.13 },
+        blade: { width: 0.12, thickness: 0.035, from: -0.15, taperFrom: -1.3, taperWidth: 0.85, tip: -1.5 }, // taperWidth: × width at taperFrom (tune, agent-chosen)
+        metalness: 0.6,
+        roughness: 0.35,
+      },
+      /** GD §4.1 back socket: grip over the right shoulder, blade down to the left, flat against the back. */
+      backSocket: { position: { x: -0.22, y: 1.55, z: -0.26 }, tilt: deg(35) },
+      scabbard: { size: { x: 0.06, y: 1.42, z: 0.16 }, offset: -0.84 }, // offset: along the sheathed blade from the grip
       /** GD §4.3c flask prop in the left hand. */
-      flask: { radius: 0.07, height: 0.18, offset: { x: 0, y: -0.62, z: 0.06 }, segments: 10 }, // segments/offset (tune, agent-chosen)
+      flask: { radius: 0.07, height: 0.18, offset: { x: 0, y: -0.02, z: 0.08 }, segments: 10 }, // relative to the hand (tune, agent-chosen)
+    },
+    /** GD §4.3 sheathing (1.5b, visual only). */
+    sword: {
+      drawAt: 0.55, // fraction of Hit 1's wind-up when the sword leaves the back (tune)
+      drawBlend: 0.08, // s back socket → hand (tune)
+      sheatheDelay: 1.5, // s free after the combo before putting the sword away (tune)
+      reachTime: 0.2, // s the arm reaches back to the rest pose (tune)
+      stowBlend: 0.12, // s hand → back socket (tune)
     },
   },
 
@@ -72,6 +102,7 @@ const RAW = {
     restAngle: deg(200), // rest pose: sword on the right shoulder
     restTilt: deg(40),
     chainWindow: 0.5, // s from the chain point (tune)
+    elbowCock: deg(35), // max elbow bend during a wind-up, sin(π·u) (1.5b) (tune)
     bladePoints: [0.5, 1.3, 2.1], // m from the shoulder (GD §5)
     hits: [
       {
@@ -125,7 +156,11 @@ const RAW = {
     healAt: 0.6, // s into the drink (tune)
     duration: 1.1, // s total (tune)
     maxSpeed: 1.8, // m/s while drinking (30% of max speed)
-    armAngle: deg(150), // left arm θ while drinking (hand at the face)
+    drinkShoulder: deg(70), // left shoulder θ while drinking (1.5b) (tune)
+    drinkRoll: deg(50), // left arm rolled inward toward the face (GD: 30°; raised so the hand reaches the mouth) (tune)
+    drinkElbow: deg(105), // left elbow bend while drinking (GD: 120°) (tune)
+    drinkHeadTilt: deg(15), // head tips back
+    drinkBlend: 0.15, // s to move into / out of the drink pose (tune, agent-chosen)
     healFlash: 0.2, // s gold body flash
   },
 
@@ -177,6 +212,22 @@ const RAW = {
     headNodPerStride: 2, // nods per walk cycle (tune, agent-chosen)
     dizzyHeadKick: 0.6, // m/s sideways velocity kick on the head spring at the dizzy landing (tune, agent-chosen)
     bodyLean: deg(8), // × s
+    /** 1.5b joints (GD §4.4): spring targets in radians. */
+    jointStiffness: 140, // (tune, agent-chosen)
+    jointDamping: 11, // (tune, agent-chosen)
+    jointMax: deg(130), // elbows and knees never bend further
+    elbowRest: deg(12),
+    elbowWalk: deg(20), // × s on the forward swing
+    elbowTuck: deg(100),
+    elbowStagger: deg(60),
+    kneeRest: deg(4),
+    kneeWalk: deg(45), // × s, the leg behind
+    kneeTuck: deg(110),
+    kneeBent: deg(25), // dizzy and stagger
+    staggerLean: deg(12), // leans back during a stagger (tune)
+    staggerArmRaise: deg(55), // arms flail up during a stagger (tune, agent-chosen)
+    breatheAmplitude: 0.015, // torso scale Y ± when idle
+    breatheFrequency: 0.3, // Hz
   },
 
   /** GD §6 — The Elden Cube. */

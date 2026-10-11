@@ -4,27 +4,34 @@
  * - `PlayerMotor` is the pure gameplay core: movement, facing, the 3-hit combo with its chain
  *   window, roll, the one-slot input buffer, stamina, flask, HP / stagger / hurt invincibility,
  *   arena wall and boss body pushback. No scene dependency; unit tested in Node.
- * - `Player` is the view: the 7-part model with the swing-plane arm rig, the roll somersault,
- *   the visual wobble springs, the flask prop, the hurt blink and the heal flash.
+ * - `Player` is the view (1.5b): rounded parts with elbow and knee pivots, the swing-plane arm
+ *   rig, the sword with its sheathing (`SwordHolster`), the roll somersault, the wobble springs,
+ *   the drink pose and flask prop, the hurt blink and the heal glow.
  */
 import {
-  BoxGeometry,
+  BufferGeometry,
+  CapsuleGeometry,
   Color,
   CylinderGeometry,
+  Float32BufferAttribute,
   Group,
+  Matrix4,
   Mesh,
   MeshStandardMaterial,
+  Quaternion,
   SphereGeometry,
   Vector3,
   type Material,
   type Object3D,
 } from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { CONFIG } from '../config';
 import { createPiece, randomSpin, type DebrisPiece } from '../fx/debris';
+import { addRim, mergePainted, paint } from '../fx/materials';
 import type { Rng } from '../util/rng';
 import { randRange } from '../util/math';
 import { createSphereOBBResult, sphereOBB, type Vec3Like } from '../systems/collision';
-import { approach, clamp, easeIn, easeInOut, easeOut, springStep, turnToward, type SpringState } from '../util/math';
+import { approach, clamp, easeIn, easeInOut, easeOut, lerp, springStep, turnToward, type SpringState } from '../util/math';
 
 const P = CONFIG.player;
 const R = CONFIG.roll;
@@ -33,6 +40,7 @@ const CB = CONFIG.combo;
 const ST = CONFIG.stamina;
 const FL = CONFIG.flask;
 const HU = CONFIG.hurt;
+const SW = CONFIG.player.sword;
 
 /** Float tolerance for timer comparisons at the fixed step (avoids 14.9999-step boundaries). */
 const EPS = 1e-9;
@@ -691,55 +699,242 @@ export interface Sphere {
   readonly radius: number;
 }
 
-const WHITE = new Color(0xffffff);
+const EMISSIVE_HEAL = new Color(CONFIG.colors.healFlash).multiplyScalar(0.7);
+const EMISSIVE_DEBUG = new Color(0xffffff).multiplyScalar(R.debugTint);
+const BLACK = new Color(0x000000);
 
-/** One of the 7 parts that fall apart on death (GD §9), with its rest transform for reset. */
+/**
+ * Pure (tested): the right elbow bend during combo hit `hit` in `phase` at time `t` (GD §4.3,
+ * 1.5b). The elbow cocks during the wind-up (starting from `from`), is exactly straight during
+ * the active phase (so the blade lies on the shoulder→hand axis of §5), and returns to the rest
+ * bend after the follow-through hold.
+ */
+export function comboElbow(hit: number, phase: AttackPhase, t: number, from: number): number {
+  const h = CB.hits[hit];
+  switch (phase) {
+    case 'windup': {
+      const u = clamp(t / h.windup.duration, 0, 1);
+      return from * (1 - easeOut(u)) + CB.elbowCock * Math.sin(Math.PI * u);
+    }
+    case 'active':
+      return 0;
+    default: {
+      const back = h.recovery.duration - h.recovery.hold;
+      const u = t <= h.recovery.hold ? 0 : easeInOut(clamp((t - h.recovery.hold) / back, 0, 1));
+      return W.elbowRest * u;
+    }
+  }
+}
+
+export type SwordState = 'sheathed' | 'drawing' | 'drawn' | 'reaching' | 'stowing';
+
+/** The motor fields the holster reads. */
+interface HolsterInput {
+  readonly action: PlayerAction;
+  readonly attackPhase: AttackPhase;
+  readonly actionT: number;
+  readonly comboHit: number;
+  readonly chainNext: number;
+}
+
+/**
+ * Pure (tested) sheathing state (GD §4.3, 1.5b; visual only). `w` blends the sword from the back
+ * socket (0) to the hand socket (1). The sword leaves the back inside Hit 1's wind-up and is
+ * always fully in hand once a hit is active; it is put away after `sheatheDelay` seconds free.
+ */
+export class SwordHolster {
+  state: SwordState = 'sheathed';
+  w = 0;
+  private t = 0;
+
+  reset(): void {
+    this.state = 'sheathed';
+    this.w = 0;
+    this.t = 0;
+  }
+
+  /** The right arm holds the rest pose (sword on the shoulder) instead of hanging. */
+  get armReady(): boolean {
+    return this.state !== 'sheathed';
+  }
+
+  step(dt: number, m: HolsterInput): void {
+    if (m.action === 'attack') {
+      this.t = 0;
+      if (this.state === 'drawn') return;
+      this.state = 'drawing';
+      const h = CB.hits[m.comboHit];
+      const handAtHilt = m.attackPhase !== 'windup' || m.actionT >= SW.drawAt * h.windup.duration - EPS;
+      if (this.w > 0 || handAtHilt) this.w = Math.min(1, this.w + dt / SW.drawBlend);
+      if (m.attackPhase !== 'windup') this.w = 1; // the blade is live: always in hand
+      if (this.w >= 1) this.state = 'drawn';
+      return;
+    }
+    switch (this.state) {
+      case 'drawing':
+        // Interrupted (e.g. hit during the wind-up): finish the draw if it had started.
+        if (this.w > 0) {
+          this.w = Math.min(1, this.w + dt / SW.drawBlend);
+          if (this.w >= 1) this.state = 'drawn';
+        } else {
+          this.state = 'sheathed';
+        }
+        break;
+      case 'drawn':
+        if (m.action === 'free' && m.chainNext < 0) {
+          this.t += dt;
+          if (this.t >= SW.sheatheDelay - EPS) this.enter('reaching');
+        } else {
+          this.t = 0;
+        }
+        break;
+      case 'reaching':
+        if (m.action !== 'free') {
+          this.enter('drawn');
+          break;
+        }
+        this.t += dt;
+        if (this.t >= SW.reachTime - EPS) this.enter('stowing');
+        break;
+      case 'stowing':
+        this.w = Math.max(0, this.w - dt / SW.stowBlend);
+        if (this.w <= 0) this.enter('sheathed');
+        break;
+      default:
+        break;
+    }
+  }
+
+  private enter(state: SwordState): void {
+    this.state = state;
+    this.t = 0;
+  }
+}
+
+/** One of the 12 parts that fall apart on death (GD §9), with its rest transform for reset. */
 interface BodyPart {
   readonly mesh: Mesh;
   readonly parent: Object3D;
   readonly position: Vector3;
-  readonly rotationX: number;
-  readonly rotationY: number;
-  readonly rotationZ: number;
-  /** Half the smallest dimension (the radius for spheres). */
+  readonly quaternion: Quaternion;
+  /** Half the smallest dimension (the radius for capsules and spheres). */
   readonly groundR: number;
 }
-const HEAL = new Color(CONFIG.colors.healFlash);
 
-/** The visual player: 7-part model on a roll pivot, driven by a PlayerMotor. */
+/** Builds the merged sword (GD §4.1): pommel, grip, crossguard and a flat-shaded diamond blade. */
+function buildSwordGeometry(): BufferGeometry {
+  const S = P.model.sword;
+  const C = CONFIG.colors;
+  const b = S.blade;
+  const hw = b.width / 2;
+  const ht = b.thickness / 2;
+  const tw = hw * b.taperWidth;
+  // Diamond cross-section: edges at ±Z, ridges at ±X.
+  const ring = (y: number, w: number, t: number): number[][] => [
+    [0, y, w],
+    [t, y, 0],
+    [0, y, -w],
+    [-t, y, 0],
+  ];
+  const r0 = ring(b.from, hw, ht);
+  const r1 = ring(b.taperFrom, tw, ht);
+  const tip = [0, b.tip, 0];
+  const pos: number[] = [];
+  const tri = (a: number[], c: number[], d: number[]): void => {
+    pos.push(...a, ...c, ...d);
+  };
+  for (let i = 0; i < 4; i++) {
+    const j = (i + 1) % 4;
+    tri(r0[i], r1[i], r1[j]);
+    tri(r0[i], r1[j], r0[j]);
+    tri(r1[i], tip, r1[j]);
+  }
+  const blade = new BufferGeometry();
+  blade.setAttribute('position', new Float32BufferAttribute(pos, 3));
+  blade.computeVertexNormals(); // non-indexed: flat facets
+  // Make every face point outward (the winding above may be either way round).
+  ensureOutward(blade);
+
+  const pommel = new SphereGeometry(S.pommel.radius, 10, 8).translate(0, S.pommel.y, 0);
+  const grip = new CylinderGeometry(S.grip.radius, S.grip.radius, S.grip.length, 10);
+  const g = S.guard;
+  const guard = new RoundedBoxGeometry(g.size.x, g.size.y, g.size.z, 2, 0.015).translate(0, g.y, 0);
+  return mergePainted([paint(blade, C.weapon), paint(pommel, C.swordGold), paint(grip, C.swordGrip), paint(guard, C.swordGold)]);
+}
+
+/** Flips triangles whose normal points toward the geometry's center line (convex shapes only). */
+function ensureOutward(geo: BufferGeometry): void {
+  const p = geo.getAttribute('position');
+  const a = new Vector3();
+  const b = new Vector3();
+  const c = new Vector3();
+  const n = new Vector3();
+  const mid = new Vector3();
+  for (let i = 0; i < p.count; i += 3) {
+    a.fromBufferAttribute(p, i);
+    b.fromBufferAttribute(p, i + 1);
+    c.fromBufferAttribute(p, i + 2);
+    n.subVectors(b, a).cross(mid.subVectors(c, a));
+    mid.copy(a).add(b).add(c).multiplyScalar(1 / 3);
+    mid.y = 0; // the blade's axis is the Y axis: outward = away from it
+    if (n.dot(mid) < 0) {
+      p.setXYZ(i + 1, c.x, c.y, c.z);
+      p.setXYZ(i + 2, b.x, b.y, b.z);
+    }
+  }
+  geo.computeVertexNormals();
+}
+
+/**
+ * The visual player (GD §4.1, 1.5b): rounded parts on a roll pivot with elbow and knee pivots,
+ * driven by a PlayerMotor. The sword moves between the back socket and the right-hand socket.
+ */
 export class Player {
   readonly motor: PlayerMotor;
   readonly root = new Group();
+  readonly holster = new SwordHolster();
 
   private readonly rollPivot = new Group();
   private readonly neckPivot = new Group();
   private readonly shoulderL = new Group();
+  private readonly elbowL = new Group();
   /** Rotated by ψ around the forward axis; the sword arm pitches inside it (GD §4.3). */
   private readonly swingPlane = new Group();
   private readonly shoulderR = new Group();
+  private readonly elbowR = new Group();
+  private readonly handSocket = new Group();
+  private readonly backSocket = new Group();
   private readonly hipL = new Group();
   private readonly hipR = new Group();
+  private readonly kneeL = new Group();
+  private readonly kneeR = new Group();
+  private readonly torso: Mesh;
+  private readonly sword: Mesh;
   private readonly flaskProp: Mesh;
   private readonly parts: BodyPart[] = [];
   private broken = false;
   private readonly materials: MeshStandardMaterial[] = [];
-  private readonly baseColors: Color[] = [];
-  private readonly tintColors: Color[] = [];
-  private readonly healColors: Color[] = [];
   private tint: 'none' | 'debug' | 'heal' = 'none';
 
-  // Wobble springs (pitch angles in radians, head offset in meters).
+  // Springs (pitch angles in radians, head offset in meters).
   private readonly legL: SpringState = { x: 0, v: 0 };
   private readonly legR: SpringState = { x: 0, v: 0 };
   private readonly armL: SpringState = { x: 0, v: 0 };
-  private readonly armR: SpringState = { x: CB.restAngle, v: 0 };
-  private psi: number = CB.restTilt;
+  private readonly armR: SpringState = { x: 0, v: 0 };
+  private readonly kneeLs: SpringState = { x: W.kneeRest, v: 0 };
+  private readonly kneeRs: SpringState = { x: W.kneeRest, v: 0 };
+  private readonly elbowLs: SpringState = { x: W.elbowRest, v: 0 };
+  private readonly elbowRs: SpringState = { x: W.elbowRest, v: 0 };
+  private psi = 0;
   private readonly headX: SpringState = { x: 0, v: 0 };
   private readonly headZ: SpringState = { x: 0, v: 0 };
   private walkPhase = 0;
+  private drinkW = 0;
+  private time = 0;
   /** Arm pose when the current combo hit started (each wind-up starts from here). */
-  private readonly hitFrom: ArmPose = { theta: CB.restAngle, psi: CB.restTilt };
-  private readonly pose: ArmPose = { theta: CB.restAngle, psi: CB.restTilt };
+  private readonly hitFrom: ArmPose = { theta: 0, psi: 0 };
+  private hitFromElbow: number = W.elbowRest;
+  private readonly pose: ArmPose = { theta: 0, psi: 0 };
   private healFlashLeft = 0;
   private blinkT = 0;
 
@@ -747,12 +942,23 @@ export class Player {
   private readonly pos = new Vector3();
   private readonly blade: Vector3[] = CB.bladePoints.map(() => new Vector3());
   private readonly debugTint: boolean;
+  // Sword socket blend (preallocated).
+  private readonly pA = new Vector3();
+  private readonly pB = new Vector3();
+  private readonly qA = new Quaternion();
+  private readonly qB = new Quaternion();
+  private readonly sTmp = new Vector3();
+  private readonly mTmp = new Matrix4();
+  private readonly mInv = new Matrix4();
 
   constructor(debugTint: boolean, bufferWindow?: number) {
     this.debugTint = debugTint;
     this.motor = new PlayerMotor(bufferWindow);
-    this.flaskProp = this.buildModel();
-    this.syncTransform();
+    const built = this.buildModel();
+    this.torso = built.torso;
+    this.sword = built.sword;
+    this.flaskProp = built.flask;
+    this.reset();
   }
 
   reset(): void {
@@ -761,24 +967,32 @@ export class Player {
       for (const p of this.parts) {
         p.parent.add(p.mesh);
         p.mesh.position.copy(p.position);
-        p.mesh.rotation.set(p.rotationX, p.rotationY, p.rotationZ);
+        p.mesh.quaternion.copy(p.quaternion);
       }
       this.broken = false;
     }
-    for (const s of [this.legL, this.legR, this.armL, this.headX, this.headZ]) {
+    for (const s of [this.legL, this.legR, this.armL, this.armR, this.headX, this.headZ]) {
       s.x = 0;
       s.v = 0;
     }
-    this.armR.x = CB.restAngle;
-    this.armR.v = 0;
-    this.psi = CB.restTilt;
+    this.kneeLs.x = this.kneeRs.x = W.kneeRest;
+    this.elbowLs.x = this.elbowRs.x = W.elbowRest;
+    this.kneeLs.v = this.kneeRs.v = this.elbowLs.v = this.elbowRs.v = 0;
+    this.psi = 0;
     this.walkPhase = 0;
+    this.drinkW = 0;
+    this.time = 0;
+    this.holster.reset();
     this.healFlashLeft = 0;
     this.blinkT = 0;
     this.root.visible = true;
+    this.rollPivot.visible = true;
+    this.sword.visible = true;
     this.flaskProp.visible = false;
-    this.applyPose(0, 0);
+    this.torso.scale.set(1, 1, 1);
+    this.applyPose(0, 0, 0);
     this.syncTransform();
+    this.placeSword();
     this.updateTint();
   }
 
@@ -791,19 +1005,24 @@ export class Player {
     if (m.events.includes('attackStart')) {
       this.hitFrom.theta = this.armR.x;
       this.hitFrom.psi = this.psi;
+      this.hitFromElbow = this.elbowRs.x;
     }
     if (m.events.includes('flaskHeal')) this.healFlashLeft = FL.healFlash;
     this.healFlashLeft = Math.max(0, this.healFlashLeft - dt);
+    this.time += dt;
+    this.holster.step(dt, m);
     this.updateWobble(dt);
     this.updateBlink(dt);
     this.syncTransform();
+    this.placeSword();
     this.updateTint();
     return m.events;
   }
 
   /**
    * The 3 blade points in world space (GD §5): 0.5, 1.3 and 2.1 m from the right shoulder along
-   * the arm direction (inside the tilted swing plane). Reuses preallocated vectors.
+   * the arm direction (inside the tilted swing plane). The elbow is straight whenever these count
+   * (active phases), so they lie on the visible blade. Reuses preallocated vectors.
    */
   getBladePoints(): readonly Vector3[] {
     this.root.updateMatrixWorld(true);
@@ -831,7 +1050,7 @@ export class Player {
   }
 
   /**
-   * GD §9: the 7 parts detach keeping their world transforms. Each flies 3–6 m/s horizontally
+   * GD §9: the 12 parts detach keeping their world transforms. Each flies 3–6 m/s horizontally
    * away from the hit source, 4–7 m/s up, with a random spin up to 10 rad/s. Parts are restored
    * by `reset()` (their shared materials are never disposed).
    */
@@ -840,6 +1059,7 @@ export class Player {
     this.root.updateMatrixWorld(true);
     this.flaskProp.visible = false;
     this.rollPivot.visible = true;
+    this.sword.visible = true;
     const pieces: DebrisPiece[] = [];
     const wp = new Vector3();
     for (const part of this.parts) {
@@ -871,98 +1091,145 @@ export class Player {
     return this.pos.set(this.motor.x, 0, this.motor.z);
   }
 
+  /** World position of the torso center (heal aura, effects). Reused vector. */
+  chestPosition(out: Vector3): Vector3 {
+    return out.set(this.motor.x, P.model.body.center.y, this.motor.z);
+  }
+
   // ---------------------------------------------------------------------------------------------
 
-  private buildModel(): Mesh {
+  private buildModel(): { torso: Mesh; sword: Mesh; flask: Mesh } {
     const M = P.model;
     const C = CONFIG.colors;
     const py = M.rollPivotHeight;
-    const mat = (color: number): MeshStandardMaterial => {
-      const m = new MeshStandardMaterial({ color, roughness: M.roughness, metalness: M.metalness });
+    const rimColor = new Color(C.playerRim);
+    const mat = (params: { vertexColors?: boolean; color?: number; metalness?: number; roughness?: number }): MeshStandardMaterial => {
+      const m = new MeshStandardMaterial({ roughness: M.roughness, metalness: M.metalness, ...params });
+      addRim(m, rimColor, CONFIG.rim.playerStrength);
       this.materials.push(m);
-      this.baseColors.push(new Color(color));
-      this.tintColors.push(new Color(color).lerp(WHITE, R.debugTint));
-      this.healColors.push(HEAL.clone());
       return m;
     };
-    const mesh = (geo: BoxGeometry | SphereGeometry | CylinderGeometry, material: Material, parent: Object3D, p: Vec3Like): Mesh => {
+    const bodyMat = mat({ vertexColors: true });
+    const capsule = (r: number, length: number): CapsuleGeometry =>
+      new CapsuleGeometry(r, Math.max(0, length - 2 * r), M.capsuleCapSegments, M.capsuleRadialSegments);
+    const rbox = (v: { x: number; y: number; z: number }, radius: number): RoundedBoxGeometry =>
+      new RoundedBoxGeometry(v.x, v.y, v.z, M.roundedBoxSegments, radius);
+    const part = (geo: BufferGeometry, material: Material, parent: Object3D, x: number, y: number, z: number, groundR: number, shadow = true): Mesh => {
       const m = new Mesh(geo, material);
-      m.position.set(p.x, p.y, p.z);
-      m.castShadow = true;
+      m.position.set(x, y, z);
+      m.castShadow = shadow;
       parent.add(m);
+      this.parts.push({ mesh: m, parent, position: m.position.clone(), quaternion: m.quaternion.clone(), groundR });
       return m;
     };
-    const part = (m: Mesh, groundR: number): void => {
-      this.parts.push({ mesh: m, parent: m.parent!, position: m.position.clone(), rotationX: m.rotation.x, rotationY: m.rotation.y, rotationZ: m.rotation.z, groundR });
-    };
-    const half = (v: { x: number; y: number; z: number }): number => Math.min(v.x, v.y, v.z) / 2;
 
     this.root.add(this.rollPivot);
     this.rollPivot.position.y = py;
 
-    // Body
-    const body = mesh(new BoxGeometry(M.body.size.x, M.body.size.y, M.body.size.z), mat(C.playerBody), this.rollPivot, {
-      x: M.body.center.x,
-      y: M.body.center.y - py,
-      z: M.body.center.z,
-    });
-    part(body, half(M.body.size));
+    // Torso + belt
+    const B = M.body;
+    const torsoGeo = mergePainted([
+      paint(rbox(B.size, B.cornerRadius), C.playerBody),
+      paint(rbox(M.belt.size, 0.03).translate(M.belt.offset.x, M.belt.offset.y, M.belt.offset.z), C.belt),
+      paint(capsule(M.neck.radius, M.neck.length).translate(0, M.neck.offset, 0), C.playerHead),
+    ]);
+    const torso = part(torsoGeo, bodyMat, this.rollPivot, B.center.x, B.center.y - py, B.center.z, Math.min(B.size.x, B.size.y, B.size.z) / 2);
 
-    // Head on the neck pivot, eyes on the head
+    // Head + eyes on the neck pivot
     this.neckPivot.position.set(M.neckPivot.x, M.neckPivot.y - py, M.neckPivot.z);
     this.rollPivot.add(this.neckPivot);
-    const head = mesh(
-      new SphereGeometry(M.head.radius, M.sphereSegments, M.sphereSegments / 2),
-      mat(C.playerHead),
-      this.neckPivot,
-      M.head.offset,
-    );
-    part(head, M.head.radius);
-    const eyeGeo = new SphereGeometry(M.eyes.radius, 8, 6);
-    const eyeMat = mat(C.pupils);
-    for (const sx of [-1, 1]) {
-      const e = mesh(eyeGeo, eyeMat, head, { x: sx * M.eyes.offset.x, y: M.eyes.offset.y, z: M.eyes.offset.z });
-      e.castShadow = false;
-    }
+    const E = M.eyes;
+    const headGeo = mergePainted([
+      paint(new SphereGeometry(M.head.radius, M.sphereSegments, M.sphereSegments / 2), C.playerHead),
+      paint(new SphereGeometry(E.radius, 8, 6).translate(E.offset.x, E.offset.y, E.offset.z), C.pupils),
+      paint(new SphereGeometry(E.radius, 8, 6).translate(-E.offset.x, E.offset.y, E.offset.z), C.pupils),
+    ]);
+    part(headGeo, bodyMat, this.neckPivot, M.head.offset.x, M.head.offset.y, M.head.offset.z, M.head.radius);
 
     // Arms. Facing +Z, the character's right side is −X. The sword arm sits in a swing plane
-    // tilted around the forward axis; the sword continues the arm's direction.
-    const armGeo = new BoxGeometry(M.arm.size.x, M.arm.size.y, M.arm.size.z);
-    const armMat = mat(C.playerArms);
+    // tilted around the forward axis.
+    const upperGeo = paint(capsule(M.upperArm.radius, M.upperArm.length).translate(0, -M.upperArm.length / 2, 0), C.playerArms);
+    const foreGeo = mergePainted([
+      paint(capsule(M.forearm.radius, M.forearm.length).translate(0, -M.forearm.length / 2, 0), C.playerArms),
+      paint(new SphereGeometry(M.hand.radius, 10, 8).translate(0, -M.hand.offset, 0), C.playerHead),
+    ]);
     this.shoulderL.position.set(M.shoulderPivot.x, M.shoulderPivot.y - py, M.shoulderPivot.z);
+    this.shoulderL.rotation.order = 'YXZ'; // pitch first, then the inward drink roll around Y
     this.rollPivot.add(this.shoulderL);
-    part(mesh(armGeo, armMat, this.shoulderL, M.arm.offset), half(M.arm.size));
+    part(upperGeo, bodyMat, this.shoulderL, 0, 0, 0, M.upperArm.radius);
+    this.elbowL.position.set(0, -M.elbow, 0);
+    this.shoulderL.add(this.elbowL);
+    const foreL = part(foreGeo, bodyMat, this.elbowL, 0, 0, 0, M.forearm.radius);
+
     this.swingPlane.position.set(-M.shoulderPivot.x, M.shoulderPivot.y - py, M.shoulderPivot.z);
     this.rollPivot.add(this.swingPlane);
     this.swingPlane.add(this.shoulderR);
-    part(mesh(armGeo, armMat, this.shoulderR, M.arm.offset), half(M.arm.size));
-    part(mesh(new BoxGeometry(M.weapon.size.x, M.weapon.size.y, M.weapon.size.z), mat(C.weapon), this.shoulderR, M.weapon.offset), half(M.weapon.size));
+    part(upperGeo, bodyMat, this.shoulderR, 0, 0, 0, M.upperArm.radius);
+    this.elbowR.position.set(0, -M.elbow, 0);
+    this.shoulderR.add(this.elbowR);
+    part(foreGeo, bodyMat, this.elbowR, 0, 0, 0, M.forearm.radius);
+    this.handSocket.position.set(0, -M.hand.offset, 0);
+    this.elbowR.add(this.handSocket);
 
     // Flask in the left hand (visible only while drinking)
     const F = M.flask;
-    const flask = mesh(new CylinderGeometry(F.radius, F.radius, F.height, F.segments), mat(C.flask), this.shoulderL, F.offset);
+    const flask = new Mesh(new CylinderGeometry(F.radius, F.radius, F.height, F.segments), mat({ color: C.flask }));
+    flask.position.set(F.offset.x, -M.hand.offset + F.offset.y, F.offset.z);
+    flask.castShadow = true;
     flask.visible = false;
+    foreL.add(flask);
 
-    // Legs on hip pivots
-    const legGeo = new BoxGeometry(M.leg.size.x, M.leg.size.y, M.leg.size.z);
-    const legMat = mat(C.playerLegs);
-    for (const [pivot, sx] of [
-      [this.hipL, 1],
-      [this.hipR, -1],
+    // Legs: thigh on the hip pivot, shin + boot on the knee pivot
+    const thighGeo = paint(capsule(M.thigh.radius, M.thigh.length).translate(0, -M.thigh.length / 2, 0), C.playerLegs);
+    const bo = M.boot.offset;
+    const shinGeo = mergePainted([
+      paint(capsule(M.shin.radius, M.shin.length).translate(0, -M.shin.length / 2, 0), C.playerLegs),
+      paint(rbox(M.boot.size, 0.04).translate(bo.x, bo.y, bo.z), C.boots),
+    ]);
+    for (const [hip, knee, sx] of [
+      [this.hipL, this.kneeL, 1],
+      [this.hipR, this.kneeR, -1],
     ] as const) {
-      pivot.position.set(sx * M.hipPivot.x, M.hipPivot.y - py, M.hipPivot.z);
-      this.rollPivot.add(pivot);
-      part(mesh(legGeo, legMat, pivot, M.leg.offset), half(M.leg.size));
+      hip.position.set(sx * M.hipPivot.x, M.hipPivot.y - py, M.hipPivot.z);
+      this.rollPivot.add(hip);
+      part(thighGeo, bodyMat, hip, 0, 0, 0, M.thigh.radius);
+      knee.position.set(0, -M.knee, 0);
+      hip.add(knee);
+      part(shinGeo, bodyMat, knee, 0, 0, 0, M.shin.radius);
     }
-    return flask;
+
+    // Back socket (GD §4.1): local −Y (the blade) points down to the left at `tilt`, flat against
+    // the back. Sword axes: X = thickness → Z (backward), Y = toward the pommel, Z = width.
+    const BS = M.backSocket;
+    const s = Math.sin(BS.tilt);
+    const c = Math.cos(BS.tilt);
+    const basis = new Matrix4().makeBasis(new Vector3(0, 0, 1), new Vector3(-s, c, 0), new Vector3(-c, -s, 0));
+    this.backSocket.quaternion.setFromRotationMatrix(basis);
+    this.backSocket.position.set(BS.position.x, BS.position.y - py, BS.position.z);
+    this.rollPivot.add(this.backSocket);
+    const SC = M.scabbard;
+    const scabGeo = paint(rbox(SC.size, 0.025), C.scabbard);
+    part(scabGeo, bodyMat, this.backSocket, 0, SC.offset, 0, SC.size.x / 2);
+
+    // The sword lives under the root; its transform is blended between the two sockets each step.
+    const S = M.sword;
+    const sword = new Mesh(buildSwordGeometry(), mat({ vertexColors: true, metalness: S.metalness, roughness: S.roughness }));
+    sword.castShadow = true;
+    this.root.add(sword);
+    this.parts.push({ mesh: sword, parent: this.root, position: new Vector3(), quaternion: new Quaternion(), groundR: S.blade.thickness / 2 });
+    return { torso, sword, flask };
   }
 
-  /** GD §4.4: limb springs, walk cycle, head spring, lean; roll tuck and somersault; dizzy sway. */
+  /** GD §4.4 (+1.5b joints): springs, walk cycle, head spring, lean; roll tuck; dizzy sway; drink pose. */
   private updateWobble(dt: number): void {
     const m = this.motor;
     const s = clamp(m.speed() / P.maxSpeed, 0, 1);
     const rolling = m.action === 'rolling';
     const drinking = m.action === 'drink';
+    const stagger = m.action === 'stagger';
+    const dizzy = m.action === 'dizzy';
+    const attacking = m.action === 'attack';
+    const ready = this.holster.armReady;
 
     // Forward/side acceleration in the player's local frame.
     const sin = Math.sin(m.yaw);
@@ -970,23 +1237,22 @@ export class Player {
     const accFwd = m.ax * sin + m.az * cos;
     const accSide = m.ax * cos - m.az * sin;
 
-    let legLT: number;
-    let legRT: number;
-    let armLT: number;
-    let armRT: number;
-    if (rolling) {
-      legLT = legRT = armLT = armRT = R.tuckAngle; // tucked; walk cycle paused
-    } else {
+    let w = 0;
+    if (!rolling) {
       this.walkPhase += 2 * Math.PI * W.walkFrequency * s * dt;
-      const w = Math.sin(this.walkPhase);
-      const lag = W.armLagPerAccel * accFwd;
-      legLT = w * W.legSwing * s;
-      legRT = -w * W.legSwing * s;
-      armLT = -w * W.armSwing * s + lag; // opposite phase to the same-side leg
-      armRT = CB.restAngle + w * W.restArmSwing * s;
+      w = Math.sin(this.walkPhase);
     }
+    const lag = W.armLagPerAccel * accFwd;
     const k = W.limbStiffness;
     const c = W.limbDamping;
+    const jk = W.jointStiffness;
+    const jc = W.jointDamping;
+
+    // Legs and knees
+    const legLT = rolling ? R.tuckAngle : w * W.legSwing * s;
+    const legRT = rolling ? R.tuckAngle : -w * W.legSwing * s;
+    const kneeBase = rolling ? W.kneeTuck : dizzy || stagger ? W.kneeBent : W.kneeRest;
+    const walkKnee = rolling ? 0 : W.kneeWalk * s;
     for (const [spring, target] of [
       [this.legL, legLT],
       [this.legR, legRT],
@@ -994,51 +1260,109 @@ export class Player {
       springStep(spring, target, k, c, dt);
       spring.x = clamp(spring.x, -W.limbClamp, W.limbClamp);
     }
-    if (drinking) {
-      this.armL.x = FL.armAngle; // hand at the face, no spring
-      this.armL.v = 0;
-    } else {
-      // After a drink the arm springs down from 150°; it may only fall back inside the ±80° clamp.
-      const prev = this.armL.x;
-      springStep(this.armL, armLT, k, c, dt);
-      this.armL.x = clamp(this.armL.x, -W.limbClamp, Math.max(W.limbClamp, prev));
-    }
+    this.jointStep(this.kneeLs, kneeBase + walkKnee * Math.max(0, -w), jk, jc, dt);
+    this.jointStep(this.kneeRs, kneeBase + walkKnee * Math.max(0, w), jk, jc, dt);
+
+    // Left arm (opposite phase to the left leg) and elbow; the drink pose blends on top.
+    const armLT = rolling ? R.tuckAngle : stagger ? W.staggerArmRaise : -w * W.armSwing * s + lag;
+    springStep(this.armL, armLT, k, c, dt);
+    this.armL.x = clamp(this.armL.x, -W.limbClamp, W.limbClamp);
+    const elbowBase = rolling ? W.elbowTuck : stagger ? W.elbowStagger : W.elbowRest;
+    const walkElbow = rolling || stagger ? 0 : W.elbowWalk * s;
+    this.jointStep(this.elbowLs, elbowBase + walkElbow * Math.max(0, -w), jk, jc, dt);
+    this.drinkW = approach(this.drinkW, drinking ? 1 : 0, dt / FL.drinkBlend);
     this.flaskProp.visible = drinking;
 
-    if (m.action === 'attack') {
-      // Sword arm while attacking: driven directly by the combo curves, no spring (GD §4.4).
+    // Sword arm
+    if (attacking) {
+      // Driven directly by the combo curves, no spring (GD §4.4).
       comboArmPose(m.comboHit, m.attackPhase, m.actionT, this.hitFrom, this.pose);
       this.armR.x = this.pose.theta;
       this.armR.v = 0;
       this.psi = this.pose.psi;
+      this.elbowRs.x = comboElbow(m.comboHit, m.attackPhase, m.actionT, this.hitFromElbow);
+      this.elbowRs.v = 0;
     } else {
-      // The rest pose is far outside the ±80° limb clamp, so the sword arm is not clamped.
+      let armRT: number;
+      let psiT: number;
+      if (rolling) {
+        armRT = R.tuckAngle;
+        psiT = ready ? CB.restTilt : 0;
+      } else if (ready) {
+        armRT = CB.restAngle + w * W.restArmSwing * s; // the sword rests on the shoulder
+        psiT = CB.restTilt;
+      } else {
+        armRT = stagger ? W.staggerArmRaise : w * W.armSwing * s + lag; // hangs like the left arm
+        psiT = 0;
+      }
+      // Not clamped: the rest pose (200°) is far outside the ±80° limb clamp.
       springStep(this.armR, armRT, k, c, dt);
-      this.psi += (CB.restTilt - this.psi) * Math.min(1, k * 0.05 * dt);
+      this.psi += (psiT - this.psi) * Math.min(1, k * 0.05 * dt);
+      const elbowRT = ready && !rolling && !stagger ? W.elbowRest : elbowBase + walkElbow * Math.max(0, w);
+      this.jointStep(this.elbowRs, elbowRT, jk, jc, dt);
     }
 
     // Head offset spring pushed by −0.02 × horizontal acceleration (local frame).
     springStep(this.headX, W.headPush * accSide, W.headStiffness, W.headDamping, dt);
     springStep(this.headZ, W.headPush * accFwd, W.headStiffness, W.headDamping, dt);
 
-    const lean = rolling ? R.somersault * easeInOut(m.actionT / R.duration) : W.bodyLean * s;
-    const sway = m.action === 'dizzy' ? R.recoverySway * Math.sin(2 * Math.PI * R.recoverySwayCycles * (m.actionT / R.recoveryDuration)) : 0;
-    this.applyPose(lean, sway);
-    this.neckPivot.rotation.x = rolling ? 0 : -W.headNod * s * Math.sin(W.headNodPerStride * this.walkPhase);
+    let lean: number;
+    if (rolling) lean = R.somersault * easeInOut(m.actionT / R.duration);
+    else if (stagger) lean = -W.staggerLean * (1 - easeIn(clamp(m.actionT / HU.stagger, 0, 1)));
+    else lean = W.bodyLean * s;
+    const sway = dizzy ? R.recoverySway * Math.sin(2 * Math.PI * R.recoverySwayCycles * (m.actionT / R.recoveryDuration)) : 0;
+    const nod = rolling ? 0 : -W.headNod * s * Math.sin(W.headNodPerStride * this.walkPhase);
+    this.applyPose(lean, sway, nod);
+
+    // Breathing while idle (fades out with speed and during actions).
+    const idle = m.action === 'free' ? 1 - s : 0;
+    this.torso.scale.y = 1 + W.breatheAmplitude * idle * Math.sin(2 * Math.PI * W.breatheFrequency * this.time);
   }
 
-  /** Writes spring states to the pivots. Pitch θ maps to rotation.x = −θ (0 = down, 90° = forward). */
-  private applyPose(lean: number, sway: number): void {
+  private jointStep(spring: SpringState, target: number, k: number, c: number, dt: number): void {
+    springStep(spring, target, k, c, dt);
+    spring.x = clamp(spring.x, 0, W.jointMax);
+  }
+
+  /**
+   * Writes the springs to the pivots. Pitch θ maps to rotation.x = −θ (0 = down, 90° = forward);
+   * elbows bend forward (−x), knees bend backward (+x).
+   */
+  private applyPose(lean: number, sway: number, nod: number): void {
+    const d = this.drinkW;
     this.hipL.rotation.x = -this.legL.x;
     this.hipR.rotation.x = -this.legR.x;
-    this.shoulderL.rotation.x = -this.armL.x;
+    this.kneeL.rotation.x = this.kneeLs.x;
+    this.kneeR.rotation.x = this.kneeRs.x;
+    this.shoulderL.rotation.x = -lerp(this.armL.x, FL.drinkShoulder, d);
+    this.shoulderL.rotation.y = -FL.drinkRoll * d;
+    this.elbowL.rotation.x = -lerp(this.elbowLs.x, FL.drinkElbow, d);
     this.shoulderR.rotation.x = -this.armR.x;
+    this.elbowR.rotation.x = -this.elbowRs.x;
     // ψ > 0 tilts the top of the swing plane toward the character's right (−X).
     this.swingPlane.rotation.z = this.psi;
     this.rollPivot.rotation.x = lean;
     this.rollPivot.rotation.z = sway;
     const M = P.model;
     this.neckPivot.position.set(M.neckPivot.x + this.headX.x, M.neckPivot.y - M.rollPivotHeight, M.neckPivot.z + this.headZ.x);
+    this.neckPivot.rotation.x = nod - FL.drinkHeadTilt * d;
+  }
+
+  /** Blends the sword's transform between the back socket (w = 0) and the hand socket (w = 1). */
+  private placeSword(): void {
+    if (this.broken) return;
+    this.root.updateMatrixWorld(true);
+    const w = easeInOut(this.holster.w);
+    this.handSocket.matrixWorld.decompose(this.pA, this.qA, this.sTmp);
+    this.backSocket.matrixWorld.decompose(this.pB, this.qB, this.sTmp);
+    this.pB.lerp(this.pA, w);
+    this.qB.slerp(this.qA, w);
+    this.sTmp.set(1, 1, 1);
+    this.mTmp.compose(this.pB, this.qB, this.sTmp);
+    this.mInv.copy(this.root.matrixWorld).invert();
+    this.mTmp.premultiply(this.mInv);
+    this.mTmp.decompose(this.sword.position, this.sword.quaternion, this.sTmp);
+    this.sword.updateMatrixWorld();
   }
 
   /** GD §4.6: the body blinks (visible ↔ hidden at 10 Hz) during the hurt invincibility. */
@@ -1050,6 +1374,7 @@ export class Player {
       this.blinkT = 0;
       this.rollPivot.visible = true;
     }
+    this.sword.visible = this.rollPivot.visible;
   }
 
   private syncTransform(): void {
@@ -1057,13 +1382,13 @@ export class Player {
     this.root.rotation.y = this.motor.yaw;
   }
 
-  /** Gold heal flash (GD §4.3c); with ?debug, 30% white while roll/god invincible. */
+  /** Gold heal glow (GD §4.3c); with ?debug, a 30% white glow while roll/god invincible. */
   private updateTint(): void {
     const m = this.motor;
     const want = this.healFlashLeft > 0 ? 'heal' : this.debugTint && (m.godMode || m.isRollInvincible()) ? 'debug' : 'none';
     if (want === this.tint) return;
     this.tint = want;
-    const colors = want === 'heal' ? this.healColors : want === 'debug' ? this.tintColors : this.baseColors;
-    for (let i = 0; i < this.materials.length; i++) this.materials[i].color.copy(colors[i]);
+    const e = want === 'heal' ? EMISSIVE_HEAL : want === 'debug' ? EMISSIVE_DEBUG : BLACK;
+    for (const mat of this.materials) mat.emissive.copy(e);
   }
 }
