@@ -28,19 +28,25 @@ function stepUntil(b: BossBrain, pred: () => boolean, distance = FAR, max = 20):
 }
 
 describe('boss HP / phase transitions (GAME_DESIGN §5, §6.4)', () => {
-  it('20 HP; damage 1/1/2 per combo; rage at ≤ 8; defeat at 0', () => {
+  it('30 HP; damage 1/1/2 per combo; rage at ≤ 12; defeat at 0', () => {
     const b = quietBrain();
     const results: HitResult[] = [];
-    // Five full combos (1 + 1 + 2), all inside punish windows so no Rebuke interferes.
-    for (let c = 0; c < 5; c++) {
-      for (const d of [1, 1, 2]) {
-        if (b.mode === 'rageTransition') stepUntil(b, () => b.mode !== 'rageTransition');
-        if (b.mode === 'cooldown') b.cooldownLeft = Infinity;
-        results.push(b.takeHit(d, true));
-      }
+    // Full combos (1 + 1 + 2) until defeat, all inside punish windows so no Rebuke interferes.
+    const pattern = [1, 1, 2];
+    let dealt = 0;
+    let rageAt = -1;
+    for (let i = 0; i < 40 && b.mode !== 'defeated'; i++) {
+      if (b.mode === 'rageTransition') stepUntil(b, () => b.mode !== 'rageTransition');
+      if (b.mode === 'cooldown') b.cooldownLeft = Infinity;
+      const d = pattern[i % 3];
+      dealt += d;
+      if (rageAt < 0 && CONFIG.boss.hp - dealt <= CONFIG.rage.hpThreshold) rageAt = i;
+      results.push(b.takeHit(d, true));
     }
     expect(results.filter((r) => r === 'rage')).toHaveLength(1);
-    expect(results.indexOf('rage')).toBe(8); // HP 20 → 8 on the 3rd combo's finisher
+    expect(results.indexOf('rage')).toBe(rageAt); // HP 30 → 12 on the 14th hit (5th combo, 2nd hit)
+    expect(rageAt).toBe(13);
+    expect(results).toHaveLength(23); // 7 full combos (28) + 1 + 1
     expect(results.at(-1)).toBe('defeated');
     expect(b.hp).toBe(0);
     expect(b.mode).toBe('defeated');
@@ -50,12 +56,12 @@ describe('boss HP / phase transitions (GAME_DESIGN §5, §6.4)', () => {
     const b = quietBrain();
     expect(b.takeHit(1, true)).toBe('hit');
     expect(b.takeHit(1, true)).toBe('hit');
-    expect(b.hp).toBe(18);
+    expect(b.hp).toBe(CONFIG.boss.hp - 2);
   });
 
   it('hits are ignored during the 1.0 s rage transition', () => {
     const b = quietBrain();
-    b.hp = 9;
+    b.hp = CONFIG.rage.hpThreshold + 1;
     expect(b.takeHit(1)).toBe('rage');
     let t = 0;
     while (b.mode === 'rageTransition') {
@@ -64,12 +70,12 @@ describe('boss HP / phase transitions (GAME_DESIGN §5, §6.4)', () => {
       t += STEP;
     }
     expect(t).toBeCloseTo(CONFIG.rage.transitionDuration, 6);
-    expect(b.hp).toBe(8);
+    expect(b.hp).toBe(CONFIG.rage.hpThreshold);
   });
 
   it('D10: after the transition a fresh rage cooldown (0.6 s) starts', () => {
     const b = quietBrain();
-    b.hp = 9;
+    b.hp = CONFIG.rage.hpThreshold + 1;
     b.takeHit(1);
     stepUntil(b, () => b.mode !== 'rageTransition');
     expect(b.mode).toBe('cooldown');
@@ -78,7 +84,7 @@ describe('boss HP / phase transitions (GAME_DESIGN §5, §6.4)', () => {
 
   it('the rage hit requests cancelling the attack AND all hazards, in the same step', () => {
     const b = quietBrain();
-    b.hp = 10;
+    b.hp = CONFIG.rage.hpThreshold + 2;
     b.beginAttack('slam');
     expect(b.takeHit(2)).toBe('rage');
     expect(b.mode).toBe('rageTransition');
@@ -87,7 +93,7 @@ describe('boss HP / phase transitions (GAME_DESIGN §5, §6.4)', () => {
     expect(b.consumeCancel()).toBe(false);
     // Also when no attack runs (hazards may still fly).
     const c = quietBrain();
-    c.hp = 9;
+    c.hp = CONFIG.rage.hpThreshold + 1;
     c.takeHit(1);
     expect(c.consumeCancel()).toBe(true);
   });
@@ -115,7 +121,7 @@ describe('boss HP / phase transitions (GAME_DESIGN §5, §6.4)', () => {
     expect(g.takeHit(1)).toBe('ignored');
   });
 
-  it('reset restores 20 HP in Phase 1 with the 1.0 s grace', () => {
+  it('reset restores full HP in Phase 1 with the 1.0 s grace', () => {
     const b = quietBrain();
     b.takeHit(5);
     b.poise = 2;

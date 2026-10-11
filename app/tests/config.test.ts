@@ -42,9 +42,10 @@ describe('CONFIG', () => {
     const [h1, h2, h3] = CONFIG.combo.hits;
     const toChain = (h: typeof h1) => h.windup.duration + h.active.duration + h.chainAt;
     expect(toChain(h1) + toChain(h2) + h3.windup.duration + h3.active.duration + h3.recovery.duration).toBeCloseTo(1.79);
-    // boss HP 20 in 5 segments of 4; rage at ≤ 8
-    expect(CONFIG.boss.hp / CONFIG.boss.healthSegments).toBe(4);
-    expect(CONFIG.rage.hpThreshold).toBe(8);
+    // boss HP 30 in 5 segments of 6; rage at ≤ 12 (40%) (changed 2026-10-11)
+    expect(CONFIG.boss.hp / CONFIG.boss.healthSegments).toBe(6);
+    expect(CONFIG.rage.hpThreshold).toBe(12);
+    expect(CONFIG.player.accel).toBe(16);
     // rage ring speed 11.2 m/s, rage dash 25.2 m/s (GD §6.5)
     expect(CONFIG.slam.ringSpeed * CONFIG.rage.speedMult).toBeCloseTo(11.2);
     expect(CONFIG.charge.speed * CONFIG.rage.speedMult).toBeCloseTo(25.2);

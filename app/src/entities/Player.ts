@@ -141,11 +141,19 @@ export function comboArmPose(hit: number, phase: AttackPhase, t: number, from: A
       out.psi = h.tilt;
       break;
     default: {
-      // Follow-through hold, then back to the rest pose.
-      const back = h.recovery.duration - h.recovery.hold;
-      const u = t <= h.recovery.hold ? 0 : easeInOut(clamp((t - h.recovery.hold) / back, 0, 1));
-      out.theta = h.active.toAngle + (CB.restAngle - h.active.toAngle) * u;
-      out.psi = h.tilt + (CB.restTilt - h.tilt) * u;
+      // Follow-through (the blade carries its momentum past the end angle and comes back), then
+      // the arm settles into the low guard (visual only).
+      if (t <= h.recovery.hold) {
+        const u = clamp(t / h.recovery.hold, 0, 1);
+        const dir = Math.sign(h.active.toAngle - h.windup.toAngle);
+        out.theta = h.active.toAngle + dir * CB.followThrough * Math.sin(Math.PI * u) * (1 - 0.35 * u);
+        out.psi = h.tilt;
+      } else {
+        const back = h.recovery.duration - h.recovery.hold;
+        const u = easeInOut(clamp((t - h.recovery.hold) / back, 0, 1));
+        out.theta = h.active.toAngle + (CB.guardAngle - h.active.toAngle) * u;
+        out.psi = h.tilt + (CB.guardTilt - h.tilt) * u;
+      }
       break;
     }
   }
@@ -719,14 +727,14 @@ export function comboElbow(hit: number, phase: AttackPhase, t: number, from: num
     case 'active':
       return 0;
     default: {
+      if (t <= h.recovery.hold) return CB.followElbow * Math.sin(Math.PI * clamp(t / h.recovery.hold, 0, 1));
       const back = h.recovery.duration - h.recovery.hold;
-      const u = t <= h.recovery.hold ? 0 : easeInOut(clamp((t - h.recovery.hold) / back, 0, 1));
-      return W.elbowRest * u;
+      return CB.guardElbow * easeInOut(clamp((t - h.recovery.hold) / back, 0, 1));
     }
   }
 }
 
-export type SwordState = 'sheathed' | 'drawing' | 'drawn' | 'reaching' | 'stowing';
+export type SwordState = 'sheathed' | 'drawing' | 'drawn' | 'stowing';
 
 /** The motor fields the holster reads. */
 interface HolsterInput {
@@ -753,9 +761,14 @@ export class SwordHolster {
     this.t = 0;
   }
 
-  /** The right arm holds the rest pose (sword on the shoulder) instead of hanging. */
+  /** The right arm holds the sword (low guard or put-away arc) instead of hanging. */
   get armReady(): boolean {
     return this.state !== 'sheathed';
+  }
+
+  /** Progress 0 → 1 of the put-away arc (0 outside it). */
+  get stowProgress(): number {
+    return this.state === 'stowing' ? clamp(this.t / SW.stowArc, 0, 1) : 0;
   }
 
   step(dt: number, m: HolsterInput): void {
@@ -783,23 +796,23 @@ export class SwordHolster {
       case 'drawn':
         if (m.action === 'free' && m.chainNext < 0) {
           this.t += dt;
-          if (this.t >= SW.sheatheDelay - EPS) this.enter('reaching');
+          if (this.t >= SW.sheatheDelay - EPS) this.enter('stowing');
         } else {
           this.t = 0;
         }
         break;
-      case 'reaching':
-        if (m.action !== 'free') {
-          this.enter('drawn');
-          break;
-        }
+      case 'stowing': {
+        // One arc over the shoulder; the sword slides onto the back over the last part of it.
         this.t += dt;
-        if (this.t >= SW.reachTime - EPS) this.enter('stowing');
+        const u = this.stowProgress;
+        const r = clamp((u - SW.stowRelease) / (1 - SW.stowRelease), 0, 1);
+        this.w = Math.min(this.w, 1 - r * r * (3 - 2 * r));
+        if (u >= 1 - EPS) {
+          this.w = 0;
+          this.enter('sheathed');
+        }
         break;
-      case 'stowing':
-        this.w = Math.max(0, this.w - dt / SW.stowBlend);
-        if (this.w <= 0) this.enter('sheathed');
-        break;
+      }
       default:
         break;
     }
@@ -895,6 +908,8 @@ export class Player {
   readonly holster = new SwordHolster();
 
   private readonly rollPivot = new Group();
+  /** Upper body at the waist: twists and leans with the swings (visual only). */
+  private readonly chest = new Group();
   private readonly neckPivot = new Group();
   private readonly shoulderL = new Group();
   private readonly elbowL = new Group();
@@ -926,6 +941,12 @@ export class Player {
   private readonly elbowLs: SpringState = { x: W.elbowRest, v: 0 };
   private readonly elbowRs: SpringState = { x: W.elbowRest, v: 0 };
   private psi = 0;
+  private readonly twist: SpringState = { x: 0, v: 0 };
+  private readonly bend: SpringState = { x: 0, v: 0 };
+  /** Arm pose when the put-away arc started. */
+  private readonly stowFrom: ArmPose = { theta: 0, psi: 0 };
+  private stowFromElbow = 0;
+  private prevSword: SwordState = 'sheathed';
   private readonly headX: SpringState = { x: 0, v: 0 };
   private readonly headZ: SpringState = { x: 0, v: 0 };
   private walkPhase = 0;
@@ -971,7 +992,7 @@ export class Player {
       }
       this.broken = false;
     }
-    for (const s of [this.legL, this.legR, this.armL, this.armR, this.headX, this.headZ]) {
+    for (const s of [this.legL, this.legR, this.armL, this.armR, this.headX, this.headZ, this.twist, this.bend]) {
       s.x = 0;
       s.v = 0;
     }
@@ -983,6 +1004,7 @@ export class Player {
     this.drinkW = 0;
     this.time = 0;
     this.holster.reset();
+    this.prevSword = 'sheathed';
     this.healFlashLeft = 0;
     this.blinkT = 0;
     this.root.visible = true;
@@ -1011,6 +1033,12 @@ export class Player {
     this.healFlashLeft = Math.max(0, this.healFlashLeft - dt);
     this.time += dt;
     this.holster.step(dt, m);
+    if (this.holster.state === 'stowing' && this.prevSword !== 'stowing') {
+      this.stowFrom.theta = this.armR.x;
+      this.stowFrom.psi = this.psi;
+      this.stowFromElbow = this.elbowRs.x;
+    }
+    this.prevSword = this.holster.state;
     this.updateWobble(dt);
     this.updateBlink(dt);
     this.syncTransform();
@@ -1025,11 +1053,19 @@ export class Player {
    * (active phases), so they lie on the visible blade. Reuses preallocated vectors.
    */
   getBladePoints(): readonly Vector3[] {
+    // The upper-body twist / lean is visual only: hit detection uses the arm without it.
+    const rx = this.chest.rotation.x;
+    const ry = this.chest.rotation.y;
+    this.chest.rotation.x = 0;
+    this.chest.rotation.y = 0;
     this.root.updateMatrixWorld(true);
     const pts = CB.bladePoints;
     for (let i = 0; i < pts.length; i++) {
       this.blade[i].set(0, -pts[i], 0).applyMatrix4(this.shoulderR.matrixWorld);
     }
+    this.chest.rotation.x = rx;
+    this.chest.rotation.y = ry;
+    this.root.updateMatrixWorld(true);
     return this.blade;
   }
 
@@ -1125,6 +1161,7 @@ export class Player {
 
     this.root.add(this.rollPivot);
     this.rollPivot.position.y = py;
+    this.rollPivot.add(this.chest); // at the waist (the roll pivot's origin)
 
     // Torso + belt
     const B = M.body;
@@ -1133,11 +1170,11 @@ export class Player {
       paint(rbox(M.belt.size, 0.03).translate(M.belt.offset.x, M.belt.offset.y, M.belt.offset.z), C.belt),
       paint(capsule(M.neck.radius, M.neck.length).translate(0, M.neck.offset, 0), C.playerHead),
     ]);
-    const torso = part(torsoGeo, bodyMat, this.rollPivot, B.center.x, B.center.y - py, B.center.z, Math.min(B.size.x, B.size.y, B.size.z) / 2);
+    const torso = part(torsoGeo, bodyMat, this.chest, B.center.x, B.center.y - py, B.center.z, Math.min(B.size.x, B.size.y, B.size.z) / 2);
 
     // Head + eyes on the neck pivot
     this.neckPivot.position.set(M.neckPivot.x, M.neckPivot.y - py, M.neckPivot.z);
-    this.rollPivot.add(this.neckPivot);
+    this.chest.add(this.neckPivot);
     const E = M.eyes;
     const headGeo = mergePainted([
       paint(new SphereGeometry(M.head.radius, M.sphereSegments, M.sphereSegments / 2), C.playerHead),
@@ -1155,14 +1192,14 @@ export class Player {
     ]);
     this.shoulderL.position.set(M.shoulderPivot.x, M.shoulderPivot.y - py, M.shoulderPivot.z);
     this.shoulderL.rotation.order = 'YXZ'; // pitch first, then the inward drink roll around Y
-    this.rollPivot.add(this.shoulderL);
+    this.chest.add(this.shoulderL);
     part(upperGeo, bodyMat, this.shoulderL, 0, 0, 0, M.upperArm.radius);
     this.elbowL.position.set(0, -M.elbow, 0);
     this.shoulderL.add(this.elbowL);
     const foreL = part(foreGeo, bodyMat, this.elbowL, 0, 0, 0, M.forearm.radius);
 
     this.swingPlane.position.set(-M.shoulderPivot.x, M.shoulderPivot.y - py, M.shoulderPivot.z);
-    this.rollPivot.add(this.swingPlane);
+    this.chest.add(this.swingPlane);
     this.swingPlane.add(this.shoulderR);
     part(upperGeo, bodyMat, this.shoulderR, 0, 0, 0, M.upperArm.radius);
     this.elbowR.position.set(0, -M.elbow, 0);
@@ -1206,7 +1243,7 @@ export class Player {
     const basis = new Matrix4().makeBasis(new Vector3(0, 0, 1), new Vector3(-s, c, 0), new Vector3(-c, -s, 0));
     this.backSocket.quaternion.setFromRotationMatrix(basis);
     this.backSocket.position.set(BS.position.x, BS.position.y - py, BS.position.z);
-    this.rollPivot.add(this.backSocket);
+    this.chest.add(this.backSocket);
     const SC = M.scabbard;
     const scabGeo = paint(rbox(SC.size, 0.025), C.scabbard);
     part(scabGeo, bodyMat, this.backSocket, 0, SC.offset, 0, SC.size.x / 2);
@@ -1251,7 +1288,9 @@ export class Player {
     // Legs and knees
     const legLT = rolling ? R.tuckAngle : w * W.legSwing * s;
     const legRT = rolling ? R.tuckAngle : -w * W.legSwing * s;
-    const kneeBase = rolling ? W.kneeTuck : dizzy || stagger ? W.kneeBent : W.kneeRest;
+    const BD = CB.body;
+    const chop = attacking && m.comboHit === 2 && (m.attackPhase === 'active' || (m.attackPhase === 'recovery' && m.actionT <= CB.hits[2].recovery.hold));
+    const kneeBase = (rolling ? W.kneeTuck : dizzy || stagger ? W.kneeBent : W.kneeRest) + (chop ? BD.finisherKnees : 0);
     const walkKnee = rolling ? 0 : W.kneeWalk * s;
     for (const [spring, target] of [
       [this.legL, legLT],
@@ -1264,7 +1303,8 @@ export class Player {
     this.jointStep(this.kneeRs, kneeBase + walkKnee * Math.max(0, w), jk, jc, dt);
 
     // Left arm (opposite phase to the left leg) and elbow; the drink pose blends on top.
-    const armLT = rolling ? R.tuckAngle : stagger ? W.staggerArmRaise : -w * W.armSwing * s + lag;
+    let armLT = rolling ? R.tuckAngle : stagger ? W.staggerArmRaise : -w * W.armSwing * s + lag;
+    if (attacking) armLT = m.attackPhase === 'windup' ? BD.counterArmWindup : BD.counterArmStrike; // counterbalance
     springStep(this.armL, armLT, k, c, dt);
     this.armL.x = clamp(this.armL.x, -W.limbClamp, W.limbClamp);
     const elbowBase = rolling ? W.elbowTuck : stagger ? W.elbowStagger : W.elbowRest;
@@ -1289,18 +1329,45 @@ export class Player {
         armRT = R.tuckAngle;
         psiT = ready ? CB.restTilt : 0;
       } else if (ready) {
-        armRT = CB.restAngle + w * W.restArmSwing * s; // the sword rests on the shoulder
-        psiT = CB.restTilt;
+        armRT = CB.guardAngle + w * W.restArmSwing * s; // low guard: the tip toward the ground
+        psiT = CB.guardTilt;
       } else {
         armRT = stagger ? W.staggerArmRaise : w * W.armSwing * s + lag; // hangs like the left arm
         psiT = 0;
       }
-      // Not clamped: the rest pose (200°) is far outside the ±80° limb clamp.
-      springStep(this.armR, armRT, k, c, dt);
-      this.psi += (psiT - this.psi) * Math.min(1, k * 0.05 * dt);
-      const elbowRT = ready && !rolling && !stagger ? W.elbowRest : elbowBase + walkElbow * Math.max(0, w);
-      this.jointStep(this.elbowRs, elbowRT, jk, jc, dt);
+      if (this.holster.state === 'stowing' && m.action === 'free') {
+        // Put-away: one arc from the guard up over the shoulder, driven directly.
+        const u = easeInOut(this.holster.stowProgress);
+        this.armR.x = lerp(this.stowFrom.theta, SW.stowAngle, u);
+        this.armR.v = 0;
+        this.psi = lerp(this.stowFrom.psi, CB.restTilt, u);
+        this.elbowRs.x = lerp(this.stowFromElbow, W.elbowRest, u);
+        this.elbowRs.v = 0;
+      } else {
+        // Not clamped: the arm may come down from the top of the put-away arc (200°).
+        springStep(this.armR, armRT, k, c, dt);
+        this.psi += (psiT - this.psi) * Math.min(1, k * 0.05 * dt);
+        const elbowRT = ready && !rolling && !stagger ? CB.guardElbow : elbowBase + walkElbow * Math.max(0, w);
+        this.jointStep(this.elbowRs, elbowRT, jk, jc, dt);
+      }
     }
+
+    // Body follow-through: the upper body twists into each slash and the finisher leans into the chop.
+    let twistT = 0;
+    let bendT = 0;
+    if (attacking) {
+      const tw = BD.twist[m.comboHit];
+      const settling = m.attackPhase === 'recovery' && m.actionT > CB.hits[m.comboHit].recovery.hold;
+      if (m.attackPhase === 'windup') {
+        twistT = tw.cock;
+        bendT = m.comboHit === 2 ? -BD.finisherLeanBack : 0;
+      } else if (!settling) {
+        twistT = tw.through;
+        bendT = m.comboHit === 2 ? BD.finisherLean : 0;
+      }
+    }
+    springStep(this.twist, twistT, BD.stiffness, BD.damping, dt);
+    springStep(this.bend, bendT, BD.stiffness, BD.damping, dt);
 
     // Head offset spring pushed by −0.02 × horizontal acceleration (local frame).
     springStep(this.headX, W.headPush * accSide, W.headStiffness, W.headDamping, dt);
@@ -1343,6 +1410,8 @@ export class Player {
     this.swingPlane.rotation.z = this.psi;
     this.rollPivot.rotation.x = lean;
     this.rollPivot.rotation.z = sway;
+    this.chest.rotation.y = this.twist.x;
+    this.chest.rotation.x = this.bend.x;
     const M = P.model;
     this.neckPivot.position.set(M.neckPivot.x + this.headX.x, M.neckPivot.y - M.rollPivotHeight, M.neckPivot.z + this.headZ.x);
     this.neckPivot.rotation.x = nod - FL.drinkHeadTilt * d;

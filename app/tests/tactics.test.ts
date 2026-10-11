@@ -109,7 +109,7 @@ describe('Royal Rebuke triggers — BossBrain', () => {
 
   it('no Rebuke request during the rage transition or while gloating', () => {
     const b = waitingBrain();
-    b.hp = 9;
+    b.hp = CONFIG.rage.hpThreshold + 1;
     b.takeHit(1);
     expect(b.mode).toBe('rageTransition');
     b.requestRebuke('debug');
