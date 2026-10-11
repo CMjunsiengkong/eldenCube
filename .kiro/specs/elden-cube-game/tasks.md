@@ -89,13 +89,13 @@ Rules: follow `requirements.md` and `design.md`; git per `.kiro/steering/git.md`
 ## Milestone 1.5b — Visual and feel upgrade (`feat/1.5b-visual-upgrade`, added 2026-10-11; built by Claude Code)
 
 - [x] 1.5b.0 Spec first: GAME_DESIGN §1, §2, §3, §4.1, §4.3, §4.3c, §4.4, §4.6, §6.1, §6.5 A–D, §8, §9, §13; ARCHITECTURE §3, §4.6; ASSETS §2; README; steering.
-- [ ] 1.5b.1 Player HP 3 (config, flask cap, HUD pips, tests).
-- [ ] 1.5b.2 `fx/materials.ts` rim light; `fx/particles.ts` (glow + smoke pools); `fx/burns.ts`; pure helpers + tests.
-- [ ] 1.5b.3 Player: rounded parts, elbow/knee pivots, re-posed animations, sword mesh, scabbard, sheathe/draw state, 12-part break-apart; blade points unchanged.
-- [ ] 1.5b.4 Boss: rounded gel body, `fx/slime.ts` springs (squash/stretch, lean, breathing), shear matrix, rounded defeat pieces.
-- [ ] 1.5b.5 Night arena: sky, fog, hemisphere, moon, 6 torches with flickering lights and flames; ACES tone mapping; shader warm-up.
-- [ ] 1.5b.6 Attack VFX: Slam stretch/splat, outline telegraph, energy shockwave + embers + impact burst; Charge crouch + dust; Rebuke spikes; Crown Rain fireballs, explosions, burn marks; heal aura.
-- [ ] 1.5b.7 Verify: typecheck + tests; headless Chrome session (every attack forced, death, victory), screenshots, draw calls < 100, 60 fps, console clean. Report. **Ask to merge.**
+- [x] 1.5b.1 Player HP 3 (config, flask cap, HUD pips, tests).
+- [x] 1.5b.2 `fx/materials.ts` rim light; `fx/particles.ts` (glow + smoke pools); `fx/burns.ts`; pure helpers + tests.
+- [x] 1.5b.3 Player: rounded parts, elbow/knee pivots, re-posed animations, sword mesh, scabbard, sheathe/draw state, 12-part break-apart; blade points unchanged.
+- [x] 1.5b.4 Boss: rounded gel body, `fx/slime.ts` springs (squash/stretch, lean, breathing), shear matrix, rounded defeat pieces.
+- [x] 1.5b.5 Night arena: sky, fog, hemisphere, moon, 6 torches with flickering lights and flames; ACES tone mapping; shader warm-up.
+- [x] 1.5b.6 Attack VFX: Slam stretch/splat, outline telegraph, energy shockwave + embers + impact burst; Charge crouch + dust; Rebuke spikes; Crown Rain fireballs, explosions, burn marks; heal aura.
+- [x] 1.5b.7 Verify: typecheck + 181 tests + build green; headless Chrome session (every attack forced, death in 3 hits, victory), screenshots, max 56 draw calls, 60 fps, console clean. Report. **Ask to merge.**
 
 ## Milestone 1.6 — Tests, tuning, bug bash (`feat/1.6-tuning`)
 
