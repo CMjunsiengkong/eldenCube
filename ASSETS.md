@@ -110,6 +110,18 @@ Good free sources for sound files:
 
 Record each file's source in `CREDITS.md`.
 
+### 1.4 Background music (optional file, milestone 1.5c)
+
+| Rule | Detail |
+|---|---|
+| Folder and name | `app/src/assets/bgm/bgm.mp3` (or `.ogg` / `.wav`; priority mp3 > ogg > wav). Keep a `.gitkeep` in the folder |
+| When it plays | Only during the fight: starts at fight start, fades out on death or victory, never on the start screen (GAME_DESIGN §10) |
+| No file | No music. There is no generated fallback |
+| Funny tone | Played at playback rate 1.12 (faster and about +2 semitones higher), set in `CONFIG.audio.bgm.rate`. Pick an epic or dramatic boss track; the speed-up makes it silly |
+| Loop | The whole file loops. Choose a track that loops cleanly, or trim it to a loop point |
+| Size | Stereo is fine; 1–3 minutes; keep it under about 4 MB (128 kbps MP3) |
+| Licence | CC0, or free with attribution recorded in `CREDITS.md` |
+
 ## 2. Art and visuals (all built in code)
 
 There are **no textures, 3D models or image files** in the game. Every visual is a Three.js primitive (boxes, rounded boxes, capsules, spheres, cones, cylinders) with a flat color, or a small procedural shader effect (particles, burn marks, flames, the shockwave glow, the rim light). Exact geometry, positions and colors are in GAME_DESIGN.md:

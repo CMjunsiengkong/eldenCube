@@ -3,6 +3,8 @@
  * file first (discovered at build time), the procedural recipe otherwise.
  *
  * Signal path: sound → its own gain → duck (TO_TITLE fade to 30 %) → master (0.8, or 0 muted) → out.
+ * Background music (1.5c): optional `assets/bgm/bgm.*` file → loop at `CONFIG.audio.bgm.rate` →
+ * music gain → master. Fight only (GD §10); no generated fallback.
  * Before `unlock()` (the first key press or click), every `play()` is silently ignored.
  */
 import { CONFIG } from '../config';
@@ -45,8 +47,23 @@ export function resolveSfxSources(glob: Record<string, string>, info: (msg: stri
   return out;
 }
 
+/** Pure: the URL of the `bgm` music file (mp3 > ogg > wav), or null. Other names are ignored. */
+export function resolveBgmSource(glob: Record<string, string>): string | null {
+  let best: { url: string; rank: number } | null = null;
+  for (const [path, url] of Object.entries(glob)) {
+    const file = (path.split('/').pop() ?? path).toLowerCase();
+    const dot = file.lastIndexOf('.');
+    if (dot <= 0 || file.slice(0, dot) !== 'bgm') continue;
+    const rank = (EXT_PRIORITY as readonly string[]).indexOf(file.slice(dot + 1));
+    if (rank >= 0 && (!best || rank < best.rank)) best = { url, rank };
+  }
+  return best?.url ?? null;
+}
+
 /** Build-time discovery: only files that exist are listed, so there are no runtime 404s. */
 const GLOB = import.meta.glob('../assets/sfx/*.{mp3,ogg,wav}', { eager: true, query: '?url', import: 'default' }) as Record<string, string>;
+const BGM_GLOB = import.meta.glob('../assets/bgm/*.{mp3,ogg,wav}', { eager: true, query: '?url', import: 'default' }) as Record<string, string>;
+const MB = CONFIG.audio.bgm;
 
 const NO_HANDLE: SoundHandle = { stop: () => undefined };
 
@@ -59,9 +76,83 @@ export class Audio implements SoundSink {
   private readonly sources: Map<SfxId, string>;
   private mutedFlag = false;
   private unlocking = false;
+  // Background music
+  private readonly bgmUrl: string | null;
+  private bgmBuffer: AudioBuffer | null = null;
+  private musicGain: GainNode | null = null;
+  private musicSrc: AudioBufferSourceNode | null = null;
+  /** The fight wants music (it may start late if the file is still decoding). */
+  private musicWanted = false;
 
-  constructor(glob: Record<string, string> = GLOB) {
+  constructor(glob: Record<string, string> = GLOB, bgmGlob: Record<string, string> = BGM_GLOB) {
     this.sources = resolveSfxSources(glob);
+    this.bgmUrl = resolveBgmSource(bgmGlob);
+  }
+
+  /** GD §10: the fight starts — the track starts from the beginning and fades in. */
+  startMusic(): void {
+    this.musicWanted = true;
+    this.beginMusic();
+  }
+
+  /** GD §10: death or victory — fade out and stop. */
+  fadeOutMusic(): void {
+    this.musicWanted = false;
+    const ctx = this.ctx;
+    const src = this.musicSrc;
+    const g = this.musicGain;
+    if (!ctx || !src || !g) return;
+    const t = ctx.currentTime;
+    g.gain.cancelScheduledValues(t);
+    g.gain.setValueAtTime(g.gain.value, t);
+    g.gain.linearRampToValueAtTime(0, t + MB.fadeOut);
+    try {
+      src.stop(t + MB.fadeOut + 0.05);
+    } catch {
+      // already stopped
+    }
+    this.musicSrc = null;
+  }
+
+  /** Reset: stop at once. */
+  stopMusic(): void {
+    this.musicWanted = false;
+    try {
+      this.musicSrc?.stop();
+    } catch {
+      // already stopped
+    }
+    this.musicSrc = null;
+  }
+
+  /** Pause overlay: the music drops to 30 % and comes back on resume. */
+  setMusicPaused(paused: boolean): void {
+    const ctx = this.ctx;
+    const g = this.musicGain;
+    if (!ctx || !g || !this.musicSrc) return;
+    g.gain.cancelScheduledValues(ctx.currentTime);
+    g.gain.setTargetAtTime(MB.volume * (paused ? MB.pausedLevel : 1), ctx.currentTime, 0.1);
+  }
+
+  get musicPlaying(): boolean {
+    return this.musicSrc !== null;
+  }
+
+  private beginMusic(): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.bgmBuffer || !this.musicGain || !this.musicWanted || this.musicSrc) return;
+    const src = ctx.createBufferSource();
+    src.buffer = this.bgmBuffer;
+    src.loop = true;
+    src.playbackRate.value = MB.rate;
+    src.connect(this.musicGain);
+    const t = ctx.currentTime;
+    const g = this.musicGain.gain;
+    g.cancelScheduledValues(t);
+    g.setValueAtTime(0, t);
+    g.linearRampToValueAtTime(MB.volume, t + MB.fadeIn);
+    src.start();
+    this.musicSrc = src;
   }
 
   get muted(): boolean {
@@ -83,6 +174,9 @@ export class Audio implements SoundSink {
         this.master.connect(ctx.destination);
         this.duck = ctx.createGain();
         this.duck.connect(this.master);
+        this.musicGain = ctx.createGain();
+        this.musicGain.gain.value = 0;
+        this.musicGain.connect(this.master);
         const n = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
         const d = n.getChannelData(0);
         for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
@@ -152,6 +246,7 @@ export class Audio implements SoundSink {
 
   /** Fetches and decodes every found file; a failure warns once and keeps that sound's recipe. */
   private async loadFiles(ctx: AudioContext): Promise<void> {
+    if (this.bgmUrl) void this.loadMusic(ctx, this.bgmUrl);
     await Promise.all(
       [...this.sources].map(async ([id, url]) => {
         try {
@@ -163,5 +258,16 @@ export class Audio implements SoundSink {
         }
       }),
     );
+  }
+
+  /** Decodes the music; if the fight already started, the music starts now (with its fade-in). */
+  private async loadMusic(ctx: AudioContext, url: string): Promise<void> {
+    try {
+      const res = await fetch(url);
+      this.bgmBuffer = await ctx.decodeAudioData(await res.arrayBuffer());
+      this.beginMusic();
+    } catch {
+      console.warn(`[audio] could not load the background music (${url}); playing without music`);
+    }
   }
 }

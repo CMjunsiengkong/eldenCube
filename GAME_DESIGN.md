@@ -539,7 +539,12 @@ The game must therefore be complete and fully audible with **no sound files at a
 
 - Browsers block audio until the user interacts, so create or resume the `AudioContext` on the **first key press or click** (the TITLE screen's "press any key").
 - `M` toggles a master gain between 0.8 and 0.
-- There is no music by default.
+- **Background music** *(added 2026-10-11, milestone 1.5c)*: one looping track, used only if a music file exists (ASSETS.md §1.4); there is no generated fallback, so without a file the game has no music.
+  - **TITLE:** no music.
+  - **Fight start** (TITLE → FIGHT): the track starts from the beginning and fades in over 0.5 s *(tune)*.
+  - **DYING or BOSS_DEFEATED:** the music fades out over 1.5 s *(tune)* and stops. It stays off through VICTORY_SCREEN, TO_TITLE and TITLE.
+  - **Funny tone:** the track plays **sped up and pitched up** (playback rate 1.12, about +2 semitones, *(tune)*), so even an epic boss theme sounds slightly silly, matching the clumsy hero.
+  - Loudness 0.35 *(tune)* relative to the sound effects, through the master gain, so `M` mutes it too. While paused it drops to 30% and comes back on resume.
 
 ## 11. Difficulty and debug options (URL parameters)
 
