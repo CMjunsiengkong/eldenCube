@@ -514,9 +514,9 @@ The game must therefore be complete and fully audible with **no sound files at a
 
 | ID | Trigger |
 |---|---|
-| `swing` | Start of each combo hit's active phase (Hit 3 at pitch ×0.8) |
+| `swing` | Start of each combo hit's active phase (Hit 3 at pitch ×0.8), with a random pitch ×0.88–1.14 on every swing *(1.5d, tune)* so it never sounds repetitive |
 | `hit` | Weapon hits the boss |
-| `swing_ground` *(optional)* | A combo hit's active phase ends without a hit |
+| `swing_ground` *(removed in 1.5d)* | Not played: a miss is just the normal swing |
 | `roll` | Roll starts |
 | `roll_end` | Roll recovery starts (the dizzy landing) |
 | `footstep` *(optional)* | Every 0.30 s while walking (not rolling) with horizontal speed above 1 m/s |

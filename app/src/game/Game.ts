@@ -43,7 +43,7 @@ import { CameraController } from '../systems/camera';
 import { pointInOBB } from '../systems/collision';
 import { Input } from '../systems/input';
 import { UI } from '../systems/ui';
-import { easeInOut, lerp } from '../util/math';
+import { easeInOut, lerp, randRange } from '../util/math';
 import { createRng } from '../util/rng';
 import { Arena } from './Arena';
 
@@ -231,6 +231,8 @@ export class Game implements LoopTarget {
   private readonly audio = new Audio();
   private readonly debug: boolean;
   private readonly rng = createRng(Date.now());
+  /** Sound-only randomness (swing pitch), separate from the gameplay RNG. */
+  private readonly audioRng = createRng(Date.now() ^ 0x5eed);
   private readonly cameraCtl: CameraController;
   private readonly player: Player;
   private readonly boss: Boss;
@@ -683,11 +685,11 @@ export class Game implements LoopTarget {
           this.audio.play('footstep');
           break;
         case 'attackActive':
-          this.audio.play('swing', { pitch: CONFIG.combo.hits[m.comboHit].pitch });
+          // 1.5d: a random pitch on every swing, so repeated swings never sound the same.
+          this.audio.play('swing', { pitch: CONFIG.combo.hits[m.comboHit].pitch * randRange(this.audioRng, CONFIG.audio.swingPitchJitter[0], CONFIG.audio.swingPitchJitter[1]) });
           break;
         case 'attackMiss':
-          this.audio.play('swing_ground');
-          break;
+          break; // 1.5d: a miss has no extra sound; the swing itself is the miss sound
         case 'drinkStart':
           this.audio.play('flask_drink');
           break;
