@@ -99,7 +99,11 @@ eldenCube/
 │   │   │   └── ui.ts               # DOM overlay: screens, HUD, health bar, pause, debug
 │   │   ├── fx/
 │   │   │   ├── debris.ts           # debris pieces (§5.6)
-│   │   │   └── effects.ts          # flash, squash springs, warning circles, shockwave mesh
+│   │   │   ├── effects.ts          # flash, squash springs, warning circles, shockwave mesh, Rebuke spikes
+│   │   │   ├── materials.ts        # shared rim light (fresnel) material patch (1.5b)
+│   │   │   ├── particles.ts        # pooled GPU particle systems (glow + smoke) (1.5b)
+│   │   │   ├── burns.ts            # 3 s fading burn marks: scorch decals + flame tongues (1.5b)
+│   │   │   └── slime.ts            # boss squash/stretch + lean springs (pure) (1.5b)
 │   │   ├── util/
 │   │   │   ├── math.ts             # lerp, clamp, easing, damped spring step, random range
 │   │   │   └── rng.ts              # seedable random (seeded in tests)
@@ -206,6 +210,11 @@ interface Attack {
 - Before creating the renderer, check WebGL 2 support (required by three r186). If it fails, show the WebGL error message (GAME_DESIGN §2) and stop.
 - Wait for `document.fonts.ready` before showing the TITLE overlay, so the title doesn't flash in a fallback font.
 - Performance budget: under 100 draw calls, a single shadow-casting light, no post-processing. Reuse geometries and materials; never create them per frame.
+- *(1.5b)* `toneMapping = ACESFilmicToneMapping`, exposure 1.0 (tone mapping runs inside the normal shaders; it is not post-processing). The moon is the only shadow caster; the 6 torch point lights cast no shadows. The light count never changes during play (a change would recompile every lit shader).
+- *(1.5b)* **Shader warm-up:** after building the scene, `Game` temporarily attaches every pooled, normally detached object (hazards, telegraphs, particles, burn marks, spikes, debris puffs) and calls `renderer.compile()`, so the first Slam or Crown Rain never stutters.
+- *(1.5b)* **Particles (`fx/particles.ts`):** two pooled systems (additive "glow", alpha "smoke"), each a single `InstancedBufferGeometry` draw call with a fixed ring buffer of instances. Per instance: start position, velocity, birth time, life, size (start/end), color and gravity. The vertex shader computes `p0 + v·t + ½·g·t²`, faces the camera and fades by age; the CPU writes an instance only when it is spawned and uploads the changed range once per step. The shader clock `uTime` is **simulation time**, so effects freeze during hit-stop and slow down in slow motion.
+- *(1.5b)* **Burn marks (`fx/burns.ts`):** a ring buffer of 48 marks (scorch decal instances, one draw call) with 3 flame-tongue billboards each (one draw call). Per instance: center, birth time, seed. Alpha is `1 − smoothstep(1.8, 3.0, age)` in the shader; the CPU only writes on spawn. Cleared by reset.
+- *(1.5b)* **Shared style:** `fx/materials.ts` adds a fresnel rim term to `MeshStandardMaterial` via `onBeforeCompile` (with a `customProgramCacheKey`); player and boss materials both use it. The boss's slime deformation is a matrix on its visual group (translation × shear × scale), so the body, face and crown deform together and the shadow follows; the hit box is never deformed.
 
 ### 4.7 UI (`systems/ui.ts`, `styles.css`)
 

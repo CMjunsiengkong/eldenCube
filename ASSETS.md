@@ -112,14 +112,14 @@ Record each file's source in `CREDITS.md`.
 
 ## 2. Art and visuals (all built in code)
 
-There are **no textures, 3D models or image files** in the game. Every visual is a Three.js primitive with a flat color. Exact geometry, positions and colors are in GAME_DESIGN.md:
+There are **no textures, 3D models or image files** in the game. Every visual is a Three.js primitive (boxes, rounded boxes, capsules, spheres, cones, cylinders) with a flat color, or a small procedural shader effect (particles, burn marks, flames, the shockwave glow, the rim light). Exact geometry, positions and colors are in GAME_DESIGN.md:
 
 | Item | Spec location |
 |---|---|
-| Player (7 primitives) | GAME_DESIGN §4.1 |
+| Player (rounded limbs with elbows and knees, sword, scabbard) | GAME_DESIGN §4.1 |
 | Boss, crown, face | GAME_DESIGN §6.1 |
-| Arena, outer field, edge ring, sky, fog, lights | GAME_DESIGN §8 |
-| Shockwave ring, warning circles, shards, Rebuke ring | GAME_DESIGN §6.5 |
+| Arena, outer field, edge ring, night sky, fog, moon, torches | GAME_DESIGN §8 |
+| Shockwave band and embers, warning circles, fireballs and burn marks, Rebuke spikes, heal aura | GAME_DESIGN §6.5, §4.3c |
 | Player HUD (HP pips, flask counter, stamina bar), flask prop | GAME_DESIGN §2, §4.3c |
 | Debris (player parts, 8 boss cubes, crown) | GAME_DESIGN §6.6, §9 |
 
@@ -131,20 +131,30 @@ There are **no textures, 3D models or image files** in the game. Every visual is
 | Player arms | `#2B66C4` |
 | Player legs | `#1D3557` |
 | Player head | `#FFD6A5` |
-| Weapon | `#CED4DA` |
+| Sword blade | `#CED4DA` |
+| Sword pommel / crossguard | `#D4A017` |
+| Sword grip | `#5C3A21` |
+| Belt / scabbard / boots | `#6B4226` / `#4A3426` / `#3D2B1F` |
+| Player rim light | `#9DB7FF` |
 | Boss (Phase 1) | `#6A4C93` |
 | Boss (rage) | `#D62828` |
-| Crown / shards | `#FFC300` |
+| Crown | `#FFC300` |
+| Fireball core / fire | `#FFB347` / `#FF6A1A` |
+| Scorch mark | `#1A0F08` |
 | Eyes / pupils | `#FFFFFF` / `#111111` |
-| Shockwave | `#FF7B00` |
+| Shockwave / its core | `#FF7B00` / `#FFD27A` |
 | Warning circles | `#FF3B30` |
-| Rebuke ring | `#FFE066` |
+| Rebuke spikes | `#FFE066` |
 | Flask / heal flash | `#F4A259` / `#FFD166` |
 | Stamina bar | `#6BBF59` |
 | Arena grass | `#6AB04C` |
 | Outer field | `#5E9E44` |
 | Arena edge | `#4A7F35` |
-| Sky / fog | `#BFE3FF` |
+| Night sky / fog | `#0B1020` |
+| Hemisphere sky / ground | `#3B4A7A` / `#141A10` |
+| Moonlight | `#A8B8FF` |
+| Torch light / flame | `#FF9A3C` / `#FFB347` |
+| Torch pole / bowl | `#3B2A1E` / `#2E2E33` |
 | UI gold | `#E0B84C` |
 | "YOU DIED" red | `#A4161A` |
 | Health bar | `#C1121F` |

@@ -86,6 +86,17 @@ Rules: follow `requirements.md` and `design.md`; git per `.kiro/steering/git.md`
 - [x] 1.5.7 Font import, `public/favicon.svg`, `public/CREDITS.md`, `<title>`. _Req 17.4, 17.5_
 - [x] 1.5.8 Verify in Chrome: full session title → death → title → win → title with keyboard and click only, no reload; locks; blur pause; mute; console clean. Report. **Ask to merge.**
 
+## Milestone 1.5b — Visual and feel upgrade (`feat/1.5b-visual-upgrade`, added 2026-10-11; built by Claude Code)
+
+- [x] 1.5b.0 Spec first: GAME_DESIGN §1, §2, §3, §4.1, §4.3, §4.3c, §4.4, §4.6, §6.1, §6.5 A–D, §8, §9, §13; ARCHITECTURE §3, §4.6; ASSETS §2; README; steering.
+- [ ] 1.5b.1 Player HP 3 (config, flask cap, HUD pips, tests).
+- [ ] 1.5b.2 `fx/materials.ts` rim light; `fx/particles.ts` (glow + smoke pools); `fx/burns.ts`; pure helpers + tests.
+- [ ] 1.5b.3 Player: rounded parts, elbow/knee pivots, re-posed animations, sword mesh, scabbard, sheathe/draw state, 12-part break-apart; blade points unchanged.
+- [ ] 1.5b.4 Boss: rounded gel body, `fx/slime.ts` springs (squash/stretch, lean, breathing), shear matrix, rounded defeat pieces.
+- [ ] 1.5b.5 Night arena: sky, fog, hemisphere, moon, 6 torches with flickering lights and flames; ACES tone mapping; shader warm-up.
+- [ ] 1.5b.6 Attack VFX: Slam stretch/splat, outline telegraph, energy shockwave + embers + impact burst; Charge crouch + dust; Rebuke spikes; Crown Rain fireballs, explosions, burn marks; heal aura.
+- [ ] 1.5b.7 Verify: typecheck + tests; headless Chrome session (every attack forced, death, victory), screenshots, draw calls < 100, 60 fps, console clean. Report. **Ask to merge.**
+
 ## Milestone 1.6 — Tests, tuning, bug bash (`feat/1.6-tuning`)
 
 - [ ] 1.6.1 Audit unit tests against AR §8 / Req 21 (all 11 groups present and passing); `npm run build` passes. _Req 21, 20.3_

@@ -21,7 +21,7 @@ A small, funny 3D boss fight in the browser, built with **Kiro** and delivered o
 | Platform | Web browser (Chrome) on the booth laptop |
 | Players | One at a time, on the booth laptop |
 | Input | Laptop keyboard (WASD move, Space roll, R flask) plus a mouse or touchpad (click to attack). No gamepad |
-| Graphics | 3D, built only from simple geometric shapes, with a flat green grass ground and no other scenery |
+| Graphics | 3D, built only from simple geometric shapes (rounded where it helps) and small procedural effects, with a flat green grass ground at **moonlit dusk**. The only scenery is a ring of torches outside the arena edge (changed 2026-10-11, milestone 1.5b) |
 | Data | **No stored data**: no leaderboard, no accounts, no scores. Each play is a one-time session (like slowroads.io) |
 | AWS approach | **Static hosting only** (S3 + CloudFront, built with the CDK). No AWS calls while the game runs |
 | Hosting after the event | Optional. Only if it stays within about USD 5/month |
