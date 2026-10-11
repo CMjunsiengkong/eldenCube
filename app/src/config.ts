@@ -394,12 +394,24 @@ const RAW = {
     playerLegs: 0x1d3557,
     playerHead: 0xffd6a5,
     weapon: 0xced4da,
+    swordGold: 0xd4a017,
+    swordGrip: 0x5c3a21,
+    belt: 0x6b4226,
+    scabbard: 0x4a3426,
+    boots: 0x3d2b1f,
+    playerRim: 0x9db7ff,
     bossPhase1: 0x6a4c93,
     bossRage: 0xd62828,
     crown: 0xffc300,
     eyes: 0xffffff,
     pupils: 0x111111,
     shockwave: 0xff7b00,
+    shockwaveCore: 0xffd27a,
+    fireballCore: 0xffb347,
+    fire: 0xff6a1a,
+    flameCore: 0xfff1c1,
+    scorch: 0x1a0f08,
+    dust: 0x8a8f7a,
     rebukeRing: 0xffe066,
     flask: 0xf4a259,
     healFlash: 0xffd166,
@@ -418,6 +430,40 @@ const RAW = {
     healthEmpty: 'rgba(0,0,0,0.5)',
     staminaFull: '#6BBF59',
     flaskHud: '#F4A259',
+  },
+
+  /** GD §8 (1.5b) — shared rim light (fresnel edge glow) on character materials. */
+  rim: {
+    power: 2.5, // fresnel exponent (tune, agent-chosen)
+    playerStrength: 0.35, // (tune)
+    bossStrength: 0.45, // (tune)
+    bossTint: 0.45, // boss rim = body color lerped this far toward white (tune, agent-chosen)
+  },
+
+  /** 1.5b visual effects (ARCHITECTURE §4.6). Visual only. */
+  vfx: {
+    particles: {
+      glowCapacity: 2048, // additive pool (tune, agent-chosen)
+      smokeCapacity: 512, // alpha-blended pool (tune, agent-chosen)
+      floor: 0.03, // m; particles never sink below this height
+      glowSoftness: 0.0, // radial falloff start (0 = soft disc)
+      smokeSoftness: 0.25,
+    },
+    /** GD §6.5 C burning marks. */
+    burns: {
+      capacity: 48, // marks in the ring buffer (2 overlapping Crown Rains)
+      life: 3.0, // s
+      fadeStart: 1.8, // s; smooth fade to 0 at `life` (tune)
+      growTime: 0.12, // s pop-in (tune, agent-chosen)
+      scorchRadius: 0.9, // m
+      scorchAlpha: 0.8,
+      lift: 0.025, // m above the floor
+      flamesPerMark: 3,
+      flameSpread: 0.45, // m max offset of a flame from the mark center (tune, agent-chosen)
+      flameWidth: 0.45, // m (tune, agent-chosen)
+      flameHeight: 0.75, // m (tune, agent-chosen)
+      flameStagger: 0.05, // s between a mark's flames appearing (tune, agent-chosen)
+    },
   },
 
   /** Physics and effects (ARCHITECTURE §5, GD §9). */
