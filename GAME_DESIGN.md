@@ -1,6 +1,6 @@
 # Game Design — The Elden Cube
 
-A one-on-one boss fight that parodies hard "souls-like" games. The hero is extremely clumsy, and the boss is a giant cube wearing a crown. **Three hits kill the player (a flask restores one). The cube takes 20 damage, about five full combos.**
+A one-on-one boss fight that parodies hard "souls-like" games. The hero is extremely clumsy, and the boss is a giant cube wearing a crown. **Three hits kill the player (a flask restores one). The cube takes 30 damage, about seven to eight full combos (changed from 20 on 2026-10-11).**
 
 This document is the **complete gameplay specification**. Every value an implementer needs is here. Any value marked *(tune)* is a starting value that may change during playtesting. All tunable values must live in `app/src/config.ts` (see ARCHITECTURE.md §6), never hard-coded elsewhere.
 
@@ -64,7 +64,7 @@ This document is the **complete gameplay specification**. Every value an impleme
 | Title text | TITLE | **THE ELDEN CUBE**: Cinzel 700, `min(9vw, 120px)`, gold `#E0B84C`, centered, 30% from top, dark text shadow |
 | Start prompt | TITLE | *"Press any key to begin"*: system sans-serif, 24px, white, blinking (opacity 1 ↔ 0.3, 1 s cycle) |
 | Controls box | TITLE | `WASD Move · Space Roll · Click Attack · R Flask · M Mute`: 18px, white, semi-transparent dark panel, bottom center |
-| Boss health bar | FIGHT, DYING, BOSS_DEFEATED | Bottom center, width `min(60vw, 640px)`, height 14px. Label above, left-aligned: **The Elden Cube** in Cinzel 700, 20px, white. 5 equal segments with a 4px gap; each segment holds 4 of the boss's 20 HP and drains from the right. Full = `#C1121F`, empty = `rgba(0,0,0,0.5)`. The part lost by a hit flashes white for 0.15 s before turning empty |
+| Boss health bar | FIGHT, DYING, BOSS_DEFEATED | Bottom center, width `min(60vw, 640px)`, height 14px. Label above, left-aligned: **The Elden Cube** in Cinzel 700, 20px, white. 5 equal segments with a 4px gap; each segment holds 6 of the boss's 30 HP and drains from the right. Full = `#C1121F`, empty = `rgba(0,0,0,0.5)`. The part lost by a hit flashes white for 0.15 s before turning empty |
 | Player HUD | FIGHT, DYING | Top-left, 24px from the edges. **HP:** 3 pips (22 × 22px squares, 6px gap, 2px white border; full `#C1121F`, empty `rgba(0,0,0,0.5)`); a lost pip flashes white for 0.15 s. **Flask counter** to the right of the pips: an amber `#F4A259` rounded rectangle 14 × 22px and `×N`, 18px, white. **Stamina bar** below the pips: 240 × 8px, full `#6BBF59`, empty `rgba(0,0,0,0.5)`, no numbers; it flashes white for 0.3 s when an action is refused for lack of stamina. The HUD fades with the boss health bar |
 | Controls hint | FIGHT | Bottom-left, 14px, 70% opacity: `WASD · Space · Click · R` |
 | Sound indicator | All | Top-right, 14px: `Sound: ON (M)` or `Sound: OFF (M)` |
@@ -144,7 +144,7 @@ The clumsiness comes from **momentum and delay**. Input is **never randomly drop
 |---|---|---|
 | Spawn | Position `(0, 0, 12)`, facing the boss | — |
 | Desired velocity | `input direction (camera-relative, normalized) × maxSpeed` | maxSpeed 6 m/s |
-| Acceleration | Horizontal velocity moves toward the desired velocity at `accel` when there is input, or `decel` when there is none | accel 10 m/s², decel 4 m/s² (this gives the sliding stop) |
+| Acceleration | Horizontal velocity moves toward the desired velocity at `accel` when there is input, or `decel` when there is none | accel 16 m/s² (changed from 10 on 2026-10-11), decel 4 m/s² (this gives the sliding stop) |
 | Facing (yaw) | Turns toward a target direction at a limited rate. The target is the movement direction if horizontal speed > 0.5 m/s and there is input; otherwise the direction to the boss | turn rate 4 rad/s |
 | Ground | The player always stays on the ground (feet at y = 0). There is no jumping | — |
 | Arena wall | The player's horizontal distance from the center is clamped to `arenaRadius − playerRadius`. The outward part of the velocity is removed | 30 − 0.4 = 29.6 m |
@@ -152,14 +152,16 @@ The clumsiness comes from **momentum and delay**. Input is **never randomly drop
 
 ### 4.3 Attack combo
 
-**Sheathing** *(1.5b)*: when idle, the sword is **sheathed on the back** (§4.1) and the right arm hangs and swings like the left one. Pressing attack starts a **3-hit combo** and draws the sword **inside Hit 1's wind-up**: the hand sweeps up past the right shoulder, and the sword blends from the back socket to the hand socket over 0.08 s *(tune)* when the wind-up is 55% done *(tune)*. **No combat timing changes.** While drawn and free, the sword **rests on the right shoulder** (the rest pose below). After the combo ends, once the player has been free for **1.5 s** *(tune)* (an open chain window counts as busy), the sword is put away: the arm reaches back to the rest pose over 0.20 s, the sword blends to the back socket over 0.12 s, then the arm drops. Any action interrupts the put-away; an attack then starts from wherever the sword is, and the draw continues smoothly. Rolls, drinks and staggers never draw the sword. Sheathing is visual only.
+**Sheathing** *(1.5b)*: when idle, the sword is **sheathed on the back** (§4.1) and the right arm hangs and swings like the left one. Pressing attack starts a **3-hit combo** and draws the sword **inside Hit 1's wind-up**: the hand sweeps up past the right shoulder, and the sword blends from the back socket to the hand socket over 0.08 s *(tune)* when the wind-up is 55% done *(tune)*. **No combat timing changes.** While drawn and free, the sword is held in a **low guard** *(2026-10-11)*: arm θ 35°, ψ 20°, elbow 30°, the tip pointing diagonally at the ground in front, never held up in the air. After the combo ends, once the player has been free for **0.4 s** *(tune)* (an open chain window counts as busy), the sword is put away **in one motion**: over 0.25 s *(tune)* the arm arcs from the low guard up over the right shoulder (θ 200°, ψ 40°) while the sword travels with the hand, and over the last 40% of the arc the sword slides onto the back socket; then the arm drops. Any action interrupts the put-away; an attack then starts from wherever the sword is, and the draw continues smoothly. Rolls, drinks and staggers never draw the sword. Sheathing is visual only.
 
 Each hit is a slash in a **swing plane**:
 - **θ** is the right shoulder pivot's pitch: 0° means the arm points straight down, +90° forward, 180° straight up.
 - **ψ** (plane tilt) rotates the swing plane around the player's forward axis. ψ > 0 puts the high end of the arc on the player's right and the low end on the left. ψ = 0 is a vertical overhead plane.
-- The **rest pose** is θ 200°, ψ 40°.
+- The **rest pose** (θ 200°, ψ 40°) is now only the top of the put-away arc; the drawn idle pose is the low guard above.
 - Every wind-up starts from the arm's current θ and ψ, and blends ψ to the hit's tilt linearly over the wind-up.
-- **Elbow** *(1.5b)*: during each wind-up the elbow cocks (a bend of up to 35° *(tune)*, `sin(π·u)` over the wind-up) and blends from its starting bend to straight; it is **exactly straight during every active phase**, so the blade lies along the shoulder→hand axis and the hit detection of §5 is unchanged. In the recovery it holds straight during the follow-through, then blends back to the rest bend.
+- **Elbow** *(1.5b)*: during each wind-up the elbow cocks (a bend of up to 35° *(tune)*, `sin(π·u)` over the wind-up) and blends from its starting bend to straight; it is **exactly straight during every active phase**, so the blade lies along the shoulder→hand axis and the hit detection of §5 is unchanged. In the recovery it flexes slightly with the follow-through (up to 12°), then blends to the low-guard bend (30°).
+- **Follow-through** *(2026-10-11, visual only)*: the recovery's hold is no longer frozen. The blade carries its momentum past the strike's end angle by up to 14° *(tune)* (`sin(π·u)` over the hold) and comes back, then the arm blends into the low guard. Hits 1 and 3 already end low, so the sword just settles; Hit 2's high finish drops down into the guard.
+- **Body follow-through** *(2026-10-11, visual only)*: an upper-body pivot at the waist twists into each slash and unwinds after it (Hit 1: cocks 14° to the right, follows through 10° to the left; Hit 2: the mirror; Hit 3: leans back 5° in the wind-up, then pitches forward 14° into the chop with the knees bending 30°), driven by springs (k 220, damping 20). The left arm counterbalances (forward 30° in the wind-up, back 25° in the strike). Hit detection (§5) uses the arm without the upper-body twist and lean, so this never changes reach.
 
 | | Hit 1 — *Kesagiri* (right shoulder → left hip) | Hit 2 — rising backhand (left hip → right shoulder) | Hit 3 — overhead finisher |
 |---|---|---|---|
@@ -252,7 +254,7 @@ Each limb pivot's pitch follows a **target angle through a damped spring**: `k =
 | Legs | Walk cycle: `±sin(phase) × 35° × s`, left and right in opposite phase. `s = horizontal speed / maxSpeed`. The phase advances at `2π × 1.8 Hz × s` |
 | Left arm (not drinking) | Opposite phase to the same-side leg, `25° × s`, plus a lag of `−0.03 rad per m/s²` of forward acceleration (the arms flail when stopping) |
 | Right arm, sword sheathed | Like the left arm (opposite phase to the right leg, `25° × s`) |
-| Right arm, sword drawn and free | The rest pose (θ 200°, ψ 40°) through the spring, plus a walk swing of `±5° × s` |
+| Right arm, sword drawn and free | The low guard (θ 35°, ψ 20°, elbow 30°) through the spring, plus a walk swing of `±5° × s`; driven directly along the put-away arc while sheathing |
 | Elbows *(1.5b)* | Spring targets: rest bend 12°; walking adds `20° × s` on the forward swing; roll tuck 100°; stagger 60° (arms flail); left elbow 120° while drinking (driven directly) |
 | Knees *(1.5b)* | Spring targets: rest bend 4°; walking bends the knee of the swinging-back leg by up to `45° × s` (`max(0, −sin(phase)) × 45° × s` for the left leg, opposite phase for the right); roll tuck 110°; dizzy and stagger 25° |
 | Right arm while attacking | Driven **directly** by the combo curves (§4.3), with no spring |
@@ -315,7 +317,7 @@ The whole boss casts and receives shadows. The **hit box stays the 4 m box** of 
 
 | Property | Value *(tune)* |
 |---|---|
-| HP | 20 (the health bar shows 5 segments of 4) |
+| HP | 30 (the health bar shows 5 segments of 6; changed from 20 on 2026-10-11) |
 | Spawn | Position `(0, 0, 0)`, facing +Z (toward the player's spawn) |
 | Grace period at fight start | 1.0 s before the first attack |
 | Idle bounce (visual) | Body bobs `0.08 × sin(2π × 1.2 Hz × t)` in Y |
@@ -353,8 +355,8 @@ All of these happen together when the boss is hit:
 
 | Phase | When | Changes |
 |---|---|---|
-| Phase 1 | HP 20–9 | Base values |
-| **Rage** | Immediately after the hit that brings HP to **8 or below** | **Transition (1.0 s, no attacks, boss cannot take damage):** starts in the same step as that hit, even mid-attack. The running attack is cancelled, and **all hazards** (shockwave rings, shards in flight, warning circles, the Rebuke ring) are removed with a small puff effect. Long sounds (`slam_rise`, `charge_windup`, `rebuke_windup`) stop. No other hit interrupts an attack (§5). The poise counter and close timer reset. Body color fades `#6A4C93` → `#D62828` over 0.5 s, the boss shakes ±0.1 m, `rage` sound plays, camera shake 0.2 m for 0.6 s. **When the transition ends**, the rage cooldown (0.6 s) starts. **Afterward:** all boss movement speeds (chase, dash, shockwave, shard flight) ×1.4; attack telegraph times ×0.6 (not the Rebuke tell, not the Slam punish window); cooldown 0.6 s |
+| Phase 1 | HP 30–13 | Base values |
+| **Rage** | Immediately after the hit that brings HP to **12 or below** (40%, scaled with the 30 HP) | **Transition (1.0 s, no attacks, boss cannot take damage):** starts in the same step as that hit, even mid-attack. The running attack is cancelled, and **all hazards** (shockwave rings, shards in flight, warning circles, the Rebuke ring) are removed with a small puff effect. Long sounds (`slam_rise`, `charge_windup`, `rebuke_windup`) stop. No other hit interrupts an attack (§5). The poise counter and close timer reset. Body color fades `#6A4C93` → `#D62828` over 0.5 s, the boss shakes ±0.1 m, `rage` sound plays, camera shake 0.2 m for 0.6 s. **When the transition ends**, the rage cooldown (0.6 s) starts. **Afterward:** all boss movement speeds (chase, dash, shockwave, shard flight) ×1.4; attack telegraph times ×0.6 (not the Rebuke tell, not the Slam punish window); cooldown 0.6 s |
 
 ### 6.5 Attacks
 
@@ -591,15 +593,15 @@ Do **not** build any of these:
 - [ ] Attack selection never repeats the same attack 3 times in a row; Charge is never chosen within 6 m; Crown Rain never overlaps itself
 - [ ] Slam opens a 2.0 s punish window that fits one full combo, followed by a Rebuke if the player is still close
 - [ ] Rebuke triggers on poise 3 (outside windows), after 1.0 s close, and at the end of the Slam window, always with its 0.35 s tell
-- [ ] Rage starts when HP falls to 8 or below, with its transition (cancelling the attack and all hazards); the boss dies at 0 HP (20 damage)
+- [ ] Rage starts when HP falls to 12 or below, with its transition (cancelling the attack and all hazards); the boss dies at 0 HP (30 damage)
 - [ ] Hit reactions (hit-stop, flash, squash, shake, sound, HUD) all play
 - [ ] With all `rageUpgrades` off (the default), rage behaves exactly as §6.5; with each upgrade switched on individually, it behaves as in §6.5a, including its tell
 
 **Feedback**
 - [ ] The player falls apart on death; the boss breaks into 8 cubes plus the crown on defeat
-- [ ] *(1.5b)* Elbows and knees bend in every animation; the sword is sheathed on the back when idle, drawn during Hit 1's wind-up and put away 1.5 s after the combo; the boss squashes, stretches and wobbles like jelly; the Slam splats; the Rebuke is a spike burst; Crown Rain shards are fireballs that leave fading burn marks; the flask shows a heal aura
+- [ ] *(1.5b)* Elbows and knees bend in every animation; the sword is sheathed on the back when idle, drawn during Hit 1's wind-up and put away 0.4 s after the combo; the boss squashes, stretches and wobbles like jelly; the Slam splats; the Rebuke is a spike burst; Crown Rain shards are fireballs that leave fading burn marks; the flask shows a heal aura
 - [ ] *(1.5b)* The night arena is readable: every telegraph is clearly visible, the torches flicker, draw calls stay under 100
-- [ ] The player HUD (HP pips, flask counter, stamina bar) and the 20-HP boss bar read clearly
+- [ ] The player HUD (HP pips, flask counter, stamina bar) and the 30-HP boss bar read clearly
 - [ ] All Must and Should sounds play (ASSETS.md §1); `M` mutes everything
 
 **Quality**

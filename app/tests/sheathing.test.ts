@@ -26,11 +26,11 @@ describe('elbow during the combo (GAME_DESIGN §4.3, 1.5b)', () => {
     }
   });
 
-  it('cocks during the wind-up and returns to the rest bend after the recovery', () => {
+  it('cocks during the wind-up and settles into the low-guard bend after the recovery', () => {
     const h = CB.hits[0];
     expect(comboElbow(0, 'windup', h.windup.duration / 2, 0)).toBeGreaterThan(0.3);
     expect(comboElbow(0, 'recovery', 0, 0)).toBe(0);
-    expect(comboElbow(0, 'recovery', h.recovery.duration, 0)).toBeCloseTo(CONFIG.wobble.elbowRest, 9);
+    expect(comboElbow(0, 'recovery', h.recovery.duration, 0)).toBeCloseTo(CB.guardElbow, 9);
   });
 });
 

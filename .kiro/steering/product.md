@@ -4,7 +4,7 @@ inclusion: always
 
 # Product — The Elden Cube
 
-A small, funny 3D boss fight in the browser: a clumsy hero ("The Tarnished Intern") against a giant crowned cube ("The Elden Cube"). Three hits kill the player (3 flasks restore 1 HP each; changed 2026-10-11); the cube takes 20 damage (about five 3-hit combos). Souls-style stamina, input buffer and punish windows (GAME_DESIGN §4.3–§6.5, changed 2026-10-10). Built with Kiro, hosted on AWS (S3 + CloudFront via CDK). The booth attraction at AWS Student Community Day 2026 (Sat 17 Oct 2026). Booth key message: "Plan before you build."
+A small, funny 3D boss fight in the browser: a clumsy hero ("The Tarnished Intern") against a giant crowned cube ("The Elden Cube"). Three hits kill the player (3 flasks restore 1 HP each; changed 2026-10-11); the cube takes 30 damage (about seven to eight 3-hit combos; changed 2026-10-11). Souls-style stamina, input buffer and punish windows (GAME_DESIGN §4.3–§6.5, changed 2026-10-10). Built with Kiro, hosted on AWS (S3 + CloudFront via CDK). The booth attraction at AWS Student Community Day 2026 (Sat 17 Oct 2026). Booth key message: "Plan before you build."
 
 ## Purpose
 - Draw visitors to the booth with a silly boss fight they want to try.

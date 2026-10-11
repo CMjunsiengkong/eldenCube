@@ -32,7 +32,7 @@ const RAW = {
   player: {
     spawn: { x: 0, y: 0, z: 12 }, // m
     maxSpeed: 6, // m/s (tune)
-    accel: 10, // m/s² toward desired velocity with input (tune)
+    accel: 16, // m/s² toward desired velocity with input (tune)
     decel: 4, // m/s² without input → sliding stop (tune)
     turnRate: 4, // rad/s (tune)
     faceMoveMinSpeed: 0.5, // m/s; above this (with input) face the movement direction
@@ -88,9 +88,10 @@ const RAW = {
     sword: {
       drawAt: 0.55, // fraction of Hit 1's wind-up when the sword leaves the back (tune)
       drawBlend: 0.08, // s back socket → hand (tune)
-      sheatheDelay: 1.5, // s free after the combo before putting the sword away (tune)
-      reachTime: 0.2, // s the arm reaches back to the rest pose (tune)
-      stowBlend: 0.12, // s hand → back socket (tune)
+      sheatheDelay: 0.4, // s free after the combo before putting the sword away (tune; 1.5 → 0.4 on 2026-10-11)
+      stowArc: 0.25, // s: one arc from the low guard over the shoulder (tune)
+      stowRelease: 0.6, // fraction of the arc after which the sword slides onto the back
+      stowAngle: deg(200), // θ at the top of the arc (the old rest pose)
     },
   },
 
@@ -103,6 +104,27 @@ const RAW = {
     restTilt: deg(40),
     chainWindow: 0.5, // s from the chain point (tune)
     elbowCock: deg(35), // max elbow bend during a wind-up, sin(π·u) (1.5b) (tune)
+    /** 2026-10-11: drawn idle pose — a low guard, the tip toward the ground in front (visual only). */
+    guardAngle: deg(35), // θ (tune)
+    guardTilt: deg(20), // ψ (tune)
+    guardElbow: deg(30), // (tune)
+    followThrough: deg(14), // overshoot past the strike's end during the hold, sin(π·u) (tune)
+    followElbow: deg(12), // extra elbow flex during the follow-through
+    /** Body follow-through (visual only; hit detection ignores it). */
+    body: {
+      stiffness: 220,
+      damping: 20,
+      twist: [
+        { cock: deg(-14), through: deg(10) }, // Hit 1: cock right, follow through left
+        { cock: deg(12), through: deg(-10) }, // Hit 2: the mirror
+        { cock: 0, through: 0 }, // Hit 3: overhead, no twist
+      ],
+      finisherLeanBack: deg(5), // Hit 3 wind-up
+      finisherLean: deg(14), // Hit 3 strike: pitches forward into the chop
+      finisherKnees: deg(30), // extra knee bend in the chop
+      counterArmWindup: deg(30), // left arm forward in the wind-up
+      counterArmStrike: deg(-25), // left arm back in the strike
+    },
     bladePoints: [0.5, 1.3, 2.1], // m from the shoulder (GD §5)
     hits: [
       {
@@ -232,7 +254,7 @@ const RAW = {
 
   /** GD §6 — The Elden Cube. */
   boss: {
-    hp: 20, // (tune); the health bar shows 5 segments of 4
+    hp: 30, // (tune; 20 → 30 on 2026-10-11 with accel 16); the health bar shows 5 segments of 6
     healthSegments: 5,
     spawn: { x: 0, y: 0, z: 0 }, // facing +Z
     halfSize: 2.0, // m, hit box (yaw-only)
@@ -345,7 +367,7 @@ const RAW = {
 
   /** GD §6.4 — rage (Phase 2). */
   rage: {
-    hpThreshold: 8, // rage when HP ≤ 8
+    hpThreshold: 12, // rage when HP ≤ 12 (40% of max, scaled with the 30 HP)
     transitionDuration: 1.0, // s, no attacks, no damage taken
     colorFade: 0.5, // s body color → rage color
     shakeAmplitude: 0.1, // m boss shake during the transition

@@ -33,10 +33,10 @@ function freshMotor(bufferWindow?: number): PlayerMotor {
 }
 
 describe('movement (GAME_DESIGN §4.2)', () => {
-  it('accelerates at 10 m/s² to the 6 m/s max speed', () => {
+  it('accelerates at `accel` (16 m/s²) to the 6 m/s max speed', () => {
     const m = freshMotor();
-    steps(m, 30, input(1, 0)); // 0.5 s
-    expect(m.speed()).toBeCloseTo(5, 1);
+    steps(m, 12, input(1, 0)); // 0.2 s: still below the max speed
+    expect(m.speed()).toBeCloseTo(CONFIG.player.accel * 0.2, 1);
     steps(m, 60, input(1, 0));
     expect(m.speed()).toBeCloseTo(6, 5);
   });
@@ -338,7 +338,7 @@ describe('combo (GAME_DESIGN §4.3)', () => {
     expect(m.comboHit).toBe(0);
   });
 
-  it('comboArmPose: kesagiri 215° → 40° at ψ 40°, rising 30° → 200°, finisher at ψ 0, recovery back to rest', () => {
+  it('comboArmPose: kesagiri 215° → 40° at ψ 40°, rising 30° → 200°, finisher at ψ 0, follow-through, recovery into the low guard', () => {
     const from: ArmPose = { theta: CB.restAngle, psi: CB.restTilt };
     const out: ArmPose = { theta: 0, psi: 0 };
     expect(comboArmPose(0, 'windup', 0, from, out).theta).toBeCloseTo(200 * DEG);
@@ -347,10 +347,12 @@ describe('combo (GAME_DESIGN §4.3)', () => {
     expect(out.psi).toBeCloseTo(40 * DEG);
     expect(comboArmPose(1, 'active', 0.12, from, out).theta).toBeCloseTo(200 * DEG);
     expect(comboArmPose(2, 'active', 0, from, out).psi).toBeCloseTo(0);
-    expect(comboArmPose(2, 'recovery', 0.2, from, out).theta).toBeCloseTo(40 * DEG); // still holding
+    // Follow-through: Hit 3 swings down, so the blade carries on below 40° and returns at the hold's end.
+    expect(comboArmPose(2, 'recovery', CB.hits[2].recovery.hold / 2, from, out).theta).toBeLessThan(40 * DEG);
+    expect(comboArmPose(2, 'recovery', CB.hits[2].recovery.hold, from, out).theta).toBeCloseTo(40 * DEG);
     comboArmPose(2, 'recovery', 0.55, from, out);
-    expect(out.theta).toBeCloseTo(CB.restAngle);
-    expect(out.psi).toBeCloseTo(CB.restTilt);
+    expect(out.theta).toBeCloseTo(CB.guardAngle);
+    expect(out.psi).toBeCloseTo(CB.guardTilt);
   });
 });
 
