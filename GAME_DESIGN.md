@@ -229,7 +229,7 @@ Why these numbers: the Slam shockwave band (1.0 m plus the 0.4 m player radius o
 | Timeline | 0.00 s: a charge is used and the drink starts (`flask_drink`). **0.60 s:** +1 HP, the body flashes gold `#FFD166` for 0.2 s, the HUD pip refills (`flask_heal`). **1.10 s:** done |
 | During the drink | Walking is allowed at up to 1.8 m/s (30% of max speed). No roll and no attack (both can be buffered in the last 0.20 s). Stamina regeneration is paused |
 | Interrupted | If the player is hit before 0.60 s, the charge is lost and no HP is restored |
-| Visual | *(1.5b)* The left arm is driven to the drink pose: shoulder θ 70°, rolled 30° inward, elbow bent 120° *(tune)*, so the hand reaches the face; the head tips back 15°. A flask (cylinder r 0.07, height 0.18, `#F4A259`) sits in the left hand, visible only while drinking. **Heal aura** at 0.60 s: about 36 gold `#FFD166` glowing particles rise and swirl around the body for about 1 s, plus a soft gold ring expanding on the ground (0.4 s). Visual only |
+| Visual | *(1.5b)* The left arm is driven to the drink pose: shoulder θ 70°, rolled 50° inward, elbow bent 105° *(tune)*, so the hand reaches the face; the head tips back 15°. A flask (cylinder r 0.07, height 0.18, `#F4A259`) sits in the left hand, visible only while drinking. **Heal aura** at 0.60 s: about 36 gold `#FFD166` glowing particles rise and swirl around the body for about 1 s, plus a soft gold ring expanding on the ground (0.4 s). Visual only |
 
 ### 4.3d Input buffer
 

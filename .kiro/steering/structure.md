@@ -54,6 +54,7 @@ eldenCube/
 │   │   │   ├── materials.ts        # shared rim light material patch
 │   │   │   ├── particles.ts        # pooled GPU particle systems
 │   │   │   ├── burns.ts            # 3 s fading burn marks
+│   │   │   ├── vfx.ts              # named emitters: slam burst, embers, fireballs, explosions, dust, heal aura, torch flames (1.5b)
 │   │   │   └── slime.ts            # boss squash/stretch + lean springs (pure)
 │   │   ├── util/
 │   │   │   ├── math.ts             # lerp, clamp, easing, springStep, random range
