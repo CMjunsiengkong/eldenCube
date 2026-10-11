@@ -747,6 +747,7 @@ const RAW = {
       fadeOut: 1.5, // s on death or victory (tune)
       pausedLevel: 0.3, // × volume while paused
     },
+    swingPitchJitter: [0.88, 1.14] as Range, // × pitch, random on every swing (1.5d) (tune)
     footstepInterval: 0.3, // s while walking (not rolling)
     footstepMinSpeed: 1, // m/s
     /** Relative loudness per sound ID (ASSETS.md §1.1); a sound file plays at this gain. */
