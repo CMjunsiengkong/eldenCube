@@ -17,6 +17,7 @@ export class FakeBoss implements AttackBoss {
   readonly attackSquash = { x: 1, y: 1, z: 1 };
   crownGlow = 0;
   crownTilt = 0;
+  splats = 0;
   private readonly box = { center: new Vector3(), halfSize: CONFIG.boss.halfSize, yaw: 0 };
   clearAttackPose(): void {
     this.dashing = false;
@@ -27,6 +28,9 @@ export class FakeBoss implements AttackBoss {
     this.crownGlow = 0;
     this.crownTilt = 0;
     this.pos.y = 0;
+  }
+  splat(): void {
+    this.splats++;
   }
   getBox(): BossBox {
     this.box.center.set(this.pos.x, this.pos.y + CONFIG.boss.halfSize, this.pos.z);

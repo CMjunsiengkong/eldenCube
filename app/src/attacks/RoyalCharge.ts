@@ -57,12 +57,14 @@ export class RoyalCharge implements Attack {
         boss.shake = C.shakeAmplitude;
         boss.pulse = this.pulseAt(this.t);
         const duration = this.phase === 'telegraph' ? this.telegraph : U.uTurnTelegraph;
+        boss.attackSquash.y = 1 + (CONFIG.boss.slime.chargeCrouch - 1) * Math.min(1, this.t / duration); // crouches
         if (this.t >= duration - EPS) this.lockAndDash(ctx);
         break;
       }
       case 'dash': {
         boss.pulse = 1;
         this.move(boss.pos, this.speed, dt);
+        ctx.vfx?.chargeDust(boss.pos.x, boss.pos.z, this.dir.x, this.dir.z);
         const r = Math.hypot(boss.pos.x, boss.pos.z);
         const outward = boss.pos.x * this.dir.x + boss.pos.z * this.dir.z > 0;
         if ((r >= C.stopRadius - EPS && outward) || this.t >= C.maxDashTime - EPS) {
@@ -76,6 +78,7 @@ export class RoyalCharge implements Attack {
         // Slow linearly to 0 over the skid time.
         const v = this.speed * Math.max(0, 1 - this.t / C.skid);
         this.move(boss.pos, v, dt);
+        if (v > 2) ctx.vfx?.chargeDust(boss.pos.x, boss.pos.z, this.dir.x, this.dir.z);
         this.clamp(boss.pos);
         const keepPulsing = this.uTurn && this.dashes === 1; // tell: another dash is coming
         boss.pulse = keepPulsing ? this.pulseAt(this.t) : Math.max(0, 1 - this.t / C.skid);
@@ -143,6 +146,7 @@ export class RoyalCharge implements Attack {
     else this.dir.set(Math.sin(boss.yaw), 0, Math.cos(boss.yaw));
     boss.yaw = Math.atan2(this.dir.x, this.dir.z); // face the dash direction
     boss.shake = 0;
+    boss.attackSquash.y = 1;
     boss.dashing = true;
     this.windup = null; // the wind-up sound ends with its telegraph
     this.dashes++;

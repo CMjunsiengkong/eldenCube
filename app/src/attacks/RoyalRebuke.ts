@@ -45,8 +45,9 @@ export class RoyalRebuke implements Attack {
         b.attackSquash.x = 1 + (sq.x - 1) * u;
         b.attackSquash.y = 1 + (sq.y - 1) * u;
         b.attackSquash.z = 1 + (sq.z - 1) * u;
-        // Two white crown flashes over the tell.
+        // Two white crown flashes over the tell; spike tips poke out (1.5b).
         b.crownGlow = Math.max(0, Math.sin(Math.PI * RB.crownFlashes * u));
+        ctx.hazards.rebukeTell(b.pos.x, b.pos.z, u);
         if (this.t >= this.tell - EPS) {
           b.attackSquash.x = b.attackSquash.y = b.attackSquash.z = 1;
           b.crownGlow = 0;

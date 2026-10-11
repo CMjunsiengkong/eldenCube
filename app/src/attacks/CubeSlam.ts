@@ -5,16 +5,17 @@
  * Rage upgrade Double Slam: a 0.5 m hop and a second impact + ring 0.5 s after the first; the
  * window starts at the second impact.
  */
-import { Vector3 } from 'three';
+import { Vector3, type Mesh } from 'three';
 import { CONFIG } from '../config';
 import type { Sphere } from '../entities/Player';
-import { discGeometry, GroundDisc } from '../fx/effects';
+import { discGeometry, GroundDisc, GroundRing } from '../fx/effects';
 import { createSphereOBBResult, horizontalDistance, sphereOBB } from '../systems/collision';
 import { easeIn, easeOut } from '../util/math';
 import { upgradeOn, type Attack, type AttackContext, type SoundHandle } from './Attack';
 
 const S = CONFIG.slam;
 const U = CONFIG.rageUpgrades;
+const SLIME = CONFIG.boss.slime;
 const EPS = 1e-9;
 
 type Phase = 'rise' | 'hang' | 'drop' | 'hop' | 'window' | 'done';
@@ -31,6 +32,8 @@ export class CubeSlam implements Attack {
   private rebuke = false;
   private readonly source = new Vector3();
   private readonly shadow = new GroundDisc(discGeometry(S.shadowRadius), CONFIG.colors.slamShadow, S.shadowLift);
+  /** 1.5b: a glowing outline around the shadow, so the telegraph reads at night. */
+  private readonly outline = new GroundRing(S.shadowRadius - S.outlineWidth, S.shadowRadius, CONFIG.colors.shockwave, S.shadowLift + 0.005);
   private riseSound: SoundHandle | null = null;
   private ctx: AttackContext | null = null;
   private readonly obb = createSphereOBBResult();
@@ -42,6 +45,11 @@ export class CubeSlam implements Attack {
   /** Time left in the punish window (debug text), else 0. */
   get windowLeft(): number {
     return this.phase === 'window' ? Math.max(0, S.window - this.t) : 0;
+  }
+
+  /** Telegraph meshes, normally detached (shader warm-up). */
+  get scenePool(): readonly Mesh[] {
+    return [this.shadow.mesh, this.outline.mesh];
   }
 
   /** Impacts so far (tests). */
@@ -60,6 +68,7 @@ export class CubeSlam implements Attack {
     this.impactNow = false;
     this.rebuke = false;
     this.shadow.show(ctx.scene, ctx.boss.pos.x, ctx.boss.pos.z, S.shadowOpacity);
+    this.outline.show(ctx.scene, ctx.boss.pos.x, ctx.boss.pos.z, this.outlineOpacity(0));
     this.riseSound = ctx.audio.play('slam_rise', { duration: this.telegraph });
   }
 
@@ -71,21 +80,26 @@ export class CubeSlam implements Attack {
       case 'rise': {
         const u = Math.min(1, this.t / this.telegraph);
         boss.pos.y = S.riseHeight * easeOut(u);
+        boss.attackSquash.y = 1 + (SLIME.slamRiseStretch - 1) * easeOut(u); // stretches upward
         let opacity = S.shadowOpacity;
         if (this.double) {
           // Tell: the shadow flashes twice during the telegraph instead of staying steady.
           opacity += S.doubleSlamFlashBoost * 0.5 * (1 - Math.cos(2 * Math.PI * U.doubleSlamTellFlashes * u));
         }
         this.shadow.show(ctx.scene, boss.pos.x, boss.pos.z, opacity);
+        this.outline.show(ctx.scene, boss.pos.x, boss.pos.z, this.outlineOpacity(this.t));
         if (this.t >= this.telegraph - EPS) this.next('hang');
         break;
       }
       case 'hang':
         boss.pos.y = S.riseHeight;
+        this.outline.show(ctx.scene, boss.pos.x, boss.pos.z, this.outlineOpacity(this.telegraph + this.t));
         if (this.t >= S.hang - EPS) this.next('drop');
         break;
       case 'drop':
         boss.pos.y = S.riseHeight * (1 - easeIn(Math.min(1, this.t / S.drop)));
+        boss.attackSquash.y = SLIME.slamRiseStretch + (SLIME.slamDropStretch - SLIME.slamRiseStretch) * Math.min(1, this.t / S.drop);
+        this.outline.show(ctx.scene, boss.pos.x, boss.pos.z, 1);
         if (this.t >= S.drop - EPS) {
           this.impact(ctx, 1);
           this.next(this.double ? 'hop' : 'window');
@@ -145,6 +159,7 @@ export class CubeSlam implements Attack {
     this.riseSound?.stop();
     this.riseSound = null;
     this.shadow.hide();
+    this.outline.hide();
     this.ctx?.boss.clearAttackPose();
     if (this.phase !== 'done') this.phase = 'done';
   }
@@ -154,6 +169,11 @@ export class CubeSlam implements Attack {
     this.impactNow = true;
     this.impacts++;
     this.shadow.hide();
+    this.outline.hide();
+    // 1.5b: the body splats (the stretch spring is kicked down and wobbles back) with a burst.
+    ctx.boss.attackSquash.y = 1;
+    ctx.boss.splat(SLIME.slamSplatKick * volume);
+    ctx.vfx?.slamImpact(ctx.boss.pos.x, ctx.boss.pos.z);
     ctx.hazards.spawnRing(ctx.boss.pos.x, ctx.boss.pos.z, this.ringSpeed);
     ctx.audio.play('slam_impact', { volume });
     ctx.shake(S.impactShake.amplitude, S.impactShake.duration);
@@ -163,6 +183,11 @@ export class CubeSlam implements Attack {
   private finish(ctx: AttackContext): void {
     ctx.boss.clearAttackPose();
     this.phase = 'done';
+  }
+
+  /** The outline pulses at 3 Hz during the telegraph (GD §6.5 A). */
+  private outlineOpacity(t: number): number {
+    return S.outlineOpacity * (0.55 + 0.45 * Math.cos(2 * Math.PI * S.outlinePulseHz * t));
   }
 
   private next(phase: Phase): void {

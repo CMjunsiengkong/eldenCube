@@ -245,6 +245,26 @@ const RAW = {
     cooldown: 1.0, // s Phase 1, from the moment the boss is free (tune)
     noRepeat: 2, // the same attack may not be chosen after this many in a row
     clampRadius: 27, // m (ARCHITECTURE §5.3)
+    /** GD §6.1 slime motion (1.5b, visual only). */
+    slime: {
+      stiffness: 180, // stretch spring k (tune)
+      damping: 9, // (tune)
+      minScale: 0.55,
+      maxScale: 1.45,
+      leanPerAccel: 0.012, // shear per m/s² (tune)
+      leanPerSpeed: 0.008, // shear per m/s: the top trails fast moves (tune, agent-chosen)
+      leanStiffness: 120,
+      leanDamping: 7,
+      maxLean: 0.35,
+      breatheAmplitude: 0.03, // ± vertical scale while waiting
+      breatheFrequency: 0.8, // Hz
+      hitLeanKick: 0.9, // shear/s away from the player on a hit (tune, agent-chosen)
+      hitStretchKick: -1.5, // stretch velocity on a hit (tune, agent-chosen)
+      slamRiseStretch: 1.3, // sy target during the Slam rise
+      slamDropStretch: 1.4, // sy target during the drop
+      slamSplatKick: -6, // stretch velocity at the impact (tune)
+      chargeCrouch: 0.85, // sy target during the Charge telegraph
+    },
     /** GD §6.3 hit reaction. */
     hit: {
       hitStop: 0.08, // s
@@ -266,6 +286,7 @@ const RAW = {
       maxSpin: 6, // rad/s
       crownOutwardSpeed: [1, 2] as Range, // m/s (crown falls and rolls) (tune, agent-chosen)
       crownUpwardSpeed: [3, 4] as Range, // m/s (tune, agent-chosen)
+      pieceCornerRadius: 0.3, // m rounded gel chunks (1.5b)
       shake: { amplitude: 0.4, duration: 0.5 } as Shake,
       timeScale: 0.5,
       timeScaleDuration: 1.0, // s
@@ -275,6 +296,12 @@ const RAW = {
     model: {
       bodySize: 4, // m cube
       bodyCenterY: 2,
+      bodyCornerRadius: 0.5, // m (1.5b gel cube)
+      bodySegments: 5, // rounded-box tessellation (visual only) (tune, agent-chosen)
+      bodyRoughness: 0.35,
+      faceCornerRadius: 0.04, // m
+      crownGlow: 0.15, // faint gold emissive (night)
+      bodyGlow: 0.18, // faint gel self-glow in the body color (night) (tune, agent-chosen)
       crownBand: { radius: 1.4, height: 0.4, sides: 5, y: 4.2, metalness: 0.6, roughness: 0.3 },
       crownPoint: { radius: 0.3, height: 0.8, y: 4.8, count: 5, segments: 8 }, // segments: tessellation (tune, agent-chosen)
       eye: { size: { x: 0.7, y: 0.7, z: 0.1 }, position: { x: 0.8, y: 2.6, z: 2.01 } }, // ±x
@@ -298,9 +325,20 @@ const RAW = {
     recovery: 0.3, // s (tune)
     startRadius: 2.0, // m
     endRadius: 4.5, // m; kill if distance ≤ endRadius + player radius during the burst
-    ringHeight: 0.3, // m
-    ringWidth: 0.6, // m drawn band width (visual only) (tune, agent-chosen)
     tellSquash: { x: 1.1, y: 0.85, z: 1.1 },
+    /** 1.5b spike burst (visual; the kill rule above is unchanged). */
+    spikes: {
+      perRow: 24,
+      rows: [0.5, 1.4], // m heights (the player's hit spheres are at 0.5 and 1.3)
+      innerRadius: 1.5, // m: spikes start inside the body
+      tellTip: 2.35, // m: tips poke out during the tell (≈ 0.3 m beyond the flat sides)
+      baseRadius: 0.2, // m cone base (tune, agent-chosen)
+      radialSegments: 6,
+      glow: 0.6, // emissive intensity (reads at night)
+      pitchJitter: 0.12, // rad (tune, agent-chosen)
+      overshoot: 0.15, // m past endRadius at the end of the burst, settling back (tune, agent-chosen)
+      hold: 0.1, // s at full length after the burst, then retract over the rest of the recovery
+    },
     crownFlashes: 2, // white flashes during the tell
     shake: { amplitude: 0.2, duration: 0.2 } as Shake,
   },
@@ -349,6 +387,9 @@ const RAW = {
     ringFadeStart: 0.8, // fraction of travel after which the ring fades out (tune, agent-chosen)
     ringSegments: 64, // tessellation (tune, agent-chosen)
     shadowLift: 0.02, // m above the floor (tune, agent-chosen)
+    outlineWidth: 0.18, // m glowing telegraph outline (1.5b) (tune, agent-chosen)
+    outlineOpacity: 0.9,
+    outlinePulseHz: 3,
     doubleSlamFlashBoost: 0.4, // extra shadow opacity at the top of each tell flash (tune, agent-chosen)
     window: 2.0, // s punish window from the (last) impact (tune)
     windowCrownWobble: deg(10), // ± crown wobble while stuck
@@ -384,7 +425,6 @@ const RAW = {
     circlePulseHz: 3, // (tune, agent-chosen)
     circlePulseDepth: 0.4, // opacity dips by up to this fraction (tune, agent-chosen)
     circleLift: 0.02, // m above the floor (tune, agent-chosen)
-    size: 0.6, // m cube
     hitRadius: 0.35, // m sphere
     spinRate: 8, // rad/s (visual) (tune, agent-chosen)
     launchHeight: 4.8, // m above the boss origin (crown top)
@@ -422,20 +462,37 @@ const RAW = {
     edgeInner: 29.8,
     edgeOuter: 30.2,
     edgeLift: 0.005, // m above the floor (avoids z-fighting) (tune, agent-chosen)
-    fogNear: 60,
-    fogFar: 180,
+    fogNear: 35, // m (1.5b night) (tune)
+    fogFar: 110, // (tune)
   },
 
-  /** GD §8 — lights. */
+  /** GD §8 — lights (1.5b: moonlit dusk, torches). */
   lights: {
-    hemisphereIntensity: 1.0, // (tune)
-    sunPosition: { x: 10, y: 20, z: 8 } as Vec3,
-    sunIntensity: 2.0, // (tune)
+    hemisphereIntensity: 0.95, // (tune)
+    moonPosition: { x: -14, y: 26, z: 12 } as Vec3,
+    moonIntensity: 2.2, // (tune)
     shadowMapSize: 1024,
     shadowExtent: 35, // ± m around the origin
     shadowNear: 0.5, // m (tune, agent-chosen)
     shadowFar: 100, // m (tune, agent-chosen)
     shadowBias: -0.0005,
+    exposure: 1.15, // ACES filmic tone mapping exposure (tune)
+    torch: {
+      count: 6,
+      radius: 32, // m from the center: outside the arena wall
+      intensity: 60, // point light (candela) (tune)
+      range: 26, // m light distance (tune)
+      decay: 2,
+      flicker: 0.15, // ± intensity fraction (tune)
+      flickerHz: [2.3, 5.7, 9.1] as [number, number, number], // summed sines (tune, agent-chosen)
+      poleRadius: 0.08,
+      poleHeight: 2.2,
+      bowlTopRadius: 0.3, // (tune, agent-chosen)
+      bowlBottomRadius: 0.14,
+      bowlHeight: 0.25,
+      flameHeight: 2.42, // m: particles start here, the light sits a little above
+      lightHeight: 2.9,
+    },
   },
 
   /** ASSETS.md §2 palette. */
@@ -471,10 +528,13 @@ const RAW = {
     arenaGrass: 0x6ab04c,
     outerField: 0x5e9e44,
     arenaEdge: 0x4a7f35,
-    sky: 0xbfe3ff,
-    hemisphereSky: 0xffffff,
-    hemisphereGround: 0x557733,
-    sun: 0xffffff,
+    sky: 0x0b1020, // night (1.5b)
+    hemisphereSky: 0x3b4a7a,
+    hemisphereGround: 0x141a10,
+    moon: 0xb8c4ff,
+    torchLight: 0xff9a3c,
+    torchPole: 0x3b2a1e,
+    torchBowl: 0x2e2e33,
     uiGold: '#E0B84C',
     youDiedRed: '#A4161A',
     healthFull: '#C1121F',
@@ -486,8 +546,8 @@ const RAW = {
   /** GD §8 (1.5b) — shared rim light (fresnel edge glow) on character materials. */
   rim: {
     power: 2.5, // fresnel exponent (tune, agent-chosen)
-    playerStrength: 0.35, // (tune)
-    bossStrength: 0.45, // (tune)
+    playerStrength: 0.45, // (tune)
+    bossStrength: 0.75, // (tune)
     bossTint: 0.45, // boss rim = body color lerped this far toward white (tune, agent-chosen)
   },
 
@@ -515,6 +575,73 @@ const RAW = {
       flameHeight: 0.75, // m (tune, agent-chosen)
       flameStagger: 0.05, // s between a mark's flames appearing (tune, agent-chosen)
     },
+    /** Flat additive ground rings (Slam impact flash, heal ring). All (tune, agent-chosen). */
+    flash: { pool: 4, innerRatio: 0.82, lift: 0.04 },
+    /** GD §6.5 A impact burst (≈ 60 particles). All (tune, agent-chosen). */
+    slamImpact: {
+      count: 60,
+      radius: 2.0, // m: spawned on the footprint edge
+      emberSpeed: [5, 10] as Range,
+      emberUp: [3, 7] as Range,
+      emberLife: [0.4, 0.8] as Range,
+      emberSize: 0.28,
+      emberGravity: 12,
+      dustSpeed: [3, 7] as Range,
+      dustUp: [1, 3] as Range,
+      dustLife: [0.8, 1.2] as Range,
+      dustSize: [0.7, 1.6] as Range,
+      dustGravity: 2,
+      dustAlpha: 0.55,
+      flashFrom: 1.5, // m ground flash ring radius
+      flashTo: 5.0,
+      flashTime: 0.3, // s
+    },
+    /** GD §6.5 A embers riding the shockwave front. (tune, agent-chosen) */
+    ringEmbers: { perSecond: 110, up: [1, 3] as Range, life: [0.25, 0.4] as Range, size: 0.32, gravity: 6 },
+    /** GD §6.5 C fireball trail. (tune, agent-chosen) */
+    fireball: {
+      coreRadius: 0.35, // m, unlit glowing core
+      trailLife: [0.22, 0.34] as Range,
+      trailSize: 0.85,
+      smokeChance: 0.25, // per step
+      smokeSize: [0.35, 0.9] as Range,
+      smokeLife: 0.6,
+      smokeAlpha: 0.35,
+    },
+    /** GD §6.5 C fireball explosion (≈ 14 sparks + flash + smoke). (tune, agent-chosen) */
+    explosion: {
+      sparks: 14,
+      sparkSpeed: [2, 5] as Range,
+      sparkUp: [3, 6] as Range,
+      sparkLife: [0.35, 0.6] as Range,
+      sparkSize: 0.3,
+      sparkGravity: 10,
+      flashLife: 0.18,
+      flashSize: 2.2,
+      smoke: 4,
+      smokeUp: [0.8, 1.6] as Range,
+      smokeLife: 0.9,
+      smokeSize: [0.5, 1.3] as Range,
+      smokeAlpha: 0.45,
+    },
+    /** GD §6.5 B dust behind the dash and skid. (tune, agent-chosen) */
+    chargeDust: { perStep: 2, behind: 2.0, halfWidth: 1.8, speed: [1, 3] as Range, up: [0.5, 1.5] as Range, life: [0.5, 0.8] as Range, size: [0.6, 1.4] as Range, alpha: 0.5 },
+    /** GD §4.3c heal aura (≈ 36 particles + ground ring). (tune, agent-chosen) */
+    heal: {
+      count: 36,
+      radius: [0.45, 0.65] as Range,
+      height: [0.2, 1.6] as Range,
+      swirl: 0.9, // m/s tangential
+      up: [1.2, 2.2] as Range,
+      life: [0.8, 1.1] as Range,
+      size: 0.2,
+      gravity: -0.5,
+      ringFrom: 0.3,
+      ringTo: 1.6,
+      ringTime: 0.4,
+    },
+    /** GD §8 torch flame particles. (tune, agent-chosen) */
+    torch: { perSecond: 32, jitter: 0.18, up: [1.0, 1.6] as Range, life: [0.35, 0.55] as Range, size: 0.55 },
   },
 
   /** Physics and effects (ARCHITECTURE §5, GD §9). */

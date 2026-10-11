@@ -4,11 +4,11 @@
  * - `BossBrain` is the pure core: HP (20, damage per hit), phase, mode, the cooldown that starts
  *   when the boss is free, attack selection and the Royal Rebuke triggers (poise, close, window).
  *   The hit that starts rage cancels the running attack and every hazard in the same step.
- * - `Boss` is the view and motion: model, idle bob, turning, chase, attack poses (squash, crown
- *   glow / wobble), hit reaction visuals, rage visuals, break-apart on defeat.
+ * - `Boss` is the view and motion: the gelatinous model (1.5b), idle bob, turning, chase, attack
+ *   poses through the slime springs (squash/stretch, lean), crown glow / wobble, hit reaction
+ *   visuals, rage visuals, break-apart on defeat.
  */
 import {
-  BoxGeometry,
   Color,
   ConeGeometry,
   CylinderGeometry,
@@ -16,12 +16,17 @@ import {
   Mesh,
   MeshStandardMaterial,
   Vector3,
+  type BufferGeometry,
   type Scene,
 } from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { CONFIG } from '../config';
 import type { Vec3Like } from '../systems/collision';
 import { createPiece, randomSpin, type DebrisPiece } from '../fx/debris';
 import { Fade, Squash, Timer } from '../fx/effects';
+import { addRim, mergePainted, paint, type RimHandle } from '../fx/materials';
+import { SlimeBody } from '../fx/slime';
 import { randRange, turnToward } from '../util/math';
 import type { Rng } from '../util/rng';
 import { cooldownFor, getFlags, speedMult, type BossPhase, type Flags } from '../flags';
@@ -30,6 +35,7 @@ import { ATTACK_IDS, type AttackBoss, type AttackId, type BossBox } from '../att
 const B = CONFIG.boss;
 const RG = CONFIG.rage;
 const RB = CONFIG.rebuke;
+const WHITE = new Color(0xffffff);
 const EPS = 1e-9;
 
 export type BossMode = 'grace' | 'cooldown' | 'attacking' | 'rageTransition' | 'gloat' | 'defeated';
@@ -279,26 +285,26 @@ export class Boss implements AttackBoss {
   /** Crown tilt (rad) around the forward axis (Slam window wobble). */
   crownTilt = 0;
 
-  /** Squashed / bobbing / shaking part (pivot at the ground). */
+  /** Squashed / sheared / bobbing / shaking part (pivot at the ground); its matrix is set by hand. */
   private readonly visual = new Group();
   private readonly crown = new Group();
   private readonly bodyMat: MeshStandardMaterial;
-  private readonly faceMats: MeshStandardMaterial[] = [];
+  private readonly bodyRim: RimHandle;
   private readonly crownMat: MeshStandardMaterial;
-  private readonly brows: Mesh[] = [];
-  private readonly pupils: Mesh[] = [];
   private readonly bodyColor = new Color(CONFIG.colors.bossPhase1);
   private readonly phase1Color = new Color(CONFIG.colors.bossPhase1);
   private readonly rageColor = new Color(CONFIG.colors.bossRage);
+  private readonly crownGold = new Color(CONFIG.colors.crown);
 
   private readonly flash = new Timer();
   private readonly squash = new Squash();
+  private readonly slime = new SlimeBody();
   private readonly rageFade = new Fade();
   private readonly scaleTmp = { x: 1, y: 1, z: 1 };
   private readonly box: { center: Vector3; halfSize: number; yaw: number } = { center: new Vector3(), halfSize: B.halfSize, yaw: 0 };
   private readonly pulseColor = new Color(CONFIG.colors.warning);
   private readonly flags: Flags;
-  private readonly pieceGeo = new BoxGeometry(B.defeat.pieceSize, B.defeat.pieceSize, B.defeat.pieceSize);
+  private readonly pieceGeo = new RoundedBoxGeometry(B.defeat.pieceSize, B.defeat.pieceSize, B.defeat.pieceSize, 3, B.defeat.pieceCornerRadius);
   private readonly rng: Rng;
   private time = 0;
   private broken = false;
@@ -312,47 +318,43 @@ export class Boss implements AttackBoss {
     const M = B.model;
     const C = CONFIG.colors;
     this.root.add(this.visual);
+    this.visual.matrixAutoUpdate = false;
 
-    this.bodyMat = new MeshStandardMaterial({ color: C.bossPhase1, roughness: M.roughness });
-    const body = new Mesh(new BoxGeometry(M.bodySize, M.bodySize, M.bodySize), this.bodyMat);
+    // Gel body: a rounded cube with the shared rim light in a lighter tint of the body color.
+    this.bodyMat = new MeshStandardMaterial({ color: C.bossPhase1, roughness: M.bodyRoughness });
+    this.bodyRim = addRim(this.bodyMat, this.bodyColor.clone().lerp(WHITE, CONFIG.rim.bossTint), CONFIG.rim.bossStrength);
+    const body = new Mesh(new RoundedBoxGeometry(M.bodySize, M.bodySize, M.bodySize, M.bodySegments, M.bodyCornerRadius), this.bodyMat);
     body.position.y = M.bodyCenterY;
     this.addShadowed(body, this.visual);
 
-    // Face (+Z local looks at the player)
-    const eyeMat = this.faceMat(C.eyes);
-    const darkMat = this.faceMat(C.pupils);
-    const eyeGeo = new BoxGeometry(M.eye.size.x, M.eye.size.y, M.eye.size.z);
-    const pupilGeo = new BoxGeometry(M.pupil.size.x, M.pupil.size.y, M.pupil.size.z);
-    const browGeo = new BoxGeometry(M.eyebrow.size.x, M.eyebrow.size.y, M.eyebrow.size.z);
+    // Face (+Z local looks at the player): eyes, pupils and angry brows merged into one mesh.
+    const r = M.faceCornerRadius;
+    const faceParts: BufferGeometry[] = [];
     for (const sx of [-1, 1]) {
-      const eye = new Mesh(eyeGeo, eyeMat);
-      eye.position.set(sx * M.eye.position.x, M.eye.position.y, M.eye.position.z);
-      this.addShadowed(eye, this.visual);
-      const pupil = new Mesh(pupilGeo, darkMat);
-      pupil.position.set(sx * M.pupil.position.x, M.pupil.position.y, M.pupil.position.z);
-      this.addShadowed(pupil, this.visual);
-      this.pupils.push(pupil);
-      const brow = new Mesh(browGeo, darkMat);
-      brow.position.set(sx * M.eyebrow.position.x, M.eyebrow.position.y, M.eyebrow.position.z);
-      brow.rotation.z = sx * M.eyebrow.tilt; // inner end lower: angry
-      this.addShadowed(brow, this.visual);
-      this.brows.push(brow);
+      const e = M.eye;
+      faceParts.push(paint(new RoundedBoxGeometry(e.size.x, e.size.y, e.size.z, 2, r).translate(sx * e.position.x, e.position.y, e.position.z), C.eyes));
+      const pu = M.pupil;
+      faceParts.push(paint(new RoundedBoxGeometry(pu.size.x, pu.size.y, pu.size.z, 2, r).translate(sx * pu.position.x, pu.position.y, pu.position.z), C.pupils));
+      const b = M.eyebrow;
+      const brow = new RoundedBoxGeometry(b.size.x, b.size.y, b.size.z, 2, r);
+      brow.rotateZ(sx * b.tilt); // inner end lower: angry
+      faceParts.push(paint(brow.translate(sx * b.position.x, b.position.y, b.position.z), C.pupils));
     }
+    const faceMat = new MeshStandardMaterial({ vertexColors: true, roughness: M.roughness });
+    this.addShadowed(new Mesh(mergePainted(faceParts), faceMat), this.visual);
 
-    // Crown: 5-sided band with a cone on each corner
+    // Crown: 5-sided band with a cone on each corner, merged into one mesh.
     const cb = M.crownBand;
     this.crownMat = new MeshStandardMaterial({ color: C.crown, metalness: cb.metalness, roughness: cb.roughness });
-    const band = new Mesh(new CylinderGeometry(cb.radius, cb.radius, cb.height, cb.sides), this.crownMat);
-    band.position.y = cb.y;
-    this.addShadowed(band, this.crown);
+    const crownParts: BufferGeometry[] = [new CylinderGeometry(cb.radius, cb.radius, cb.height, cb.sides).translate(0, cb.y, 0)];
     const cp = M.crownPoint;
-    const coneGeo = new ConeGeometry(cp.radius, cp.height, cp.segments);
     for (let i = 0; i < cp.count; i++) {
       const a = (i / cp.count) * Math.PI * 2; // CylinderGeometry corners are at sin/cos of k·72°
-      const cone = new Mesh(coneGeo, this.crownMat);
-      cone.position.set(Math.sin(a) * cb.radius, cp.y, Math.cos(a) * cb.radius);
-      this.addShadowed(cone, this.crown);
+      crownParts.push(new ConeGeometry(cp.radius, cp.height, cp.segments).translate(Math.sin(a) * cb.radius, cp.y, Math.cos(a) * cb.radius));
     }
+    const crownGeo = mergeGeometries(crownParts.map((g) => (g.index ? g.toNonIndexed() : g)));
+    if (!crownGeo) throw new Error('crown geometry merge failed');
+    this.addShadowed(new Mesh(crownGeo, this.crownMat), this.crown);
     this.visual.add(this.crown);
     this.syncTransform();
   }
@@ -368,9 +370,11 @@ export class Boss implements AttackBoss {
     this.time = 0;
     this.flash.clear();
     this.squash.clear();
+    this.slime.reset();
     this.rageFade.clear();
     this.bodyColor.copy(this.phase1Color);
     this.bodyMat.color.copy(this.phase1Color);
+    this.bodyRim.color.copy(this.phase1Color).lerp(WHITE, CONFIG.rim.bossTint);
     this.bodyMat.emissive.setRGB(0, 0, 0);
     this.debrisMat?.dispose();
     this.debrisMat = null;
@@ -425,9 +429,11 @@ export class Boss implements AttackBoss {
     this.rageFade.step(dt);
     this.bodyColor.copy(this.phase1Color).lerp(this.rageColor, this.rageFade.value);
     this.bodyMat.color.copy(this.bodyColor);
+    this.bodyRim.color.copy(this.bodyColor).lerp(WHITE, CONFIG.rim.bossTint);
 
     this.flash.step(dt);
     this.squash.step(dt);
+    this.stepSlime(dt, brain.waiting);
     this.applyFlash();
     this.syncTransform();
     return start;
@@ -438,8 +444,21 @@ export class Boss implements AttackBoss {
     this.time += dt;
     this.flash.step(dt);
     this.squash.step(dt);
+    this.stepSlime(dt, true);
     this.applyFlash();
     this.syncTransform();
+  }
+
+  /** Kicks the slime stretch spring (negative = splat down; the Slam impact). */
+  splat(velocity: number): void {
+    this.slime.kick(velocity);
+  }
+
+  /** GD §6.1: the attack pose (× breathing while waiting) is the stretch target. */
+  private stepSlime(dt: number, waiting: boolean): void {
+    const SL = B.slime;
+    const breathe = waiting ? 1 + SL.breatheAmplitude * Math.sin(2 * Math.PI * SL.breatheFrequency * this.time) : 1;
+    this.slime.step(dt, this.attackSquash.y * breathe, this.pos.x, this.pos.z, this.yaw);
   }
 
   /** The boss body is solid for the player while it is on the ground and not dashing (GD §6.2). */
@@ -466,16 +485,33 @@ export class Boss implements AttackBoss {
     if (this.flash.active) {
       this.bodyMat.emissive.setRGB(1, 1, 1);
     } else {
+      // A faint gel self-glow in the body color (reads at night), plus the red Charge pulse.
       const w = this.pulse * CONFIG.charge.pulseIntensity;
-      this.bodyMat.emissive.setRGB(this.pulseColor.r * w, this.pulseColor.g * w, this.pulseColor.b * w);
+      const g = B.model.bodyGlow;
+      const bc = this.bodyColor;
+      this.bodyMat.emissive.setRGB(bc.r * g + this.pulseColor.r * w, bc.g * g + this.pulseColor.g * w, bc.b * g + this.pulseColor.b * w);
     }
-    this.crownMat.emissive.setScalar(this.crownGlow);
+    // Faint gold glow at night, plus the white tell glow (Rebuke, Crown Rain).
+    const g = B.model.crownGlow;
+    this.crownMat.emissive.setRGB(this.crownGold.r * g + this.crownGlow, this.crownGold.g * g + this.crownGlow, this.crownGold.b * g + this.crownGlow);
   }
 
   /** GD §6.3 hit reaction visuals + knockback (Hit 3: heavier). Hit-stop, shake, sound, HUD: Game. */
   onHit(from: Vec3Like, heavy = false): void {
     this.flash.start(B.hit.flashDuration);
     this.squash.start();
+    // Jelly reaction: a small splat and a lean kick away from the player (boss local frame).
+    const SL = B.slime;
+    this.slime.kick(SL.hitStretchKick * (heavy ? 1.6 : 1));
+    {
+      const dx = this.pos.x - from.x;
+      const dz = this.pos.z - from.z;
+      const d = Math.hypot(dx, dz) || 1;
+      const c = Math.cos(this.yaw);
+      const sn = Math.sin(this.yaw);
+      const k = SL.hitLeanKick * (heavy ? 1.6 : 1);
+      this.slime.kickLean(((dx * c - dz * sn) / d) * k, ((dx * sn + dz * c) / d) * k);
+    }
     // Show the flash and squash immediately, so they are visible during the hit-stop freeze.
     this.applyFlash();
     if (!this.dashing) {
@@ -568,17 +604,17 @@ export class Boss implements AttackBoss {
       sx = (this.rng() * 2 - 1) * shake;
       sz = (this.rng() * 2 - 1) * shake;
     }
-    this.visual.position.set(sx, bob, sz);
+    // Visual matrix = translation (bob, shake) × shear (slime lean) × scale (hit squash × slime).
     this.squash.scale(this.scaleTmp);
-    const a = this.attackSquash;
-    this.visual.scale.set(this.scaleTmp.x * a.x, this.scaleTmp.y * a.y, this.scaleTmp.z * a.z);
+    const sl = this.slime;
+    const kx = this.scaleTmp.x * sl.scaleXZ;
+    const ky = this.scaleTmp.y * sl.scaleY;
+    const kz = this.scaleTmp.z * sl.scaleXZ;
+    const lx = sl.leanX.x;
+    const lz = sl.leanZ.x;
+    this.visual.matrix.set(kx, lx * ky, 0, sx, 0, ky, 0, bob, 0, lz * ky, kz, sz, 0, 0, 0, 1);
+    this.visual.matrixWorldNeedsUpdate = true;
     this.crown.rotation.z = this.crownTilt;
-  }
-
-  private faceMat(color: number): MeshStandardMaterial {
-    const m = new MeshStandardMaterial({ color, roughness: B.model.roughness });
-    this.faceMats.push(m);
-    return m;
   }
 
   private addShadowed(m: Mesh, parent: Group): void {

@@ -3,6 +3,8 @@ import { CONFIG } from '../src/config';
 import { STEP } from '../src/loop';
 import { Burns, burnFade } from '../src/fx/burns';
 import { newSpec, nextSlot, Particles } from '../src/fx/particles';
+import { SlimeBody } from '../src/fx/slime';
+import { torchFlicker } from '../src/game/Arena';
 
 const BU = CONFIG.vfx.burns;
 
@@ -67,5 +69,53 @@ describe('particles (ARCHITECTURE §4.6, 1.5b)', () => {
     p.step(0.1);
     p.step(0.1);
     expect(p.now).toBeCloseTo(0.2, 9);
+  });
+});
+
+const SL = CONFIG.boss.slime;
+
+describe('boss slime motion (GAME_DESIGN §6.1, 1.5b)', () => {
+  it('keeps the volume constant: sx · sy · sz = 1', () => {
+    const b = new SlimeBody();
+    for (let i = 0; i < 30; i++) b.step(STEP, SL.slamDropStretch, 0, 0, 0);
+    expect(b.scaleY).toBeGreaterThan(1.2);
+    expect(b.scaleXZ * b.scaleXZ * b.scaleY).toBeCloseTo(1, 9);
+  });
+
+  it('a splat dips below 1 and wobbles back to rest; the scale stays within its limits', () => {
+    const b = new SlimeBody();
+    b.kick(SL.slamSplatKick);
+    let min = 1;
+    for (let i = 0; i < 180; i++) {
+      b.step(STEP, 1, 0, 0, 0);
+      min = Math.min(min, b.scaleY);
+      expect(b.scaleY).toBeGreaterThanOrEqual(SL.minScale);
+      expect(b.scaleY).toBeLessThanOrEqual(SL.maxScale);
+    }
+    expect(min).toBeLessThan(0.85);
+    expect(b.scaleY).toBeCloseTo(1, 2);
+  });
+
+  it('the top trails a fast move (lean against the velocity) and settles when still', () => {
+    const b = new SlimeBody();
+    let x = 0;
+    for (let i = 0; i < 30; i++) {
+      x += 18 * STEP; // a dash along +X with yaw 0
+      b.step(STEP, 1, x, 0, 0);
+    }
+    expect(b.leanX.x).toBeLessThan(-0.05);
+    for (let i = 0; i < 240; i++) b.step(STEP, 1, x, 0, 0);
+    expect(Math.abs(b.leanX.x)).toBeLessThan(0.01);
+  });
+});
+
+describe('torch flicker (GAME_DESIGN §8, 1.5b)', () => {
+  it('stays within ±15% of the base intensity', () => {
+    const f = CONFIG.lights.torch.flicker;
+    for (let t = 0; t < 10; t += 0.013) {
+      const v = torchFlicker(t, 1.3);
+      expect(v).toBeGreaterThanOrEqual(1 - f - 1e-9);
+      expect(v).toBeLessThanOrEqual(1 + f + 1e-9);
+    }
   });
 });
