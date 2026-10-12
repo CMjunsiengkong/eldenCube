@@ -43,6 +43,7 @@ sound file exists in app/src/assets/sfx/<id>.(mp3|ogg|wav)  and decodes OK ?
 | `rebuke_burst` | Should | Sharp burst / whip-crack | 0.25 s | 0.7 |
 | `beam_charge` | Must | Rising energy charge-up (stoppable; make the file ≥ 1.0 s) | = charge time | 0.45 |
 | `beam_fire` | Must | Roaring beam blast, sustained (stoppable; make the file ≥ 3 s) | = firing time | 0.6 |
+| `cone_blast` | Must | Shotgun-like fire blast (Cone Breath release) | ≈ 1 s | 0.8 |
 | `player_hurt` | Must | Comic "oof" thump | 0.25 s | 0.7 |
 | `flask_drink` | Should | Gulp gulp | 0.5 s | 0.4 |
 | `flask_heal` | Should | Bright sparkle chime | 0.4 s | 0.4 |
@@ -78,6 +79,7 @@ Building blocks (helpers in `sfx.ts`):
 | `rage` | Two sawtooths at 110 Hz and 116 Hz (the detune gives the growl) → lowpass sweeping 200 → 1500 Hz over 0.8 s. vol 0.5 |
 | `rebuke_windup` | Square 300 → 1200 Hz over the tell time (0.35 s) → bandpass Q 4 following the pitch, gain trembling with a 30 Hz LFO. vol 0.45. Stoppable |
 | `rebuke_burst` | Noise → highpass 1500 Hz decaying over 0.2 s (vol 0.7), plus sine 220 → 80 Hz over 0.15 s (vol 0.5) |
+| `cone_blast` | Noise → lowpass 2500 Hz decaying over 0.35 s (vol 0.9), plus sine 120 → 40 Hz over 0.25 s (vol 0.8), plus a crackle: noise → highpass 3000 Hz from 0.04 s decaying over 0.3 s (vol 0.25) |
 | `beam_charge` | Sawtooth 120 → 900 Hz over the charge time → bandpass following the pitch, gain trembling with a 14 → 40 Hz LFO, plus noise → bandpass rising 400 → 3000 Hz. vol 0.45. Stoppable |
 | `beam_fire` | A burst (noise → lowpass 4000 Hz, 0.15 s, vol 0.8), then for the firing time: noise → bandpass 700 Hz (Q 0.8) with a 7 Hz flutter (vol 0.5) plus a 55 Hz sawtooth rumble → lowpass 300 Hz (vol 0.5). Stoppable |
 | `player_hurt` | Sine 260 → 120 Hz over 0.18 s with a 12 Hz vibrato (vol 0.7), plus noise → lowpass 800 Hz lasting 0.06 s (vol 0.4) |

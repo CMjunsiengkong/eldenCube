@@ -251,9 +251,32 @@ describe('visuals lead the damage (2026-10-12)', () => {
     expect(rebukeReach(STEP)).toBeLessThan(CONFIG.rebuke.endRadius - 1);
   });
 
-  it('Cone: the fire starts 0.22 s before the damage window and crosses the cone in that time', () => {
-    expect(CN.flameLead).toBeGreaterThanOrEqual(CN.flameTravel);
-    expect(CN.flameLead).toBeLessThan(CN.telegraph);
-    expect(CN.flameLead).toBeLessThan(CN.blastGap - CN.blast);
+  it('Cone: hold 0.12 s, then the release 0.08 s before each damage window (rage: twice, 0.70 s apart)', () => {
+    for (const rage of [false, true]) {
+      const ctx = makeCtx({ rage });
+      const releases: number[] = [];
+      let holding = 0;
+      let t = 0;
+      ctx.vfx = {
+        coneHold: () => holding++,
+        coneRelease: () => releases.push(t),
+        coneAftermath: () => undefined,
+        coneWave: () => undefined,
+      } as unknown as typeof ctx.vfx;
+      const cone = new ConeBreath();
+      cone.start(ctx);
+      let firstWindow = -1;
+      while (!cone.isBossFree() && t < 5) {
+        t += STEP;
+        cone.update(STEP, ctx);
+        if (firstWindow < 0 && cone.blasting) firstWindow = t;
+      }
+      expect(releases).toHaveLength(rage ? 2 : 1);
+      expect(firstWindow - releases[0]).toBeCloseTo(CN.releaseLead, 1);
+      if (rage) expect(releases[1] - releases[0]).toBeCloseTo(CN.blastGap, 1);
+      expect(holding * STEP).toBeCloseTo(CN.hold * (rage ? 2 : 1), 1);
+    }
+    expect(CN.hold + CN.releaseLead).toBeLessThan(CN.rageTelegraph);
+    expect(CN.hold + CN.releaseLead).toBeLessThan(CN.blastGap - CN.blast);
   });
 });

@@ -28,9 +28,12 @@ attribute vec3 aColor;
 uniform float uTime;
 uniform float uFloor;
 uniform float uStretch;
+uniform float uMode; // 0 soft disc, 1 spark streak, 2 cel crown flame (2026-10-12)
 varying vec2 vUv;
 varying vec4 vColor;
+varying float vSeed;
 void main() {
+  vSeed = fract(sin(float(gl_InstanceID) * 12.9898) * 43758.5453);
   float age = uTime - aStart.w;
   float u = age / aVel.w;
   if (age < 0.0 || u >= 1.0) {
@@ -42,7 +45,18 @@ void main() {
   p.y = max(p.y, uFloor);
   float size = mix(aShape.x, aShape.y, u);
   vec4 mv = modelViewMatrix * vec4(p, 1.0);
-  if (uStretch > 0.0) {
+  if (uMode > 1.5) {
+    // Crown flame: a flat card facing the camera, its peaks pointing along the screen-space
+    // velocity, with a small random tilt; it pops up fast, then shrinks away.
+    vec4 mv2 = modelViewMatrix * vec4(p - aVel.xyz * 0.02, 1.0);
+    vec2 d = mv.xy - mv2.xy;
+    vec2 dir = length(d) > 1e-5 ? d / length(d) : vec2(1.0, 0.0);
+    float tilt = (vSeed - 0.5) * 0.7;
+    dir = vec2(dir.x * cos(tilt) - dir.y * sin(tilt), dir.x * sin(tilt) + dir.y * cos(tilt));
+    vec2 perp = vec2(-dir.y, dir.x);
+    float s2 = size * (0.45 + 0.55 * sin(3.14159 * min(1.0, u * 1.6 + 0.15)));
+    mv.xy += dir * (position.x * s2 * 1.15) + perp * (position.y * s2);
+  } else if (uStretch > 0.0) {
     // Spark: a streak stretched along the screen-space velocity (its last uStretch seconds).
     vec3 vel = aVel.xyz - vec3(0.0, aShape.z * age, 0.0);
     vec4 mv2 = modelViewMatrix * vec4(p - vel * uStretch, 1.0);
@@ -57,21 +71,42 @@ void main() {
   }
   gl_Position = projectionMatrix * mv;
   vUv = uv;
-  vColor = vec4(aColor, aShape.w * (1.0 - smoothstep(0.45, 1.0, u)));
+  vColor = vec4(aColor, aShape.w * (1.0 - smoothstep(uMode > 1.5 ? 0.75 : 0.45, 1.0, u)));
 }`;
 
 const FRAGMENT = /* glsl */ `
 varying vec2 vUv;
 varying vec4 vColor;
+varying float vSeed;
 uniform float uSoftness;
+uniform float uMode;
+uniform vec3 uCore;
+uniform vec3 uMid;
+uniform vec3 uRim;
 void main() {
+  if (uMode > 1.5) {
+    // Spiky crown burst, anime cel style: x runs back → front (the flying direction), y across.
+    float x = vUv.x;
+    float y = vUv.y * 2.0 - 1.0;
+    float peaks = 3.0 + floor(vSeed * 3.0); // 3–5 peaks
+    float saw = 1.0 - abs(fract((vUv.y + vSeed * 0.3) * peaks) * 2.0 - 1.0); // 1 at a peak tip
+    float front = 0.55 + 0.42 * saw * (1.0 - 0.55 * y * y);
+    float back = 0.12 + 0.3 * y * y;
+    float inside = min(front - x, x - back);
+    if (inside < 0.0 || abs(y) > 0.98) discard;
+    // Three flat bands: a thin red rim, an orange body, a white-yellow core.
+    vec3 col = inside < 0.05 ? uRim : (inside < 0.16 || abs(y) > 0.55 ? uMid : uCore);
+    gl_FragColor = vec4(col, vColor.a);
+    #include <colorspace_fragment>
+    return;
+  }
   float d = length(vUv - 0.5) * 2.0;
   float a = 1.0 - smoothstep(uSoftness, 1.0, d);
   gl_FragColor = vec4(vColor.rgb, vColor.a * a);
   #include <colorspace_fragment>
 }`;
 
-export type ParticleBlend = 'glow' | 'smoke' | 'spark';
+export type ParticleBlend = 'glow' | 'smoke' | 'spark' | 'crown';
 
 /** One spawn request; fields are reused by callers (no allocation per particle). */
 export interface ParticleSpec {
@@ -137,15 +172,19 @@ export class Particles {
         uFloor: { value: P.floor },
         uSoftness: { value: blend === 'smoke' ? P.smokeSoftness : blend === 'spark' ? P.sparkSoftness : P.glowSoftness },
         uStretch: { value: blend === 'spark' ? P.sparkStretch : 0 },
+        uMode: { value: blend === 'crown' ? 2 : blend === 'spark' ? 1 : 0 },
+        uCore: { value: new Color(CONFIG.colors.flameCore) },
+        uMid: { value: new Color(CONFIG.colors.fireballCore).lerp(new Color(CONFIG.colors.fire), 0.5) },
+        uRim: { value: new Color(0xd7261e) },
       },
       transparent: true,
       depthWrite: false,
-      blending: blend === 'smoke' ? NormalBlending : AdditiveBlending,
+      blending: blend === 'smoke' || blend === 'crown' ? NormalBlending : AdditiveBlending, // cel flames are opaque
       toneMapped: false,
     });
     this.mesh = new Mesh(geo, this.material);
     this.mesh.frustumCulled = false;
-    this.mesh.renderOrder = blend === 'smoke' ? 5 : 6;
+    this.mesh.renderOrder = blend === 'smoke' ? 5 : blend === 'crown' ? 7 : 6;
   }
 
   /** Simulation time of the shader clock (tests). */

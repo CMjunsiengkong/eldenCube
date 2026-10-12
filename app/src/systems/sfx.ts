@@ -328,6 +328,15 @@ const RECIPES: Record<SoundId, Recipe> = {
     osc(v, ctx, 'sawtooth', [55, 55], t, d, filter(ctx, 'lowpass', 300, 0.7, rumble));
     return v;
   },
+  cone_blast(ctx, out, nb, o) {
+    // A shotgun-like blast: a sharp noise crack, a low thump and a short crackle tail.
+    const v = new Voice(ctx, out, o.volume ?? 1);
+    const t = ctx.currentTime;
+    noise(v, ctx, nb, t, 0.35, filter(ctx, 'lowpass', 2500, 0.7, env(ctx, v.gain, 0.9, t, 0.002, 0.35)));
+    osc(v, ctx, 'sine', [120, 40], t, 0.25, env(ctx, v.gain, 0.8, t, 0.003, 0.25));
+    noise(v, ctx, nb, t + 0.04, 0.3, filter(ctx, 'highpass', 3000, 0.7, env(ctx, v.gain, 0.25, t + 0.04, 0.005, 0.3)));
+    return v;
+  },
   rebuke_burst(ctx, out, nb, o) {
     const v = new Voice(ctx, out, o.volume ?? 1);
     const t = ctx.currentTime;

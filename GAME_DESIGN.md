@@ -456,11 +456,11 @@ Why: the waves land 0.4 s apart, longer than the 0.35 s of roll i-frames, so one
 #### E. Cone Flame Breath *(added 2026-10-12)*
 | Step | Phase 1 | Rage |
 |---|---|---|
-| Telegraph: the boss turns toward the player normally; its mouth glows orange and a red cone outline (110°, 12 m; rage 130°, 13 m) pulses on the ground in front of it. `shard_launch` plays at each blast | 0.9 s | 0.7 s (not scaled by the rage telegraph factor) |
+| Telegraph: the boss turns toward the player normally; its mouth glows orange and a red cone outline (110°, 12 m; rage 130°, 13 m) pulses on the ground in front of it. `cone_blast` plays at each release | 0.9 s | 0.7 s (not scaled by the rage telegraph factor) |
 | Blast (the boss is stuck; the cone is fixed): a wide burst of fire fills the cone, a ring of fire rushes outward across the cone on the ground, the boss light flares, and about **8 burning marks** (§6.5 C) are left scattered in the cone; smoke follows | 1 blast, damage window **0.25 s** | **2 blasts**: the second starts **0.70 s** after the first (each 0.25 s), timed to the second roll's i-frames |
 | Recovery (a punish window: no turning, damage does not count toward poise) | 0.8 s | 0.6 s |
 
-**Visuals lead the damage** *(2026-10-12)*: each blast starts **0.1 s before** its damage window with a muzzle flash at the boss's mouth and a **shotgun-like spray of fast fire sparks** (streaks) that crosses the cone in that 0.1 s, so the fire is on screen before it hurts.
+**Hold and release** *(2026-10-12)*: before each blast a white-hot ball **compresses at the boss's mouth for 0.12 s** (it shakes, the boss light builds). Then everything is **released in one frame, 0.08 s before the damage window**: about 120 flat **anime cel-style "spiky crown" flames** (3–5 sharp peaks pointing where they fly; white-yellow core, orange body, red rim) burst across the cone so fast that they reach its end as the damage starts, and live only about 0.1 s; plus a big flash flame at the mouth, a few spark accents, the ring of fire, a hard camera kick and the `cone_blast` sound. The cone glows hot on the ground for the rest of the damage window. The cone stops following the player when the first hold begins.
 **Kill rule:** during a blast's damage window, the player is hit if their horizontal distance to the boss center is at most `range + 0.4` and the angle from the boss's facing to the player is within half the cone angle (plus the player's radius).
 **How to survive:** the cone is too wide to run out of during the telegraph: **roll through it** (the 0.25 s window fits inside the 0.35 s i-frames), or already be **behind the boss** (outside the cone). In rage you need **2 rolls (60 stamina)**; without enough stamina, one hit is guaranteed. Hurt invincibility means the double blast deals at most 1 damage.
 
@@ -586,6 +586,7 @@ The game must therefore be complete and fully audible with **no sound files at a
 | `rebuke_burst` | Royal Rebuke burst |
 | `beam_charge` *(2026-10-12)* | Flame Beam charge starts (stoppable, lasts the charge) |
 | `beam_fire` *(2026-10-12)* | Flame Beam fires (stoppable, lasts while firing) |
+| `cone_blast` *(2026-10-12)* | Each Cone Breath release (shotgun-like) |
 | `player_hurt` | The player takes a non-lethal hit |
 | `flask_drink` | A drink starts |
 | `flask_heal` | The drink restores 1 HP (0.60 s) |

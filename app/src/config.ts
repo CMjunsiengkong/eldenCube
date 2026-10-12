@@ -427,10 +427,13 @@ const RAW = {
     rageRecovery: 0.6,
     outlineOpacity: 0.35,
     burnsPerBlast: 8, // burning marks left in the cone after each blast (visual)
-    flameLead: 0.1, // s the sparks start before each damage window (visuals lead the damage)
-    flameTravel: 0.1, // s for the spark front to cross the cone
-    sparksPerStep: 60, // fire-spark streaks per step while a blast sprays (visual; −25% on 2026-10-12)
-    emberRatio: 0.25, // fraction of slower, bigger embers
+    hold: 0.12, // s a white-hot ball compresses at the mouth before each release (visual)
+    releaseLead: 0.08, // s the release comes before the damage window; the flames cross the cone in it
+    crownCount: 120, // cel crown flames per release (visual)
+    crownLife: [0.08, 0.12] as Range, // s: very short
+    crownSize: [0.6, 1.8] as Range, // m
+    sparkAccents: 24, // a few spark streaks with each release (visual)
+    emberRatio: 0.25, // fraction of slower, bigger embers among the accents
     waveTime: 0.3, // s the ring of fire takes to cross the cone (visual)
     mouthHeight: 2.0, // m
   },
@@ -670,6 +673,7 @@ const RAW = {
       sparkCapacity: 2048, // velocity-stretched streaks (cone sparks) (tune, agent-chosen)
       sparkStretch: 0.06, // s of motion each streak shows
       sparkSoftness: 0.55, // harder edge than glow particles (sharper streaks)
+      crownCapacity: 512, // cel crown flames (Cone Breath release)
       smokeCapacity: 512, // alpha-blended pool (tune, agent-chosen)
       floor: 0.03, // m; particles never sink below this height
       glowSoftness: 0.0, // radial falloff start (0 = soft disc)
@@ -894,6 +898,7 @@ const RAW = {
       rebuke_burst: 0.7,
       beam_charge: 0.45,
       beam_fire: 0.6,
+      cone_blast: 0.8,
       player_hurt: 0.7,
       flask_drink: 0.4,
       flask_heal: 0.4,

@@ -49,6 +49,11 @@ export class ConeBreath implements Attack {
   private axis = 0;
   private recovery: number = CN.recovery;
   private wasActive = false;
+  /** Time since the attack started (s): the hold / release events are scheduled on it. */
+  private elapsed = 0;
+  /** The next blast whose hold / release is still to come. */
+  private nextRelease = 0;
+  private locked = false;
   private readonly source = new Vector3();
   private ctx: AttackContext | null = null;
   private readonly material = new MeshBasicMaterial({ color: CONFIG.colors.warning, transparent: true, depthWrite: false, side: DoubleSide, toneMapped: false });
@@ -85,6 +90,9 @@ export class ConeBreath implements Attack {
     this.recovery = rage ? CN.rageRecovery : CN.recovery;
     this.outline.geometry = rage ? this.geoRage : this.geoP1;
     this.outline.material = this.material;
+    this.elapsed = 0;
+    this.nextRelease = 0;
+    this.locked = false;
     this.next('telegraph');
     this.placeOutline(ctx, ctx.boss.yaw, CN.outlineOpacity);
   }
@@ -92,19 +100,18 @@ export class ConeBreath implements Attack {
   update(dt: number, ctx: AttackContext): void {
     const b = ctx.boss;
     this.t += dt;
+    this.elapsed += dt;
+    this.holdAndRelease(ctx);
     switch (this.phase) {
       case 'telegraph': {
-        // The boss keeps turning toward the player (normal turn rate); the outline follows it.
+        // The boss keeps turning toward the player until the first hold locks the cone.
         const u = Math.min(1, this.t / this.telegraph);
         b.attackSquash.y = 1 - 0.08 * u;
         b.pulse = 0.35 * u;
         const pulse = 0.5 * (1 - Math.cos(2 * Math.PI * 3 * this.t));
-        this.placeOutline(ctx, b.yaw, CN.outlineOpacity * (0.6 + 0.4 * pulse));
-        // Visuals lead the damage: the fire starts before the window, so it fills the cone in time.
-        if (this.t >= this.telegraph - CN.flameLead - EPS) ctx.vfx?.coneSparks(b.pos.x, b.pos.z, b.yaw, this.half, this.range, CN.sparksPerStep);
+        this.placeOutline(ctx, this.locked ? this.axis : b.yaw, CN.outlineOpacity * (0.6 + 0.4 * pulse));
         if (this.t >= this.telegraph - EPS) {
-          this.axis = b.yaw;
-          b.stuck = true;
+          if (!this.locked) this.lockAxis(ctx);
           b.attackSquash.y = 1;
           b.pulse = 0;
           this.nextBlast = 0;
@@ -115,18 +122,12 @@ export class ConeBreath implements Attack {
         break;
       }
       case 'blast': {
-        if (this.nextBlast < this.blasts && this.t >= this.nextBlast * CN.blastGap - EPS) {
-          ctx.audio.play('shard_launch');
-          ctx.shake(0.15, 0.2);
-          b.splat(-2);
-          ctx.vfx?.coneWave(b.pos.x, b.pos.z, this.axis, this.half, this.range);
-          this.nextBlast++;
-        }
+        if (this.nextBlast < this.blasts && this.t >= this.nextBlast * CN.blastGap - EPS) this.nextBlast++;
         const active = this.activeAt(this.t);
         if (this.wasActive && !active) ctx.vfx?.coneAftermath(b.pos.x, b.pos.z, this.axis, this.half, this.range);
         this.wasActive = active;
+        // While a damage window is open the cone glows hot on the ground (the flames are brief).
         this.placeOutline(ctx, this.axis, active ? 0.55 : 0.12);
-        if (this.flamesAt(this.t)) ctx.vfx?.coneSparks(b.pos.x, b.pos.z, this.axis, this.half, this.range, CN.sparksPerStep);
         if (this.t >= (this.blasts - 1) * CN.blastGap + CN.blast - EPS) {
           if (this.wasActive) ctx.vfx?.coneAftermath(b.pos.x, b.pos.z, this.axis, this.half, this.range);
           this.outline.removeFromParent();
@@ -170,22 +171,47 @@ export class ConeBreath implements Attack {
     this.phase = 'done';
   }
 
-  /** The player died from this blast: a final heavy spray of sparks, then burning marks. */
+  /** The player died from this blast: one more, bigger release, then burning marks. */
   finale(): void {
     const ctx = this.ctx;
     if (!ctx || this.phase !== 'blast') return;
     const b = ctx.boss.pos;
-    for (let i = 0; i < 4; i++) ctx.vfx?.coneSparks(b.x, b.z, this.axis, this.half, this.range, CN.sparksPerStep);
+    ctx.vfx?.coneRelease(b.x, b.z, this.axis, this.half, this.range, 1.5);
     ctx.vfx?.coneAftermath(b.x, b.z, this.axis, this.half, this.range);
   }
 
-  /** Fire is drawn (each window plus the lead before it; the first lead is in the telegraph). */
-  private flamesAt(t: number): boolean {
-    for (let k = 0; k < this.blasts; k++) {
-      const s = k * CN.blastGap;
-      if (t >= s - (k === 0 ? 0 : CN.flameLead) - EPS && t < s + CN.blast - EPS) return true;
+  /**
+   * GD §6.5 E (2026-10-12): before each damage window, `hold` seconds of a white-hot ball
+   * compressing at the mouth, then the release `releaseLead` seconds before the window: everything
+   * fires in one frame (crown flames, flash, ring of fire, sound, camera kick).
+   */
+  private holdAndRelease(ctx: AttackContext): void {
+    if (this.nextRelease >= this.blasts) return;
+    const b = ctx.boss;
+    const window = this.telegraph + this.nextRelease * CN.blastGap;
+    const releaseAt = window - CN.releaseLead;
+    const holdAt = releaseAt - CN.hold;
+    if (this.elapsed < holdAt - EPS) return;
+    if (!this.locked) this.lockAxis(ctx);
+    const mx = b.pos.x + Math.sin(this.axis) * CONFIG.boss.halfSize;
+    const mz = b.pos.z + Math.cos(this.axis) * CONFIG.boss.halfSize;
+    if (this.elapsed < releaseAt - EPS) {
+      ctx.vfx?.coneHold(mx, CN.mouthHeight * 0.8, mz, (this.elapsed - holdAt) / CN.hold);
+      ctx.shake(0.05, 0.1);
+      return;
     }
-    return false;
+    ctx.vfx?.coneRelease(b.pos.x, b.pos.z, this.axis, this.half, this.range);
+    ctx.audio.play('cone_blast');
+    ctx.shake(0.4, 0.18);
+    b.splat(-3);
+    this.nextRelease++;
+  }
+
+  /** The cone stops following the player: fixed from the first hold on. */
+  private lockAxis(ctx: AttackContext): void {
+    this.axis = ctx.boss.yaw;
+    ctx.boss.stuck = true;
+    this.locked = true;
   }
 
   /** Inside one of the blasts' 0.25 s damage windows at time `t` of the blast phase. */

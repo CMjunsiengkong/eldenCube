@@ -27,6 +27,7 @@ Sound files (collected 2026-10-11; **source and license to be filled in**):
 | `src/assets/sfx/you_died.wav` | TBD | TBD |
 | `src/assets/sfx/beam_charge.wav` | TBD | TBD |
 | `src/assets/sfx/beam_fire.wav` | TBD | TBD |
+| `src/assets/sfx/cone_blast.wav` | Freesound community, "080902_shotgun" (id 39753) | TBD |
 
 Still generated in code: `roll_end`, `footstep`, `slam_rise`, `charge_windup`, `rebuke_windup`.
 

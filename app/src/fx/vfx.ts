@@ -5,7 +5,7 @@
  * aura and torch flames. Uses its own RNG, so effects never change the gameplay random sequence.
  * Everything is preallocated; nothing is allocated per frame.
  */
-import { AdditiveBlending, Color, DoubleSide, Mesh, MeshBasicMaterial, PointLight, RingGeometry, type Scene } from 'three';
+import { AdditiveBlending, Color, DoubleSide, Mesh, MeshBasicMaterial, PointLight, RingGeometry, SphereGeometry, type Scene } from 'three';
 import { CONFIG } from '../config';
 import { createRng, type Rng } from '../util/rng';
 import { Burns } from './burns';
@@ -36,6 +36,7 @@ export class Vfx {
   readonly glow = new Particles(V.particles.glowCapacity, 'glow');
   readonly smoke = new Particles(V.particles.smokeCapacity, 'smoke');
   readonly sparks = new Particles(V.particles.sparkCapacity, 'spark');
+  readonly crowns = new Particles(V.particles.crownCapacity, 'crown');
   readonly burns = new Burns();
   private readonly rng: Rng = createRng(0x51ab);
   private readonly spec = newSpec();
@@ -61,12 +62,16 @@ export class Vfx {
   private readonly waveGeoP1: RingGeometry;
   private readonly waveGeoRage: RingGeometry;
   private nextWave = 0;
+  /** The Cone Breath's white-hot hold ball (shown only in steps where `coneHold` is called). */
+  private readonly orb: Mesh;
+  private orbHeld = false;
 
   constructor(scene: Scene) {
     this.scene = scene;
     this.glow.addTo(scene);
     this.smoke.addTo(scene);
     this.sparks.addTo(scene);
+    this.crowns.addTo(scene);
     this.burns.addTo(scene);
     const geo = new RingGeometry(V.flash.innerRatio, 1, 48);
     geo.rotateX(-Math.PI / 2);
@@ -78,6 +83,13 @@ export class Vfx {
       scene.add(mesh);
       this.flashes.push({ mesh, material, t: 0, duration: 1, from: 0, to: 1, alpha: 1 });
     }
+    this.orb = new Mesh(
+      new SphereGeometry(1, 16, 12),
+      new MeshBasicMaterial({ color: C.flameCore, transparent: true, opacity: 0.95, depthWrite: false, blending: AdditiveBlending, toneMapped: false }),
+    );
+    this.orb.renderOrder = 7;
+    this.orb.visible = false;
+    scene.add(this.orb);
     const BL = V.bossLight;
     this.bossLight = new PointLight(C.fire, 0, BL.range, BL.decay);
     this.bossLight.castShadow = false;
@@ -104,6 +116,9 @@ export class Vfx {
     this.glow.step(dt);
     this.smoke.step(dt);
     this.sparks.step(dt);
+    this.crowns.step(dt);
+    this.orb.visible = this.orbHeld;
+    this.orbHeld = false;
     this.burns.step(dt);
     for (const f of this.flashes) {
       if (!f.mesh.visible) continue;
@@ -154,6 +169,8 @@ export class Vfx {
     this.glow.clear();
     this.smoke.clear();
     this.sparks.clear();
+    this.crowns.clear();
+    this.orb.visible = false;
     this.burns.clear();
     for (const f of this.flashes) f.mesh.visible = false;
     for (const w of this.waves) w.mesh.visible = false;
@@ -163,7 +180,7 @@ export class Vfx {
 
   /** Objects that are normally hidden (shader warm-up). */
   get scenePool(): readonly Mesh[] {
-    return [this.glow.mesh, this.smoke.mesh, this.sparks.mesh, this.burns.scorch, this.burns.flames, ...this.flashes.map((f) => f.mesh), ...this.waves.map((w) => w.mesh)];
+    return [this.glow.mesh, this.smoke.mesh, this.sparks.mesh, this.crowns.mesh, this.orb, this.burns.scorch, this.burns.flames, ...this.flashes.map((f) => f.mesh), ...this.waves.map((w) => w.mesh)];
   }
 
   // --- emitters ------------------------------------------------------------------------------------
@@ -371,7 +388,7 @@ export class Vfx {
     const mouth = CONFIG.boss.halfSize;
     const mx = bx + Math.sin(yaw) * mouth;
     const mz = bz + Math.cos(yaw) * mouth;
-    const fast = (range - mouth) / CN.flameTravel;
+    const fast = (range - mouth) / CN.releaseLead;
     for (let i = 0; i < count; i++) {
       const ember = r() < CN.emberRatio;
       const a = yaw + (r() * 2 - 1) * half;
@@ -392,20 +409,6 @@ export class Vfx {
       s.color.copy(this.cFlameCore).lerp(this.cFire, ember ? 0.6 + 0.4 * r() : r() * 0.7);
       this.sparks.spawn(s);
     }
-    // Muzzle flash at the mouth.
-    s.x = mx;
-    s.y = CN.mouthHeight * 0.75;
-    s.z = mz;
-    s.vx = Math.sin(yaw) * 6;
-    s.vz = Math.cos(yaw) * 6;
-    s.vy = 0;
-    s.life = 0.08;
-    s.size0 = 3.2;
-    s.size1 = 1.6;
-    s.gravity = 0;
-    s.alpha = 0.7;
-    s.color.copy(this.cCore);
-    this.glow.spawn(s);
   }
 
   /** GD §6.5 F: embers flying off the beam (one step). */
@@ -553,6 +556,66 @@ export class Vfx {
       s.color.copy(this.cSmoke);
       this.smoke.spawn(s);
     }
+  }
+
+  /** GD §6.5 E hold: the white-hot ball compressing at the mouth (`u` 0 → 1 over the hold). */
+  coneHold(x: number, y: number, z: number, u: number): void {
+    const r = this.rng;
+    const jitter = 0.08 * u;
+    this.orb.position.set(x + (r() - 0.5) * jitter, y + (r() - 0.5) * jitter, z + (r() - 0.5) * jitter);
+    this.orb.scale.setScalar(0.25 + 0.65 * u * (0.92 + 0.08 * Math.sin(this.glow.now * 90)));
+    this.orbHeld = true;
+    this.holdLight(x, y, z, V.bossLight.cone * 0.5 * u);
+  }
+
+  /**
+   * GD §6.5 E release (2026-10-12): everything goes in one frame — ~120 cel crown flames fly out
+   * across the cone so fast that they cross it in `releaseLead`, living only ~0.1 s; a big flash
+   * flame at the mouth, a few spark accents, the ring of fire and an orange light flash.
+   */
+  coneRelease(bx: number, bz: number, yaw: number, half: number, range: number, countMult = 1): void {
+    const CN = CONFIG.cone;
+    const r = this.rng;
+    const s = this.spec;
+    const mouth = CONFIG.boss.halfSize;
+    const mx = bx + Math.sin(yaw) * mouth;
+    const mz = bz + Math.cos(yaw) * mouth;
+    const fast = (range - mouth) / CN.releaseLead;
+    const n = Math.round(CN.crownCount * countMult);
+    for (let i = 0; i < n; i++) {
+      const a = yaw + (r() * 2 - 1) * half;
+      const sa = Math.sin(a);
+      const ca = Math.cos(a);
+      const speed = fast * (0.75 + 0.45 * r());
+      const start = r() * 0.5; // a little spread along the way, so the burst is not one ring
+      s.x = mx + sa * start;
+      s.y = CN.mouthHeight * (0.4 + 0.5 * r());
+      s.z = mz + ca * start;
+      s.vx = sa * speed;
+      s.vz = ca * speed;
+      s.vy = (r() - 0.55) * 8;
+      s.life = this.range(CN.crownLife);
+      s.size0 = 0.3;
+      s.size1 = this.range(CN.crownSize);
+      s.gravity = 0;
+      s.alpha = 1;
+      this.crowns.spawn(s);
+    }
+    // The big flash flame at the mouth.
+    s.x = mx;
+    s.y = CN.mouthHeight * 0.8;
+    s.z = mz;
+    s.vx = Math.sin(yaw) * 12;
+    s.vz = Math.cos(yaw) * 12;
+    s.vy = 0;
+    s.life = 0.1;
+    s.size0 = 2.5;
+    s.size1 = 4.5;
+    s.gravity = 0;
+    s.alpha = 1;
+    this.crowns.spawn(s);
+    this.coneSparks(bx, bz, yaw, half, range, Math.round(CN.sparkAccents * countMult));
+    this.coneWave(bx, bz, yaw, half, range);
   }
 
   /** One flame particle of a torch at (x, y, z). */
