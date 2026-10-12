@@ -108,7 +108,16 @@ describe('Flame Beam (GAME_DESIGN §6.5 F, 2026-10-12)', () => {
     }
     expect(t).toBeCloseTo(BM.charge, 1);
     expect(beam.sweepDirection).toBe(1);
-    expect(beam.checkPlayerHit(spheresAt(0, 10))).not.toBeNull(); // locked exactly on the player
+    expect(beam.groundDistance).toBeCloseTo(10, 6); // aimed at the player's feet
+    expect(beam.checkPlayerHit(spheresAt(0, 10))).toBeNull(); // the front has not arrived yet
+    ctx.playerVel.set(0, 0, 0);
+    let travel = 0;
+    while (beam.front < 10 - 1e-9) {
+      beam.update(STEP, ctx);
+      travel += STEP;
+    }
+    expect(travel).toBeCloseTo((10 - BM.startOffset) / BM.travelSpeed, 1); // the front travels at 14 m/s
+    expect(beam.checkPlayerHit(spheresAt(0, 10))).not.toBeNull();
     beam.onPlayerHit();
     expect(beam.phaseName).toBe('recovery');
     expect(beam.checkPlayerHit(spheresAt(0, 10))).toBeNull();
@@ -127,6 +136,37 @@ describe('Flame Beam (GAME_DESIGN §6.5 F, 2026-10-12)', () => {
     for (let i = 0; i < 30; i++) beam.update(STEP, ctx);
     expect(beam.angle).toBe(a0);
     expect(beam.checkPlayerHit(spheresAt(-4, 10))).toBeNull();
+  });
+
+  it('walking sideways at full speed outruns it at a normal distance (10 m)', () => {
+    for (const rage of [false, true]) {
+      const ctx = makeCtx({ rage });
+      const beam = new FlameBeam();
+      const r = 8;
+      let a = 0;
+      ctx.playerPos.set(0, 0, r);
+      ctx.playerVel.set(6, 0, 0);
+      beam.start(ctx);
+      while (beam.phaseName === 'charge') beam.update(STEP, ctx);
+      let hit = false;
+      for (let i = 0; i < 180 && beam.phaseName === 'fire'; i++) {
+        a += (6 / r) * STEP; // circle the boss at 6 m/s
+        ctx.playerPos.set(Math.sin(a) * r, 0, Math.cos(a) * r);
+        ctx.playerVel.set(Math.cos(a) * 6, 0, -Math.sin(a) * 6);
+        beam.update(STEP, ctx);
+        if (beam.checkPlayerHit(spheresAt(ctx.playerPos.x, ctx.playerPos.z))) hit = true;
+      }
+      expect(hit).toBe(false);
+    }
+  });
+
+  it('the ground point is clamped to 6–26 m', () => {
+    const ctx = makeCtx();
+    const beam = new FlameBeam();
+    ctx.playerPos.set(0, 0, 3);
+    beam.start(ctx);
+    while (beam.phaseName === 'charge') beam.update(STEP, ctx);
+    expect(beam.groundDistance).toBe(BM.minGround);
   });
 
   it('the boss taking damage stops the beam', () => {

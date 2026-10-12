@@ -52,10 +52,20 @@ export function torchFlicker(t: number, phase: number): number {
 
 export class Arena {
   readonly moon: DirectionalLight;
+  private readonly scene: Scene;
+  private readonly hemi: HemisphereLight;
+  private readonly baseSky = new Color(C.sky);
+  private readonly baseHemi = new Color(C.hemisphereSky);
+  private readonly baseMoon = new Color(C.moon);
+  private readonly bloodSky = new Color(CONFIG.vfx.bloodMoon.sky);
+  private readonly bloodHemi = new Color(CONFIG.vfx.bloodMoon.hemisphereSky);
+  private readonly bloodMoon = new Color(CONFIG.vfx.bloodMoon.moon);
+  private blood = 0;
   private readonly torches: Torch[] = [];
   private time = 0;
 
   constructor(scene: Scene) {
+    this.scene = scene;
     scene.background = new Color(C.sky);
     scene.fog = new Fog(C.sky, A.fogNear, A.fogFar);
 
@@ -94,7 +104,8 @@ export class Arena {
     scene.add(edge);
 
     // Lights: dim hemisphere + the moon, the only shadow caster.
-    scene.add(new HemisphereLight(C.hemisphereSky, C.hemisphereGround, L.hemisphereIntensity));
+    this.hemi = new HemisphereLight(C.hemisphereSky, C.hemisphereGround, L.hemisphereIntensity);
+    scene.add(this.hemi);
     const moon = new DirectionalLight(C.moon, L.moonIntensity);
     moon.position.set(L.moonPosition.x, L.moonPosition.y, L.moonPosition.z);
     moon.castShadow = true;
@@ -132,6 +143,16 @@ export class Arena {
     }
     props.instanceMatrix.needsUpdate = true;
     scene.add(props);
+  }
+
+  /** GD §6.5 blood moon: sky, fog, moon and hemisphere light lerp toward red by `w` (0…1). */
+  setBlood(w: number): void {
+    if (Math.abs(w - this.blood) < 1e-4) return;
+    this.blood = w;
+    (this.scene.background as Color).copy(this.baseSky).lerp(this.bloodSky, w);
+    (this.scene.fog as Fog).color.copy(this.baseSky).lerp(this.bloodSky, w);
+    this.moon.color.copy(this.baseMoon).lerp(this.bloodMoon, w);
+    this.hemi.color.copy(this.baseHemi).lerp(this.bloodHemi, w);
   }
 
   /** Simulation step: flicker the torch lights and feed their flames. */

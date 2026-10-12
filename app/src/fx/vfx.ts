@@ -5,7 +5,7 @@
  * aura and torch flames. Uses its own RNG, so effects never change the gameplay random sequence.
  * Everything is preallocated; nothing is allocated per frame.
  */
-import { Color, DoubleSide, Mesh, MeshBasicMaterial, RingGeometry, type Scene } from 'three';
+import { AdditiveBlending, Color, DoubleSide, Mesh, MeshBasicMaterial, PointLight, RingGeometry, type Scene } from 'three';
 import { CONFIG } from '../config';
 import { createRng, type Rng } from '../util/rng';
 import { Burns } from './burns';
@@ -13,6 +13,14 @@ import { newSpec, Particles } from './particles';
 
 const V = CONFIG.vfx;
 const C = CONFIG.colors;
+
+/** The Cone Breath's ring of fire rushing across the cone (one blast). */
+interface ConeWave {
+  readonly mesh: Mesh;
+  readonly material: MeshBasicMaterial;
+  t: number;
+  range: number;
+}
 
 interface Flash {
   readonly mesh: Mesh;
@@ -43,6 +51,15 @@ export class Vfx {
   private readonly cSmoke = new Color(C.scorch).lerp(new Color(0x444444), 0.6);
   private readonly cHeal = new Color(C.healFlash);
   private readonly tmp = new Color();
+  // GD §6.5 cinematic boss light: always in the scene (constant light count), normally 0.
+  readonly bossLight: PointLight;
+  private holdIntensity = 0;
+  private flareIntensity = 0;
+  private flareLeft = 0;
+  private readonly waves: ConeWave[] = [];
+  private readonly waveGeoP1: RingGeometry;
+  private readonly waveGeoRage: RingGeometry;
+  private nextWave = 0;
 
   constructor(scene: Scene) {
     this.scene = scene;
@@ -58,6 +75,25 @@ export class Vfx {
       mesh.visible = false;
       scene.add(mesh);
       this.flashes.push({ mesh, material, t: 0, duration: 1, from: 0, to: 1, alpha: 1 });
+    }
+    const BL = V.bossLight;
+    this.bossLight = new PointLight(C.fire, 0, BL.range, BL.decay);
+    this.bossLight.castShadow = false;
+    scene.add(this.bossLight);
+    const arc = (angle: number): RingGeometry => {
+      const g = new RingGeometry(0.88, 1, 48, 1, -Math.PI / 2 - angle / 2, angle);
+      g.rotateX(-Math.PI / 2); // centered on local +Z, like the cone outline
+      return g;
+    };
+    this.waveGeoP1 = arc(CONFIG.cone.angle);
+    this.waveGeoRage = arc(CONFIG.cone.rageAngle);
+    for (let i = 0; i < 2; i++) {
+      const material = new MeshBasicMaterial({ color: C.fireballCore, transparent: true, depthWrite: false, blending: AdditiveBlending, side: DoubleSide, toneMapped: false });
+      const mesh = new Mesh(this.waveGeoP1, material);
+      mesh.renderOrder = 6;
+      mesh.visible = false;
+      scene.add(mesh);
+      this.waves.push({ mesh, material, t: 0, range: 1 });
     }
   }
 
@@ -75,6 +111,39 @@ export class Vfx {
       f.material.opacity = f.alpha * (1 - u);
       if (u >= 1) f.mesh.visible = false;
     }
+    // Cone fire waves
+    for (const w of this.waves) {
+      if (!w.mesh.visible) continue;
+      w.t += dt;
+      const u = Math.min(1, w.t / CONFIG.cone.waveTime);
+      w.mesh.scale.setScalar(CONFIG.boss.halfSize + (w.range - CONFIG.boss.halfSize) * (1 - (1 - u) * (1 - u)));
+      w.material.opacity = 0.9 * (1 - u);
+      if (u >= 1) w.mesh.visible = false;
+    }
+    // Boss light: the stronger of the held level (set this step) and the decaying flare.
+    this.flareLeft = Math.max(0, this.flareLeft - dt);
+    const flare = this.flareIntensity * (this.flareLeft / V.bossLight.flareTime);
+    const flicker = 1 + 0.15 * Math.sin(this.glow.now * 37) * Math.sin(this.glow.now * 23);
+    this.bossLight.intensity = Math.max(this.holdIntensity * flicker, flare);
+    this.holdIntensity = 0;
+  }
+
+  /** Keeps the boss light at `intensity` this step (call every step while wanted). */
+  holdLight(x: number, y: number, z: number, intensity: number): void {
+    this.bossLight.position.set(x, y, z);
+    this.holdIntensity = Math.max(this.holdIntensity, intensity);
+  }
+
+  /** A short flare of the boss light that decays over `bossLight.flareTime`. */
+  flareLight(x: number, y: number, z: number, intensity: number): void {
+    this.bossLight.position.set(x, y, z);
+    this.flareIntensity = intensity;
+    this.flareLeft = V.bossLight.flareTime;
+  }
+
+  /** A burning mark at (x, z) with a random shape. */
+  burnAt(x: number, z: number): void {
+    this.burns.spawn(x, z, this.rng());
   }
 
   /** Reset: every particle, mark and flash removed. */
@@ -83,11 +152,14 @@ export class Vfx {
     this.smoke.clear();
     this.burns.clear();
     for (const f of this.flashes) f.mesh.visible = false;
+    for (const w of this.waves) w.mesh.visible = false;
+    this.bossLight.intensity = 0;
+    this.holdIntensity = this.flareIntensity = this.flareLeft = 0;
   }
 
   /** Objects that are normally hidden (shader warm-up). */
   get scenePool(): readonly Mesh[] {
-    return [this.glow.mesh, this.smoke.mesh, this.burns.scorch, this.burns.flames, ...this.flashes.map((f) => f.mesh)];
+    return [this.glow.mesh, this.smoke.mesh, this.burns.scorch, this.burns.flames, ...this.flashes.map((f) => f.mesh), ...this.waves.map((w) => w.mesh)];
   }
 
   // --- emitters ------------------------------------------------------------------------------------
@@ -330,6 +402,129 @@ export class Vfx {
       s.alpha = 1;
       s.color.copy(this.cFlameCore).lerp(this.cFire, r());
       this.glow.spawn(s);
+    }
+  }
+
+  /** GD §6.5 F: sparks rushing into the charge orb at (x, y, z); `u` = charge progress 0…1. */
+  chargeSparks(x: number, y: number, z: number, u: number): void {
+    const r = this.rng;
+    const s = this.spec;
+    const n = 2 + Math.floor(4 * u);
+    for (let i = 0; i < n; i++) {
+      // Start on a sphere around the mouth and fly into it, arriving as they die.
+      const a = r() * Math.PI * 2;
+      const e = (r() - 0.5) * Math.PI * 0.8;
+      const d = 2.2 + r() * 1.2;
+      const life = 0.25 + r() * 0.1;
+      const ox = Math.cos(a) * Math.cos(e) * d;
+      const oy = Math.sin(e) * d;
+      const oz = Math.sin(a) * Math.cos(e) * d;
+      s.x = x + ox;
+      s.y = Math.max(0.2, y + oy);
+      s.z = z + oz;
+      s.vx = -ox / life;
+      s.vy = (y - s.y) / life;
+      s.vz = -oz / life;
+      s.life = life;
+      s.size0 = 0.12;
+      s.size1 = 0.35;
+      s.gravity = 0;
+      s.alpha = 1;
+      s.color.copy(this.cFlameCore).lerp(this.cFire, r() * 0.6);
+      this.glow.spawn(s);
+    }
+  }
+
+  /** GD §6.5 F: the beam's ground point explodes constantly (one step). */
+  beamImpact(x: number, z: number): void {
+    const r = this.rng;
+    const s = this.spec;
+    for (let i = 0; i < 6; i++) {
+      const a = r() * Math.PI * 2;
+      const sp = 2 + r() * 4;
+      s.x = x;
+      s.y = 0.2;
+      s.z = z;
+      s.vx = Math.cos(a) * sp;
+      s.vz = Math.sin(a) * sp;
+      s.vy = 3 + r() * 5;
+      s.life = 0.3 + r() * 0.3;
+      s.size0 = 0.35;
+      s.size1 = 0;
+      s.gravity = 12;
+      s.alpha = 1;
+      s.color.copy(this.cFlameCore).lerp(this.cFire, r());
+      this.glow.spawn(s);
+    }
+    // A big glow at the impact point and some smoke.
+    s.x = x;
+    s.y = 0.4;
+    s.z = z;
+    s.vx = s.vz = 0;
+    s.vy = 1;
+    s.life = 0.12;
+    s.size0 = 2.4;
+    s.size1 = 1.2;
+    s.gravity = 0;
+    s.alpha = 0.8;
+    s.color.copy(this.cCore);
+    this.glow.spawn(s);
+    if (r() < 0.35) {
+      s.x = x + (r() - 0.5);
+      s.z = z + (r() - 0.5);
+      s.vx = (r() - 0.5);
+      s.vz = (r() - 0.5);
+      s.vy = 1.2 + r();
+      s.life = 0.9;
+      s.size0 = 0.6;
+      s.size1 = 1.6;
+      s.gravity = -0.4;
+      s.alpha = 0.4;
+      s.color.copy(this.cSmoke);
+      this.smoke.spawn(s);
+    }
+  }
+
+  /** GD §6.5 E: a blast starts — a ring of fire rushes across the cone; the boss light flares. */
+  coneWave(x: number, z: number, yaw: number, half: number, range: number): void {
+    const w = this.waves[this.nextWave];
+    this.nextWave = (this.nextWave + 1) % this.waves.length;
+    w.mesh.geometry = Math.abs(half * 2 - CONFIG.cone.rageAngle) < 1e-3 ? this.waveGeoRage : this.waveGeoP1;
+    w.mesh.position.set(x, 0.06, z);
+    w.mesh.rotation.set(0, yaw, 0);
+    w.mesh.scale.setScalar(CONFIG.boss.halfSize);
+    w.t = 0;
+    w.range = range;
+    w.material.opacity = 0.9;
+    w.mesh.visible = true;
+    this.flareLight(x + Math.sin(yaw) * 2.2, CONFIG.cone.mouthHeight, z + Math.cos(yaw) * 2.2, V.bossLight.cone);
+  }
+
+  /** GD §6.5 E: a blast ends — burning marks scattered in the cone, and smoke. */
+  coneAftermath(x: number, z: number, yaw: number, half: number, range: number): void {
+    const r = this.rng;
+    const s = this.spec;
+    for (let i = 0; i < CONFIG.cone.burnsPerBlast; i++) {
+      const a = yaw + (r() * 2 - 1) * half * 0.9;
+      const d = CONFIG.boss.halfSize + 1 + r() * (range - CONFIG.boss.halfSize - 1.5);
+      this.burns.spawn(x + Math.sin(a) * d, z + Math.cos(a) * d, r());
+    }
+    for (let i = 0; i < 12; i++) {
+      const a = yaw + (r() * 2 - 1) * half;
+      const d = 2.5 + r() * range * 0.8;
+      s.x = x + Math.sin(a) * d;
+      s.y = 0.5 + r();
+      s.z = z + Math.cos(a) * d;
+      s.vx = (r() - 0.5) * 0.8;
+      s.vz = (r() - 0.5) * 0.8;
+      s.vy = 0.8 + r() * 0.8;
+      s.life = 1.0 + r() * 0.5;
+      s.size0 = 0.9;
+      s.size1 = 2.2;
+      s.gravity = -0.3;
+      s.alpha = 0.35;
+      s.color.copy(this.cSmoke);
+      this.smoke.spawn(s);
     }
   }
 

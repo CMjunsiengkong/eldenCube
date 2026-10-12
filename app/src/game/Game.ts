@@ -29,7 +29,7 @@ import { getFlags, rebukeTellFor, speedMult, telegraphMult } from '../flags';
 import type { GameClock, LoopTarget } from '../loop';
 import { moveDirFromAxis, Player, type MotorInput, type PlayerEvent } from '../entities/Player';
 import { Boss, distanceBand, type HitResult } from '../entities/Boss';
-import type { Attack, AttackContext, MoveId } from '../attacks/Attack';
+import type { Attack, AttackContext, Cinema, MoveId } from '../attacks/Attack';
 import { CubeSlam } from '../attacks/CubeSlam';
 import { RoyalCharge } from '../attacks/RoyalCharge';
 import { CrownRain } from '../attacks/CrownRain';
@@ -45,7 +45,7 @@ import { CameraController } from '../systems/camera';
 import { pointInOBB } from '../systems/collision';
 import { Input } from '../systems/input';
 import { UI } from '../systems/ui';
-import { easeInOut, lerp, randRange } from '../util/math';
+import { easeInOut, lerp, randRange, smoothFactor } from '../util/math';
 import { createRng } from '../util/rng';
 import { Arena } from './Arena';
 
@@ -62,6 +62,7 @@ export type FlowCommand =
   | 'titleReady'; // the title input lock ended: show the start prompt
 
 const T = CONFIG.transitions;
+const FLASH_TIME = 0.1; // s (GD: flashes ≤ 0.1 s)
 const DEATH = CONFIG.fx.death;
 const EPS = 1e-9;
 
@@ -251,6 +252,21 @@ export class Game implements LoopTarget {
   private lastHit: HitResult | null = null;
   private rebukeMarker = 0;
   private hitboxes: DebugHitboxes | null = null;
+  // 2026-10-12 cinematic screen effects (real time)
+  private flashPeak = 0;
+  private flashLeft = 0;
+  private vignette = 0;
+  private vignetteWant = 0;
+  private readonly cinema: Cinema = {
+    flash: (o) => {
+      this.flashPeak = o;
+      this.flashLeft = FLASH_TIME;
+    },
+    vignette: (o) => {
+      this.vignetteWant = Math.max(this.vignetteWant, o);
+    },
+    lift: (on) => this.cameraCtl.setLift(on),
+  };
 
   private readonly moveDir = { x: 0, z: 0 };
   private readonly camFwd = { x: 0, z: -1 };
@@ -314,6 +330,7 @@ export class Game implements LoopTarget {
       effects: this.puffs,
       hazards: this.hazards,
       vfx: this.vfx,
+      cinema: this.cinema,
     };
 
     if (this.debug) this.hitboxes = new DebugHitboxes(this.scene);
@@ -362,6 +379,7 @@ export class Game implements LoopTarget {
 
   /** Fixed simulation step. */
   update(dt: number): void {
+    this.vignetteWant = 0; // attacks ask for it every step
     this.flow.update(dt);
     this.processCommands();
     switch (this.world) {
@@ -384,6 +402,7 @@ export class Game implements LoopTarget {
     stepDebris(this.debris, dt);
     this.puffs.step(dt);
     this.arena.step(dt, this.vfx);
+    this.arena.setBlood(this.hazards.bloodWeight);
     this.vfx.step(dt);
     this.rebukeMarker = Math.max(0, this.rebukeMarker - dt);
     this.syncPlayerHud();
@@ -406,6 +425,10 @@ export class Game implements LoopTarget {
     this.flow.realUpdate(frameDt, anyStart);
     this.processCommands();
     this.ui.setFade(this.flow.fade);
+    this.flashLeft = Math.max(0, this.flashLeft - frameDt);
+    this.ui.setFlash(this.flashPeak * (this.flashLeft / FLASH_TIME));
+    this.vignette += (this.vignetteWant - this.vignette) * smoothFactor(8, frameDt);
+    this.ui.setVignette(this.vignette);
     this.audio.setDuck(this.flow.duck);
 
     this.cameraCtl.update(frameDt, this.player.position, this.boss.pos);
@@ -457,6 +480,11 @@ export class Game implements LoopTarget {
       // GD §6.4 rage transition.
       this.boss.onRage();
       this.cameraCtl.shake(CONFIG.rage.cameraShake.amplitude, CONFIG.rage.cameraShake.duration);
+      // 2026-10-12 cinematic: slow motion, a hard shake, the camera looks up at the meteors.
+      const SM = CONFIG.vfx.rageSlowMo;
+      this.time.setTimeScale(SM.scale, SM.duration);
+      this.cameraCtl.shake(SM.shake, SM.shakeTime);
+      this.cameraCtl.lookUp(SM.lookUp, SM.lookUpTime);
       this.audio.play('rage');
     }
     return result;
@@ -521,6 +549,9 @@ export class Game implements LoopTarget {
     this.debris.length = 0;
     this.puffs.clear();
     this.vfx.clear();
+    this.arena.setBlood(0);
+    this.flashLeft = 0;
+    this.vignette = this.vignetteWant = 0;
     this.player.reset();
     this.boss.reset(this.scene);
     this.audio.stopMusic();

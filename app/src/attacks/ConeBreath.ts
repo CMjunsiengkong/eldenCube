@@ -48,6 +48,7 @@ export class ConeBreath implements Attack {
   private nextBlast = 0;
   private axis = 0;
   private recovery: number = CN.recovery;
+  private wasActive = false;
   private readonly source = new Vector3();
   private ctx: AttackContext | null = null;
   private readonly material = new MeshBasicMaterial({ color: CONFIG.colors.warning, transparent: true, depthWrite: false, side: DoubleSide, toneMapped: false });
@@ -105,6 +106,7 @@ export class ConeBreath implements Attack {
           b.attackSquash.y = 1;
           b.pulse = 0;
           this.nextBlast = 0;
+          this.wasActive = false;
           this.outline.material = this.fire;
           this.next('blast');
         }
@@ -115,12 +117,16 @@ export class ConeBreath implements Attack {
           ctx.audio.play('shard_launch');
           ctx.shake(0.15, 0.2);
           b.splat(-2);
+          ctx.vfx?.coneWave(b.pos.x, b.pos.z, this.axis, this.half, this.range);
           this.nextBlast++;
         }
         const active = this.activeAt(this.t);
+        if (this.wasActive && !active) ctx.vfx?.coneAftermath(b.pos.x, b.pos.z, this.axis, this.half, this.range);
+        this.wasActive = active;
         this.placeOutline(ctx, this.axis, active ? 0.55 : 0.12);
         if (active) ctx.vfx?.coneFlames(b.pos.x, b.pos.z, this.axis, this.half, this.range, CN.flamesPerStep);
         if (this.t >= (this.blasts - 1) * CN.blastGap + CN.blast - EPS) {
+          if (this.wasActive) ctx.vfx?.coneAftermath(b.pos.x, b.pos.z, this.axis, this.half, this.range);
           this.outline.removeFromParent();
           this.next('recovery');
         }

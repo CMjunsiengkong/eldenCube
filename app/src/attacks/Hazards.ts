@@ -119,6 +119,7 @@ export class Hazards {
   private meteorAcc = 0;
   private meteorSoundT = 0;
   private meteorRng: () => number = Math.random;
+  private meteorElapsed = 0;
   /** Meteors spawned since the last startMeteors (tests, debug). */
   meteorsSpawned = 0;
 
@@ -243,8 +244,16 @@ export class Hazards {
     this.meteorLeft = CONFIG.meteor.duration;
     this.meteorAcc = 0;
     this.meteorsSpawned = 0;
+    this.meteorElapsed = 0;
     if (!this.meteorCircles.parent) this.scene.add(this.meteorCircles);
     if (!this.meteorCores.parent) this.scene.add(this.meteorCores);
+  }
+
+  /** Blood-moon weight 0…1 during the Meteor Shower (fades in and out; GD §6.5 cinematic). */
+  get bloodWeight(): number {
+    if (this.meteorLeft <= 0) return 0;
+    const B = CONFIG.vfx.bloodMoon;
+    return Math.min(1, this.meteorElapsed / B.fadeIn) * Math.min(1, this.meteorLeft / B.fadeOut);
   }
 
   /** Meteor Shower still running or meteors still falling (debug, tests). */
@@ -393,6 +402,7 @@ export class Hazards {
     this.meteorSoundT = Math.max(0, this.meteorSoundT - dt);
     if (this.meteorLeft > 0) {
       this.meteorLeft -= dt;
+      this.meteorElapsed += dt;
       this.meteorAcc += MT.rate * dt;
       while (this.meteorAcc >= 1) {
         this.meteorAcc -= 1;

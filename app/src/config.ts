@@ -399,7 +399,7 @@ const RAW = {
         charge: [0, 10, 25, 35],
         rain: [4, 15, 20, 25],
         cone: [8, 45, 25, 0],
-        beam: [0, 0, 10, 30],
+        beam: [0, 10, 25, 30],
       },
       rage: {
         rebuke: [80, 0, 0, 0],
@@ -407,7 +407,7 @@ const RAW = {
         charge: [0, 10, 20, 25],
         rain: [4, 15, 15, 20],
         cone: [10, 55, 30, 0],
-        beam: [0, 0, 20, 50],
+        beam: [0, 10, 30, 50],
       },
     },
   },
@@ -427,25 +427,37 @@ const RAW = {
     rageRecovery: 0.6,
     outlineOpacity: 0.35,
     flamesPerStep: 26, // particles per step during a blast (visual)
+    burnsPerBlast: 8, // burning marks left in the cone after each blast (visual)
+    waveTime: 0.3, // s the ring of fire takes to cross the cone (visual)
     mouthHeight: 2.0, // m
   },
 
-  /** GD §6.5 F — Flame Beam (2026-10-12). All (tune). */
+  /** GD §6.5 F — Flame Beam (2026-10-12, reworked like Hyper Beam). All (tune). */
   beam: {
     charge: 1.0, // s
     rageCharge: 0.7,
     fire: 3.0, // s
     rageFire: 2.0,
-    sweep: 1.0, // rad/s
-    rageSweep: 2.4,
-    length: 28, // m
+    sweep: 0.4, // rad/s: walking outruns it within ~15 m
+    rageSweep: 0.6, // rad/s: within ~10 m
+    travelSpeed: 14, // m/s: the beam's front shoots out from the mouth
+    minGround: 6, // m: ground point distance (locked at the player's feet), clamped
+    maxGround: 26,
     hitRadius: 0.5, // m from the beam segment to a hit sphere
-    lateralDeadzone: 1.0, // m/s: below this the sweep side comes from the offset
+    lateralDeadzone: 1.0, // m/s: below this the sweep side is random
     recovery: 0.5,
     rageRecovery: 0.4,
-    height: 1.1, // m (beam axis above the ground)
+    mouthHeight: 2.0, // m: the beam starts here and slants down to the ground point
     startOffset: 2.1, // m from the boss center (its face)
     radius: 0.35, // m visual core
+    glowRadius: 0.85, // m visual glow
+    stripeWidth: 1.4, // m glowing ground stripe
+    burnEvery: 0.07, // s between burning marks at the ground point
+    nearFade: [1.5, 3.0] as Range, // m: the beam fades out this close to the camera
+    orbRadius: 0.75, // m charge orb at full charge
+    flash: 0.35, // white flash opacity at fire (≤ 0.1 s)
+    vignette: 0.55, // screen-edge darkening at full charge
+    rumble: 0.07, // m continuous camera shake while firing
   },
 
   /** GD §6.5 G — Meteor Shower (once, from the rage transition; 2026-10-12). All (tune). */
@@ -540,6 +552,9 @@ const RAW = {
       closeHeight: 4.2,
       lookBlend: 0.4, // lerp(player, boss, 0.4)
       lookHeight: 1.2,
+      liftHeight: 6.5, // m during the Flame Beam (2026-10-12)
+      liftDistance: 7.5,
+      liftSmoothing: 3, // 1 − exp(−3·dt)
     },
     smoothing: 6, // lerp factor 1 − exp(−6 × dt)
     minY: 1.0,
@@ -655,7 +670,7 @@ const RAW = {
     },
     /** GD §6.5 C burning marks. */
     burns: {
-      capacity: 48, // marks in the ring buffer (2 overlapping Crown Rains)
+      capacity: 128, // marks in the ring buffer (Crown Rain, meteors, beam trail, cone)
       life: 3.0, // s
       fadeStart: 1.8, // s; smooth fade to 0 at `life` (tune)
       growTime: 0.12, // s pop-in (tune, agent-chosen)
@@ -733,6 +748,12 @@ const RAW = {
       ringTo: 1.6,
       ringTime: 0.4,
     },
+    /** GD §6.5 cinematic boss light (always present, normally 0). (tune, agent-chosen) */
+    bossLight: { range: 34, decay: 1.6, beam: 70, cone: 90, slam: 110, flareTime: 0.35 },
+    /** GD §6.5 blood moon during the Meteor Shower. (tune, agent-chosen) */
+    bloodMoon: { fadeIn: 0.6, fadeOut: 1.5, sky: 0x2a0606, hemisphereSky: 0x7a2a2a, moon: 0xff6a5a },
+    /** GD §6.4 rage slow motion. (tune) */
+    rageSlowMo: { scale: 0.3, duration: 0.5, shake: 0.5, shakeTime: 0.6, lookUp: 3.5, lookUpTime: 1.2 },
     /** GD §8 torch flame particles. (tune, agent-chosen) */
     torch: { perSecond: 32, jitter: 0.18, up: [1.0, 1.6] as Range, life: [0.35, 0.55] as Range, size: 0.55 },
   },

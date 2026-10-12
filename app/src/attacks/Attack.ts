@@ -29,6 +29,16 @@ export interface SoundOptions {
   pitch?: number;
 }
 
+/** Screen and camera effects an attack may drive (2026-10-12, visual only). */
+export interface Cinema {
+  /** A short white flash (≤ 0.1 s) at this opacity. */
+  flash(opacity: number): void;
+  /** Screen-edge darkening 0…1 (set every step while wanted). */
+  vignette(opacity: number): void;
+  /** Raise and pull back the lock-on camera (Flame Beam). */
+  lift(on: boolean): void;
+}
+
 export interface SoundSink {
   play(id: SoundId, opts?: SoundOptions): SoundHandle;
 }
@@ -100,6 +110,8 @@ export interface AttackContext {
   hazards: Hazards;
   /** Particles and other visual effects (absent in unit tests). */
   vfx?: Vfx;
+  /** Screen / camera effects (absent in unit tests). */
+  cinema?: Cinema;
 }
 
 export interface Attack {
