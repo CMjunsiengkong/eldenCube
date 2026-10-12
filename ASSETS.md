@@ -41,8 +41,8 @@ sound file exists in app/src/assets/sfx/<id>.(mp3|ogg|wav)  and decodes OK ?
 | `rage` | Should | Angry growl | 0.8 s | 0.5 |
 | `rebuke_windup` | Must | Short rising crackle (the tell) | 0.35 s | 0.45 |
 | `rebuke_burst` | Should | Sharp burst / whip-crack | 0.25 s | 0.7 |
-| `beam_charge` | Must | Rising energy charge-up (stoppable; make the file ≥ 1.0 s) | = charge time | 0.45 |
-| `beam_fire` | Must | Roaring beam blast, sustained (stoppable; make the file ≥ 3 s) | = firing time | 0.6 |
+| `beam_charge` | Must | Rising energy charge-up (stoppable; make the file ≥ 1.0 s) | = charge time | 0.7 |
+| `beam_fire` | Must | Roaring beam blast, sustained (stoppable; make the file ≥ 3 s) | = firing time | 0.9 |
 | `cone_blast` | Must | Shotgun-like fire blast (Cone Breath release) | ≈ 1 s | 0.8 |
 | `player_hurt` | Must | Comic "oof" thump | 0.25 s | 0.7 |
 | `flask_drink` | Should | Gulp gulp | 0.5 s | 0.4 |

@@ -429,7 +429,7 @@ const RAW = {
     burnsPerBlast: 8, // burning marks left in the cone after each blast (visual)
     hold: 0.12, // s a white-hot ball compresses at the mouth before each release (visual)
     releaseLead: 0.08, // s the release comes before the damage window; the flames cross the cone in it
-    crownCount: 120, // cel crown flames per release (visual)
+    crownCount: 180, // cel crown flames per release (visual; +50% on 2026-10-12)
     crownLife: [0.08, 0.12] as Range, // s: very short
     crownSize: [0.6, 1.8] as Range, // m
     sparkAccents: 24, // a few spark streaks with each release (visual)
@@ -896,8 +896,8 @@ const RAW = {
       victory: 0.4,
       rebuke_windup: 0.45,
       rebuke_burst: 0.7,
-      beam_charge: 0.45,
-      beam_fire: 0.6,
+      beam_charge: 0.7, // +55% (2026-10-12)
+      beam_fire: 0.9, // +50% (2026-10-12)
       cone_blast: 0.8,
       player_hurt: 0.7,
       flask_drink: 0.4,
