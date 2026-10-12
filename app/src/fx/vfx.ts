@@ -364,7 +364,7 @@ export class Vfx {
       const a = yaw + (r() * 2 - 1) * half;
       const sa = Math.sin(a);
       const ca = Math.cos(a);
-      const speed = range / 0.38;
+      const speed = (range - mouth) / CONFIG.cone.flameTravel;
       s.x = bx + sa * mouth;
       s.y = CONFIG.cone.mouthHeight * (0.5 + 0.5 * r());
       s.z = bz + ca * mouth;

@@ -5,6 +5,7 @@ import { STEP } from '../src/loop';
 import { ConeBreath, inCone } from '../src/attacks/ConeBreath';
 import { beamStep, FlameBeam, segmentDistance, sweepSide } from '../src/attacks/FlameBeam';
 import { CrownRain } from '../src/attacks/CrownRain';
+import { rebukeReach } from '../src/attacks/Hazards';
 import { makeCtx, spheresAt } from './attackCtx';
 
 const CN = CONFIG.cone;
@@ -224,5 +225,19 @@ describe('Meteor Shower and rage Crown Rain (GAME_DESIGN §6.5 C, G, 2026-10-12)
       if (ctx.hazards.check(spheresAt(t0.x + 2.1, t0.z))) hit = true; // 2.1 < 1.8 + 0.4
     }
     expect(hit).toBe(true);
+  });
+});
+
+describe('visuals lead the damage (2026-10-12)', () => {
+  it('Rebuke: the kill reach follows the drawn spikes (2.0 m at the start, 4.5 m by 70% of the burst)', () => {
+    expect(rebukeReach(0)).toBeCloseTo(CONFIG.rebuke.startRadius);
+    expect(rebukeReach(CONFIG.rebuke.burst * 0.7)).toBeCloseTo(CONFIG.rebuke.endRadius);
+    expect(rebukeReach(STEP)).toBeLessThan(CONFIG.rebuke.endRadius - 1);
+  });
+
+  it('Cone: the fire starts 0.22 s before the damage window and crosses the cone in that time', () => {
+    expect(CN.flameLead).toBeGreaterThanOrEqual(CN.flameTravel);
+    expect(CN.flameLead).toBeLessThan(CN.telegraph);
+    expect(CN.flameLead).toBeLessThan(CN.blastGap - CN.blast);
   });
 });

@@ -642,10 +642,12 @@ export class Game implements LoopTarget {
       this.audio.play('player_hurt');
       return;
     }
-    // Death @0.00: hit-stop, all hazards removed, long sounds stopped (attack.dispose), boss gloats.
+    // Death @0.00 (GD §9, 2026-10-12): hit-stop; the killing attack ends with a visible burst; long
+    // sounds stop (attack.dispose); hazards stop hurting but finish their animation; boss gloats.
     this.time.hitStop(DEATH.hitStop);
+    this.attack?.finale?.();
     this.cancelAttack();
-    this.hazards.clear(false);
+    this.hazards.stopShower();
     this.boss.brain.gloat();
     this.deathSource.copy(source);
     this.gloatTarget.copy(this.player.position);
@@ -657,6 +659,7 @@ export class Game implements LoopTarget {
 
   /** GD §9: the boss stops and turns to face the remains; the camera looks at them. */
   private updateDying(dt: number): void {
+    this.hazards.step(dt); // visual only: nothing is checked against the player while dying
     if (this.player.isBroken) {
       debrisCenter(this.debris, this.gloatTarget);
       this.cameraCtl.setLookOverride(this.gloatTarget);

@@ -449,7 +449,7 @@ Why: the waves land 0.4 s apart, longer than the 0.35 s of roll i-frames, so one
 | Burst *(1.5b)*: a **360° spike burst**: 2 staggered rows of 24 spikes (cones, `#FFE066`, glowing) shoot out of the body horizontally at heights 0.5 m and 1.4 m, their tips reaching **4.5 m** from the boss center. The rows are offset by half a spike, so the gaps at 4.5 m (about 0.6 m) are narrower than the player. `rebuke_burst` sound; camera shake 0.2 m for 0.2 s. During the tell, short spike tips (0.3 m) poke out of the body as an extra warning | 0.10 s |
 | Recovery (the spikes hold for 0.10 s, then retract into the body), then the boss is free | 0.30 s |
 
-**Kill rule:** during the burst, the player is hit if their horizontal distance from the boss center is at most `4.5 + 0.4` m.
+**Kill rule:** during the burst, the player is hit if their horizontal distance from the boss center is at most the spikes' current reach `+ 0.4` m (the reach grows from 2.0 to 4.5 m over the first 70% of the burst, ease-out, exactly as drawn; *2026-10-12*), so damage never arrives before the spikes.
 
 **How to survive:** roll on the tell (the 0.35 s of i-frames cover the whole 0.10 s burst), or be farther than 4.9 m away. A player stuck in a combo recovery can't react to the 0.35 s tell: that is the price of greed.
 
@@ -460,6 +460,7 @@ Why: the waves land 0.4 s apart, longer than the 0.35 s of roll i-frames, so one
 | Blast (the boss is stuck; the cone is fixed): a wide burst of fire fills the cone, a ring of fire rushes outward across the cone on the ground, the boss light flares, and about **8 burning marks** (§6.5 C) are left scattered in the cone; smoke follows | 1 blast, damage window **0.25 s** | **2 blasts**: the second starts **0.70 s** after the first (each 0.25 s), timed to the second roll's i-frames |
 | Recovery (a punish window: no turning, damage does not count toward poise) | 0.8 s | 0.6 s |
 
+**Visuals lead the damage** *(2026-10-12)*: the fire starts **0.22 s before** each damage window and reaches the end of the cone just as the window opens, so the flames are always on screen before they hurt.
 **Kill rule:** during a blast's damage window, the player is hit if their horizontal distance to the boss center is at most `range + 0.4` and the angle from the boss's facing to the player is within half the cone angle (plus the player's radius).
 **How to survive:** the cone is too wide to run out of during the telegraph: **roll through it** (the 0.25 s window fits inside the 0.35 s i-frames), or already be **behind the boss** (outside the cone). In rage you need **2 rolls (60 stamina)**; without enough stamina, one hit is guaranteed. Hurt invincibility means the double blast deals at most 1 damage.
 
@@ -467,7 +468,7 @@ Why: the waves land 0.4 s apart, longer than the 0.35 s of roll i-frames, so one
 | Step | Phase 1 | Rage |
 |---|---|---|
 | Charge: the boss turns toward the player; a thin red aiming line shows the path; sparks rush into a growing glowing orb at the boss's mouth and the screen edges darken. At the end the beam locks exactly onto the player, **aimed down at their feet** (ground distance clamped to 6–26 m) | 1.0 s | 0.7 s |
-| Fire *(reworked 2026-10-12, like Hyper Beam)*: a short white flash, a hard camera shake and a low rumble. The beam slants from the boss's mouth down to the ground at the locked distance; its **front travels out at 14 m/s** (it is only dangerous up to its front). Where it meets the ground it explodes constantly and leaves a **trail of burning marks** (§6.5 C). A glowing stripe on the ground shows its path. **Sweep side:** decided once when it fires, from the player's sideways velocity across the boss→player line (above 1.0 m/s: the side the player moves to; otherwise random). The beam fires straight at where the player was and **starts sweeping once its front reaches the ground**; it then only sweeps that way, at up to **ω** toward the player, and **never reverses**. **Walking sideways at full speed outruns it** within about 15 m (rage: 10 m); rolling against the sweep also works. The boss faces the beam | 3.0 s, ω 0.40 rad/s | 2.0 s, ω 0.60 rad/s |
+| Fire *(reworked 2026-10-12, like Hyper Beam)*: a short white flash, a hard camera shake and a low rumble. The beam slants from the boss's mouth down to the ground at the locked distance; its **front travels out at 28 m/s** (it is only dangerous up to its front). Where it meets the ground it explodes constantly and leaves a **trail of burning marks** (§6.5 C). A glowing stripe on the ground shows its path. **Sweep side:** decided once when it fires, from the player's sideways velocity across the boss→player line (above 1.0 m/s: the side the player moves to; otherwise random). The beam fires straight at where the player was and **starts sweeping once its front reaches the ground**; it then only sweeps that way, at up to **ω** toward the player, and **never reverses**. **Walking sideways at full speed outruns it** within about 15 m (rage: 10 m); rolling against the sweep also works. The boss faces the beam | 3.0 s, ω 0.40 rad/s | 2.0 s, ω 0.60 rad/s |
 | The beam stops at once if the player is hit, or if the boss takes damage | — | — |
 | Recovery (short, to reward the counter-roll; a punish window) | 0.5 s | 0.4 s |
 
@@ -550,7 +551,7 @@ On the hit that brings HP to 0:
 
 | Time after the hit | What happens |
 |---|---|
-| 0.00 s | Hit-stop for 0.10 s. State becomes `DYING`. All hazards are removed. Long sounds (`slam_rise`, `charge_windup`, `rebuke_windup`) stop |
+| 0.00 s | Hit-stop for 0.10 s. State becomes `DYING`. The running attack ends with a final burst of its effect (e.g. the Cone's fire fills the cone, the Flame Beam bursts along its line), so the killing blow is always visible. Hazards no longer hurt but **finish their animation** (rings expand and fade, shards and meteors land and explode, spikes retract); the Meteor Shower spawns no new meteors. Reset removes everything *(changed 2026-10-12)*. Long sounds (`slam_rise`, `charge_windup`, `rebuke_windup`) stop |
 | 0.10 s | The 12 parts (torso, head, upper arms, forearms with hands, thighs, shins with boots, scabbard, sword) detach from the hierarchy and keep their world positions and rotations. Each part gets a horizontal velocity of 3–6 m/s away from the hit source, an upward velocity of 4–7 m/s, and a random spin of up to 10 rad/s. Debris physics applies (ARCHITECTURE.md §5.6). `player_break` sound (clatter plus a falling slide whistle) |
 | 0.10 s → | The boss cancels any attack or telegraph, stops moving, and turns at its normal rate to **face the remains** (the average position of the debris). It keeps its idle bounce, as if it is gloating |
 | 0.60 s | "YOU DIED" fades in over 0.5 s (§2), with the `you_died` sound |

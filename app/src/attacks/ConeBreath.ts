@@ -100,6 +100,8 @@ export class ConeBreath implements Attack {
         b.pulse = 0.35 * u;
         const pulse = 0.5 * (1 - Math.cos(2 * Math.PI * 3 * this.t));
         this.placeOutline(ctx, b.yaw, CN.outlineOpacity * (0.6 + 0.4 * pulse));
+        // Visuals lead the damage: the fire starts before the window, so it fills the cone in time.
+        if (this.t >= this.telegraph - CN.flameLead - EPS) ctx.vfx?.coneFlames(b.pos.x, b.pos.z, b.yaw, this.half, this.range, CN.flamesPerStep);
         if (this.t >= this.telegraph - EPS) {
           this.axis = b.yaw;
           b.stuck = true;
@@ -124,7 +126,7 @@ export class ConeBreath implements Attack {
         if (this.wasActive && !active) ctx.vfx?.coneAftermath(b.pos.x, b.pos.z, this.axis, this.half, this.range);
         this.wasActive = active;
         this.placeOutline(ctx, this.axis, active ? 0.55 : 0.12);
-        if (active) ctx.vfx?.coneFlames(b.pos.x, b.pos.z, this.axis, this.half, this.range, CN.flamesPerStep);
+        if (this.flamesAt(this.t)) ctx.vfx?.coneFlames(b.pos.x, b.pos.z, this.axis, this.half, this.range, CN.flamesPerStep);
         if (this.t >= (this.blasts - 1) * CN.blastGap + CN.blast - EPS) {
           if (this.wasActive) ctx.vfx?.coneAftermath(b.pos.x, b.pos.z, this.axis, this.half, this.range);
           this.outline.removeFromParent();
@@ -166,6 +168,24 @@ export class ConeBreath implements Attack {
     this.outline.removeFromParent();
     this.ctx?.boss.clearAttackPose();
     this.phase = 'done';
+  }
+
+  /** The player died from this blast: the fire fills the whole cone at once, then burns. */
+  finale(): void {
+    const ctx = this.ctx;
+    if (!ctx || this.phase !== 'blast') return;
+    const b = ctx.boss.pos;
+    for (let i = 0; i < 5; i++) ctx.vfx?.coneFlames(b.x, b.z, this.axis, this.half, this.range, CN.flamesPerStep);
+    ctx.vfx?.coneAftermath(b.x, b.z, this.axis, this.half, this.range);
+  }
+
+  /** Fire is drawn (each window plus the lead before it; the first lead is in the telegraph). */
+  private flamesAt(t: number): boolean {
+    for (let k = 0; k < this.blasts; k++) {
+      const s = k * CN.blastGap;
+      if (t >= s - (k === 0 ? 0 : CN.flameLead) - EPS && t < s + CN.blast - EPS) return true;
+    }
+    return false;
   }
 
   /** Inside one of the blasts' 0.25 s damage windows at time `t` of the blast phase. */

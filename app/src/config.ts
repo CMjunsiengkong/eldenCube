@@ -428,6 +428,8 @@ const RAW = {
     outlineOpacity: 0.35,
     flamesPerStep: 26, // particles per step during a blast (visual)
     burnsPerBlast: 8, // burning marks left in the cone after each blast (visual)
+    flameLead: 0.22, // s the fire starts before each damage window (visuals lead the damage)
+    flameTravel: 0.22, // s for the flames to cross the cone
     waveTime: 0.3, // s the ring of fire takes to cross the cone (visual)
     mouthHeight: 2.0, // m
   },
@@ -440,7 +442,7 @@ const RAW = {
     rageFire: 2.0,
     sweep: 0.4, // rad/s: walking outruns it within ~15 m
     rageSweep: 0.6, // rad/s: within ~10 m
-    travelSpeed: 14, // m/s: the beam's front shoots out from the mouth
+    travelSpeed: 28, // m/s: the beam's front shoots out from the mouth (14 → 28 on 2026-10-12)
     minGround: 6, // m: ground point distance (locked at the player's feet), clamped
     maxGround: 26,
     hitRadius: 0.5, // m from the beam segment to a hit sphere

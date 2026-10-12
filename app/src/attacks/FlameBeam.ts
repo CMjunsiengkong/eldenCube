@@ -267,6 +267,17 @@ export class FlameBeam implements Attack {
     if (this.phase === 'fire' || this.phase === 'charge') this.stopFiring();
   }
 
+  /** The player died from the beam: fire bursts along its whole line. */
+  finale(): void {
+    const ctx = this.ctx;
+    if (!ctx || this.phase !== 'fire' || !ctx.vfx) return;
+    const b = ctx.boss.pos;
+    for (let i = 0; i < 6; i++) ctx.vfx.beamSparks(b.x, b.z, this.phi, BM.startOffset, this.head, BM.mouthHeight * 0.5);
+    const s = Math.sin(this.phi);
+    const c = Math.cos(this.phi);
+    for (let d = BM.startOffset + 1; d < this.head; d += 1.5) ctx.vfx.fireExplosion(b.x + s * d, b.z + c * d);
+  }
+
   /** The player was hit: the beam stops. */
   onPlayerHit(): void {
     if (this.phase === 'fire') this.stopFiring();

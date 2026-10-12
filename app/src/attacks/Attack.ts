@@ -138,6 +138,8 @@ export interface Attack {
   onBossHit?(): void;
   /** The player was hit (the Flame Beam stops). */
   onPlayerHit?(): void;
+  /** The player just died from this attack: a final burst so the killing blow is visible. */
+  finale?(): void;
 }
 
 /** True if this rage upgrade is active for the attack being run (rage AND switched on). */

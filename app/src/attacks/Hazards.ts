@@ -39,6 +39,16 @@ const G = CONFIG.fx.gravity;
 const PLAYER_R = CONFIG.player.radius;
 const EPS = 1e-9;
 export const WAVES = 3;
+
+/**
+ * Pure (tested): the Rebuke spikes' reach (m from the boss center) `t` s into the burst. It grows
+ * from startRadius to endRadius (ease-out) over the first 70% of the burst; both the drawing and
+ * the kill check use it, so the damage never arrives before the spikes (2026-10-12).
+ */
+export function rebukeReach(t: number): number {
+  const u = Math.min(1, Math.max(0, t / (CONFIG.rebuke.burst * 0.7)));
+  return CONFIG.rebuke.startRadius + (CONFIG.rebuke.endRadius - CONFIG.rebuke.startRadius) * easeOut(u);
+}
 const MAX = RN.maxPerWave;
 const RING_POOL = 3;
 
@@ -256,6 +266,12 @@ export class Hazards {
     return Math.min(1, this.meteorElapsed / B.fadeIn) * Math.min(1, this.meteorLeft / B.fadeOut);
   }
 
+  /** The player died: no new meteors (the falling ones and every other hazard finish visually). */
+  stopShower(): void {
+    this.meteorLeft = 0;
+    this.meteorAcc = 0;
+  }
+
   /** Meteor Shower still running or meteors still falling (debug, tests). */
   get meteorsActive(): boolean {
     return this.meteorLeft > 0 || this.meteors.some((m) => m.falling);
@@ -341,8 +357,7 @@ export class Hazards {
       const S = RB.spikes;
       let tip: number;
       if (this.rebukeT <= RB.burst) {
-        const u = this.rebukeT / RB.burst;
-        tip = RB.startRadius + (RB.endRadius + S.overshoot - RB.startRadius) * easeOut(u);
+        tip = rebukeReach(this.rebukeT) + S.overshoot * Math.min(1, this.rebukeT / RB.burst);
       } else if (this.rebukeT <= RB.burst + S.hold) {
         const u = (this.rebukeT - RB.burst) / S.hold;
         tip = RB.endRadius + S.overshoot * (1 - u);
