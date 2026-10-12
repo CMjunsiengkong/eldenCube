@@ -377,16 +377,16 @@ export class Vfx {
       const a = yaw + (r() * 2 - 1) * half;
       const sa = Math.sin(a);
       const ca = Math.cos(a);
-      const speed = ember ? fast * (0.25 + 0.2 * r()) : fast * (0.85 + 0.35 * r());
+      const speed = ember ? fast * (0.3 + 0.2 * r()) : fast * (1.0 + 0.4 * r()); // sharper, quicker
       s.x = mx;
       s.y = CN.mouthHeight * (0.55 + 0.35 * r());
       s.z = mz;
       s.vx = sa * speed;
       s.vz = ca * speed;
       s.vy = (r() - 0.6) * (ember ? 4 : 10);
-      s.life = ember ? 0.35 + r() * 0.25 : ((range - mouth) / speed) * (0.9 + 0.3 * r());
-      s.size0 = ember ? 0.45 : 0.28;
-      s.size1 = ember ? 0.12 : 0.14;
+      s.life = ember ? 0.25 + r() * 0.15 : ((range - mouth) / speed) * (0.95 + 0.15 * r());
+      s.size0 = ember ? 0.3 : 0.16;
+      s.size1 = ember ? 0.08 : 0.06;
       s.gravity = ember ? 6 : 2;
       s.alpha = 1;
       s.color.copy(this.cFlameCore).lerp(this.cFire, ember ? 0.6 + 0.4 * r() : r() * 0.7);

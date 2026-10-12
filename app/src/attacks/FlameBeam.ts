@@ -346,7 +346,8 @@ export class FlameBeam implements Attack {
     b.attackSquash.y = 1;
     this.aim.removeFromParent();
     this.orb.removeFromParent();
-    this.chargeSound = null; // it ends with the charge
+    this.chargeSound?.stop(); // a longer file is cut where the charge ends
+    this.chargeSound = null;
     this.fireSound = ctx.audio.play('beam_fire', { duration: this.fireTime });
     ctx.shake(0.4, 0.35);
     ctx.cinema?.flash(BM.flash);

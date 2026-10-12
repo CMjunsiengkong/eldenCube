@@ -429,7 +429,7 @@ const RAW = {
     burnsPerBlast: 8, // burning marks left in the cone after each blast (visual)
     flameLead: 0.1, // s the sparks start before each damage window (visuals lead the damage)
     flameTravel: 0.1, // s for the spark front to cross the cone
-    sparksPerStep: 80, // fire-spark streaks per step while a blast sprays (visual)
+    sparksPerStep: 60, // fire-spark streaks per step while a blast sprays (visual; −25% on 2026-10-12)
     emberRatio: 0.25, // fraction of slower, bigger embers
     waveTime: 0.3, // s the ring of fire takes to cross the cone (visual)
     mouthHeight: 2.0, // m
@@ -668,7 +668,8 @@ const RAW = {
     particles: {
       glowCapacity: 4096, // additive pool (tune, agent-chosen)
       sparkCapacity: 2048, // velocity-stretched streaks (cone sparks) (tune, agent-chosen)
-      sparkStretch: 0.05, // s of motion each streak shows
+      sparkStretch: 0.06, // s of motion each streak shows
+      sparkSoftness: 0.55, // harder edge than glow particles (sharper streaks)
       smokeCapacity: 512, // alpha-blended pool (tune, agent-chosen)
       floor: 0.03, // m; particles never sink below this height
       glowSoftness: 0.0, // radial falloff start (0 = soft disc)

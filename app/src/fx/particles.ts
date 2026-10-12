@@ -135,7 +135,7 @@ export class Particles {
       uniforms: {
         uTime: { value: 0 },
         uFloor: { value: P.floor },
-        uSoftness: { value: blend === 'smoke' ? P.smokeSoftness : P.glowSoftness },
+        uSoftness: { value: blend === 'smoke' ? P.smokeSoftness : blend === 'spark' ? P.sparkSoftness : P.glowSoftness },
         uStretch: { value: blend === 'spark' ? P.sparkStretch : 0 },
       },
       transparent: true,
