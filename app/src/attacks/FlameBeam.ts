@@ -24,7 +24,7 @@ import {
 import { CONFIG } from '../config';
 import type { Sphere } from '../entities/Player';
 import { wrapAngle } from '../util/math';
-import type { Attack, AttackContext } from './Attack';
+import type { Attack, AttackContext, SoundHandle } from './Attack';
 
 const BM = CONFIG.beam;
 const PLAYER_R = CONFIG.player.radius;
@@ -122,6 +122,10 @@ export class FlameBeam implements Attack {
   private head = 0;
   private burnT = 0;
   private time = 0;
+  /** The aim is locked (the last `lockLead` seconds of the charge). */
+  private locked = false;
+  private chargeSound: SoundHandle | null = null;
+  private fireSound: SoundHandle | null = null;
   private readonly source = new Vector3();
   private ctx: AttackContext | null = null;
   private readonly beam = new Group();
@@ -198,6 +202,8 @@ export class FlameBeam implements Attack {
     this.sweep = rage ? BM.rageSweep : BM.sweep;
     this.recovery = rage ? BM.rageRecovery : BM.recovery;
     ctx.cinema?.lift(true);
+    this.locked = false;
+    this.chargeSound = ctx.audio.play('beam_charge', { duration: this.charge });
     this.next('charge');
     this.placeAim(ctx);
   }
@@ -212,8 +218,15 @@ export class FlameBeam implements Attack {
         const u = Math.min(1, this.t / this.charge);
         b.crownGlow = u;
         b.attackSquash.y = 1 + 0.08 * u;
-        this.aimMat.opacity = 0.25 + 0.5 * (0.5 - 0.5 * Math.cos(2 * Math.PI * 6 * this.t));
-        this.placeAim(ctx);
+        if (!this.locked && this.t >= this.charge - BM.lockLead - EPS) this.lock(ctx);
+        if (this.locked) {
+          // Locked: the line stays put and flashes bright; the boss no longer turns.
+          b.yaw = this.phi;
+          this.aimMat.opacity = 0.6 + 0.4 * (0.5 - 0.5 * Math.cos(2 * Math.PI * 14 * this.t));
+        } else {
+          this.aimMat.opacity = 0.25 + 0.5 * (0.5 - 0.5 * Math.cos(2 * Math.PI * 6 * this.t));
+          this.placeAim(ctx);
+        }
         this.mouth(ctx, b.yaw, this.tmp);
         this.orb.position.copy(this.tmp);
         this.orb.scale.setScalar(Math.max(0.01, BM.orbRadius * u * (0.9 + 0.1 * Math.sin(this.t * 40))));
@@ -296,21 +309,36 @@ export class FlameBeam implements Attack {
   }
 
   dispose(): void {
+    this.stopSounds();
     this.hideAll();
     this.ctx?.cinema?.lift(false);
     this.ctx?.boss.clearAttackPose();
     this.phase = 'done';
   }
 
-  private fire(ctx: AttackContext): void {
+  /** `lockLead` s before firing: the aim locks onto the player, aimed down at their feet. */
+  private lock(ctx: AttackContext): void {
     const b = ctx.boss;
     const dx = ctx.playerPos.x - b.pos.x;
     const dz = ctx.playerPos.z - b.pos.z;
     const d = Math.hypot(dx, dz) || 1;
-    this.phi = Math.atan2(dx, dz); // locks exactly onto the player…
-    this.ground = Math.min(BM.maxGround, Math.max(BM.minGround, d)); // …aimed down at their feet
+    this.phi = Math.atan2(dx, dz);
+    this.ground = Math.min(BM.maxGround, Math.max(BM.minGround, d));
+    this.locked = true;
+    b.yaw = this.phi;
+    b.stuck = true;
+    this.placeAim(ctx);
+  }
+
+  private fire(ctx: AttackContext): void {
+    const b = ctx.boss;
+    if (!this.locked) this.lock(ctx);
+    const dx = ctx.playerPos.x - b.pos.x;
+    const dz = ctx.playerPos.z - b.pos.z;
+    const d = Math.hypot(dx, dz) || 1;
     this.head = BM.startOffset;
     this.burnT = 0;
+    // The sweep side follows how the player moves at the moment of firing.
     this.side = sweepSide(dx / d, dz / d, ctx.playerVel.x, ctx.playerVel.z, ctx.rng());
     b.yaw = this.phi;
     b.stuck = true;
@@ -318,7 +346,8 @@ export class FlameBeam implements Attack {
     b.attackSquash.y = 1;
     this.aim.removeFromParent();
     this.orb.removeFromParent();
-    ctx.audio.play('shard_launch');
+    this.chargeSound = null; // it ends with the charge
+    this.fireSound = ctx.audio.play('beam_fire', { duration: this.fireTime });
     ctx.shake(0.4, 0.35);
     ctx.cinema?.flash(BM.flash);
     this.next('fire');
@@ -326,9 +355,17 @@ export class FlameBeam implements Attack {
   }
 
   private stopFiring(): void {
+    this.stopSounds();
     this.hideAll();
     this.ctx?.cinema?.lift(false);
     this.next('recovery');
+  }
+
+  private stopSounds(): void {
+    this.chargeSound?.stop();
+    this.fireSound?.stop();
+    this.chargeSound = null;
+    this.fireSound = null;
   }
 
   private hideAll(): void {

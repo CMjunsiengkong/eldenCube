@@ -35,6 +35,7 @@ interface Flash {
 export class Vfx {
   readonly glow = new Particles(V.particles.glowCapacity, 'glow');
   readonly smoke = new Particles(V.particles.smokeCapacity, 'smoke');
+  readonly sparks = new Particles(V.particles.sparkCapacity, 'spark');
   readonly burns = new Burns();
   private readonly rng: Rng = createRng(0x51ab);
   private readonly spec = newSpec();
@@ -65,6 +66,7 @@ export class Vfx {
     this.scene = scene;
     this.glow.addTo(scene);
     this.smoke.addTo(scene);
+    this.sparks.addTo(scene);
     this.burns.addTo(scene);
     const geo = new RingGeometry(V.flash.innerRatio, 1, 48);
     geo.rotateX(-Math.PI / 2);
@@ -101,6 +103,7 @@ export class Vfx {
   step(dt: number): void {
     this.glow.step(dt);
     this.smoke.step(dt);
+    this.sparks.step(dt);
     this.burns.step(dt);
     for (const f of this.flashes) {
       if (!f.mesh.visible) continue;
@@ -150,6 +153,7 @@ export class Vfx {
   clear(): void {
     this.glow.clear();
     this.smoke.clear();
+    this.sparks.clear();
     this.burns.clear();
     for (const f of this.flashes) f.mesh.visible = false;
     for (const w of this.waves) w.mesh.visible = false;
@@ -159,7 +163,7 @@ export class Vfx {
 
   /** Objects that are normally hidden (shader warm-up). */
   get scenePool(): readonly Mesh[] {
-    return [this.glow.mesh, this.smoke.mesh, this.burns.scorch, this.burns.flames, ...this.flashes.map((f) => f.mesh), ...this.waves.map((w) => w.mesh)];
+    return [this.glow.mesh, this.smoke.mesh, this.sparks.mesh, this.burns.scorch, this.burns.flames, ...this.flashes.map((f) => f.mesh), ...this.waves.map((w) => w.mesh)];
   }
 
   // --- emitters ------------------------------------------------------------------------------------
@@ -355,30 +359,53 @@ export class Vfx {
     this.flash(x, z, H.ringFrom, H.ringTo, H.ringTime, this.cHeal, 0.8);
   }
 
-  /** GD §6.5 E: fire filling the cone from the boss's mouth (one step of a blast). */
-  coneFlames(bx: number, bz: number, yaw: number, half: number, range: number, count: number): void {
+  /**
+   * GD §6.5 E (2026-10-12): one step of a blast — a shotgun spray of fast fire-spark streaks from
+   * the boss's mouth across the cone (the front crosses it in `flameTravel`), a few slower embers
+   * and a muzzle flash.
+   */
+  coneSparks(bx: number, bz: number, yaw: number, half: number, range: number, count: number): void {
+    const CN = CONFIG.cone;
     const r = this.rng;
     const s = this.spec;
     const mouth = CONFIG.boss.halfSize;
+    const mx = bx + Math.sin(yaw) * mouth;
+    const mz = bz + Math.cos(yaw) * mouth;
+    const fast = (range - mouth) / CN.flameTravel;
     for (let i = 0; i < count; i++) {
+      const ember = r() < CN.emberRatio;
       const a = yaw + (r() * 2 - 1) * half;
       const sa = Math.sin(a);
       const ca = Math.cos(a);
-      const speed = (range - mouth) / CONFIG.cone.flameTravel;
-      s.x = bx + sa * mouth;
-      s.y = CONFIG.cone.mouthHeight * (0.5 + 0.5 * r());
-      s.z = bz + ca * mouth;
-      s.vx = sa * speed * (0.7 + 0.3 * r());
-      s.vz = ca * speed * (0.7 + 0.3 * r());
-      s.vy = -1.5 - r() * 2;
-      s.life = 0.3 + r() * 0.12;
-      s.size0 = 0.7;
-      s.size1 = 2.0;
-      s.gravity = -2;
-      s.alpha = 0.55;
-      s.color.copy(this.cFlameCore).lerp(this.cFire, 0.5 + r() * 0.5);
-      this.glow.spawn(s);
+      const speed = ember ? fast * (0.25 + 0.2 * r()) : fast * (0.85 + 0.35 * r());
+      s.x = mx;
+      s.y = CN.mouthHeight * (0.55 + 0.35 * r());
+      s.z = mz;
+      s.vx = sa * speed;
+      s.vz = ca * speed;
+      s.vy = (r() - 0.6) * (ember ? 4 : 10);
+      s.life = ember ? 0.35 + r() * 0.25 : ((range - mouth) / speed) * (0.9 + 0.3 * r());
+      s.size0 = ember ? 0.45 : 0.28;
+      s.size1 = ember ? 0.12 : 0.14;
+      s.gravity = ember ? 6 : 2;
+      s.alpha = 1;
+      s.color.copy(this.cFlameCore).lerp(this.cFire, ember ? 0.6 + 0.4 * r() : r() * 0.7);
+      this.sparks.spawn(s);
     }
+    // Muzzle flash at the mouth.
+    s.x = mx;
+    s.y = CN.mouthHeight * 0.75;
+    s.z = mz;
+    s.vx = Math.sin(yaw) * 6;
+    s.vz = Math.cos(yaw) * 6;
+    s.vy = 0;
+    s.life = 0.08;
+    s.size0 = 3.2;
+    s.size1 = 1.6;
+    s.gravity = 0;
+    s.alpha = 0.7;
+    s.color.copy(this.cCore);
+    this.glow.spawn(s);
   }
 
   /** GD §6.5 F: embers flying off the beam (one step). */

@@ -139,26 +139,42 @@ describe('Flame Beam (GAME_DESIGN §6.5 F, 2026-10-12)', () => {
     expect(beam.checkPlayerHit(spheresAt(-4, 10))).toBeNull();
   });
 
-  it('walking sideways at full speed outruns it at a normal distance (10 m)', () => {
+  it('walking sideways at full speed from the lock flash outruns it at a normal distance (8 m)', () => {
     for (const rage of [false, true]) {
       const ctx = makeCtx({ rage });
       const beam = new FlameBeam();
       const r = 8;
       let a = 0;
+      let t = 0;
+      const lockAt = (rage ? BM.rageCharge : BM.charge) - BM.lockLead;
       ctx.playerPos.set(0, 0, r);
-      ctx.playerVel.set(6, 0, 0);
       beam.start(ctx);
-      while (beam.phaseName === 'charge') beam.update(STEP, ctx);
       let hit = false;
-      for (let i = 0; i < 180 && beam.phaseName === 'fire'; i++) {
-        a += (6 / r) * STEP; // circle the boss at 6 m/s
-        ctx.playerPos.set(Math.sin(a) * r, 0, Math.cos(a) * r);
-        ctx.playerVel.set(Math.cos(a) * 6, 0, -Math.sin(a) * 6);
+      for (let i = 0; i < 300 && beam.phaseName !== 'recovery' && beam.phaseName !== 'done'; i++) {
+        t += STEP;
+        if (t >= lockAt) {
+          a += (6 / r) * STEP; // circle the boss at 6 m/s from the lock flash on
+          ctx.playerPos.set(Math.sin(a) * r, 0, Math.cos(a) * r);
+          ctx.playerVel.set(Math.cos(a) * 6, 0, -Math.sin(a) * 6);
+        }
         beam.update(STEP, ctx);
         if (beam.checkPlayerHit(spheresAt(ctx.playerPos.x, ctx.playerPos.z))) hit = true;
       }
       expect(hit).toBe(false);
     }
+  });
+
+  it('standing still at the lock is hit', () => {
+    const ctx = makeCtx();
+    const beam = new FlameBeam();
+    ctx.playerPos.set(0, 0, 8);
+    beam.start(ctx);
+    let hit = false;
+    for (let i = 0; i < 200 && !hit; i++) {
+      beam.update(STEP, ctx);
+      if (beam.checkPlayerHit(spheresAt(0, 8))) hit = true;
+    }
+    expect(hit).toBe(true);
   });
 
   it('the ground point is clamped to 6–26 m', () => {

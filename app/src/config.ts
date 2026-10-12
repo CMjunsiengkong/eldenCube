@@ -426,10 +426,11 @@ const RAW = {
     recovery: 0.8, // s
     rageRecovery: 0.6,
     outlineOpacity: 0.35,
-    flamesPerStep: 26, // particles per step during a blast (visual)
     burnsPerBlast: 8, // burning marks left in the cone after each blast (visual)
-    flameLead: 0.22, // s the fire starts before each damage window (visuals lead the damage)
-    flameTravel: 0.22, // s for the flames to cross the cone
+    flameLead: 0.1, // s the sparks start before each damage window (visuals lead the damage)
+    flameTravel: 0.1, // s for the spark front to cross the cone
+    sparksPerStep: 80, // fire-spark streaks per step while a blast sprays (visual)
+    emberRatio: 0.25, // fraction of slower, bigger embers
     waveTime: 0.3, // s the ring of fire takes to cross the cone (visual)
     mouthHeight: 2.0, // m
   },
@@ -445,15 +446,16 @@ const RAW = {
     travelSpeed: 28, // m/s: the beam's front shoots out from the mouth (14 → 28 on 2026-10-12)
     minGround: 6, // m: ground point distance (locked at the player's feet), clamped
     maxGround: 26,
-    hitRadius: 0.5, // m from the beam segment to a hit sphere
+    hitRadius: 1.0, // m from the beam segment to a hit sphere (0.5 → 1.0 on 2026-10-12)
+    lockLead: 0.3, // s before firing the aim locks (the aiming line freezes and flashes)
     lateralDeadzone: 1.0, // m/s: below this the sweep side is random
     recovery: 0.5,
     rageRecovery: 0.4,
     mouthHeight: 2.0, // m: the beam starts here and slants down to the ground point
     startOffset: 2.1, // m from the boss center (its face)
-    radius: 0.35, // m visual core
-    glowRadius: 0.85, // m visual glow
-    stripeWidth: 1.4, // m glowing ground stripe
+    radius: 0.7, // m visual core
+    glowRadius: 1.6, // m visual glow
+    stripeWidth: 2.8, // m glowing ground stripe
     burnEvery: 0.07, // s between burning marks at the ground point
     nearFade: [1.5, 3.0] as Range, // m: the beam fades out this close to the camera
     orbRadius: 0.75, // m charge orb at full charge
@@ -665,6 +667,8 @@ const RAW = {
   vfx: {
     particles: {
       glowCapacity: 4096, // additive pool (tune, agent-chosen)
+      sparkCapacity: 2048, // velocity-stretched streaks (cone sparks) (tune, agent-chosen)
+      sparkStretch: 0.05, // s of motion each streak shows
       smokeCapacity: 512, // alpha-blended pool (tune, agent-chosen)
       floor: 0.03, // m; particles never sink below this height
       glowSoftness: 0.0, // radial falloff start (0 = soft disc)
@@ -887,6 +891,8 @@ const RAW = {
       victory: 0.4,
       rebuke_windup: 0.45,
       rebuke_burst: 0.7,
+      beam_charge: 0.45,
+      beam_fire: 0.6,
       player_hurt: 0.7,
       flask_drink: 0.4,
       flask_heal: 0.4,

@@ -27,6 +27,7 @@ attribute vec4 aShape;  // x start size, y end size, z gravity (m/s², down), w 
 attribute vec3 aColor;
 uniform float uTime;
 uniform float uFloor;
+uniform float uStretch;
 varying vec2 vUv;
 varying vec4 vColor;
 void main() {
@@ -41,7 +42,19 @@ void main() {
   p.y = max(p.y, uFloor);
   float size = mix(aShape.x, aShape.y, u);
   vec4 mv = modelViewMatrix * vec4(p, 1.0);
-  mv.xy += position.xy * size;
+  if (uStretch > 0.0) {
+    // Spark: a streak stretched along the screen-space velocity (its last uStretch seconds).
+    vec3 vel = aVel.xyz - vec3(0.0, aShape.z * age, 0.0);
+    vec4 mv2 = modelViewMatrix * vec4(p - vel * uStretch, 1.0);
+    vec2 d = mv.xy - mv2.xy;
+    float len = max(length(d), size);
+    vec2 dir = length(d) > 1e-5 ? d / length(d) : vec2(1.0, 0.0);
+    vec2 perp = vec2(-dir.y, dir.x);
+    // The quad's x runs along the motion (keeping the winding, so it is not back-face culled).
+    mv.xy += dir * (position.x * len) + perp * (position.y * size);
+  } else {
+    mv.xy += position.xy * size;
+  }
   gl_Position = projectionMatrix * mv;
   vUv = uv;
   vColor = vec4(aColor, aShape.w * (1.0 - smoothstep(0.45, 1.0, u)));
@@ -58,7 +71,7 @@ void main() {
   #include <colorspace_fragment>
 }`;
 
-export type ParticleBlend = 'glow' | 'smoke';
+export type ParticleBlend = 'glow' | 'smoke' | 'spark';
 
 /** One spawn request; fields are reused by callers (no allocation per particle). */
 export interface ParticleSpec {
@@ -122,16 +135,17 @@ export class Particles {
       uniforms: {
         uTime: { value: 0 },
         uFloor: { value: P.floor },
-        uSoftness: { value: blend === 'glow' ? P.glowSoftness : P.smokeSoftness },
+        uSoftness: { value: blend === 'smoke' ? P.smokeSoftness : P.glowSoftness },
+        uStretch: { value: blend === 'spark' ? P.sparkStretch : 0 },
       },
       transparent: true,
       depthWrite: false,
-      blending: blend === 'glow' ? AdditiveBlending : NormalBlending,
+      blending: blend === 'smoke' ? NormalBlending : AdditiveBlending,
       toneMapped: false,
     });
     this.mesh = new Mesh(geo, this.material);
     this.mesh.frustumCulled = false;
-    this.mesh.renderOrder = blend === 'glow' ? 6 : 5;
+    this.mesh.renderOrder = blend === 'smoke' ? 5 : 6;
   }
 
   /** Simulation time of the shader clock (tests). */

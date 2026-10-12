@@ -460,19 +460,19 @@ Why: the waves land 0.4 s apart, longer than the 0.35 s of roll i-frames, so one
 | Blast (the boss is stuck; the cone is fixed): a wide burst of fire fills the cone, a ring of fire rushes outward across the cone on the ground, the boss light flares, and about **8 burning marks** (§6.5 C) are left scattered in the cone; smoke follows | 1 blast, damage window **0.25 s** | **2 blasts**: the second starts **0.70 s** after the first (each 0.25 s), timed to the second roll's i-frames |
 | Recovery (a punish window: no turning, damage does not count toward poise) | 0.8 s | 0.6 s |
 
-**Visuals lead the damage** *(2026-10-12)*: the fire starts **0.22 s before** each damage window and reaches the end of the cone just as the window opens, so the flames are always on screen before they hurt.
+**Visuals lead the damage** *(2026-10-12)*: each blast starts **0.1 s before** its damage window with a muzzle flash at the boss's mouth and a **shotgun-like spray of fast fire sparks** (streaks) that crosses the cone in that 0.1 s, so the fire is on screen before it hurts.
 **Kill rule:** during a blast's damage window, the player is hit if their horizontal distance to the boss center is at most `range + 0.4` and the angle from the boss's facing to the player is within half the cone angle (plus the player's radius).
 **How to survive:** the cone is too wide to run out of during the telegraph: **roll through it** (the 0.25 s window fits inside the 0.35 s i-frames), or already be **behind the boss** (outside the cone). In rage you need **2 rolls (60 stamina)**; without enough stamina, one hit is guaranteed. Hurt invincibility means the double blast deals at most 1 damage.
 
 #### F. Flame Beam *(added 2026-10-12)*
 | Step | Phase 1 | Rage |
 |---|---|---|
-| Charge: the boss turns toward the player; a thin red aiming line shows the path; sparks rush into a growing glowing orb at the boss's mouth and the screen edges darken. At the end the beam locks exactly onto the player, **aimed down at their feet** (ground distance clamped to 6–26 m) | 1.0 s | 0.7 s |
-| Fire *(reworked 2026-10-12, like Hyper Beam)*: a short white flash, a hard camera shake and a low rumble. The beam slants from the boss's mouth down to the ground at the locked distance; its **front travels out at 28 m/s** (it is only dangerous up to its front). Where it meets the ground it explodes constantly and leaves a **trail of burning marks** (§6.5 C). A glowing stripe on the ground shows its path. **Sweep side:** decided once when it fires, from the player's sideways velocity across the boss→player line (above 1.0 m/s: the side the player moves to; otherwise random). The beam fires straight at where the player was and **starts sweeping once its front reaches the ground**; it then only sweeps that way, at up to **ω** toward the player, and **never reverses**. **Walking sideways at full speed outruns it** within about 15 m (rage: 10 m); rolling against the sweep also works. The boss faces the beam | 3.0 s, ω 0.40 rad/s | 2.0 s, ω 0.60 rad/s |
+| Charge: `beam_charge` sound; the boss turns toward the player; a thin red aiming line shows the path; sparks rush into a growing glowing orb at the boss's mouth and the screen edges darken. **0.3 s before firing the beam locks** onto the player, **aimed down at their feet** (ground distance clamped to 6–26 m): the aiming line stops following and flashes bright. A player who starts walking at the flash gets clear | 1.0 s | 0.7 s |
+| Fire *(reworked 2026-10-12, like Hyper Beam)*: `beam_fire` sound (lasts while firing), a short white flash, a hard camera shake and a low rumble. The beam slants from the boss's mouth down to the ground at the locked distance; its **front travels out at 28 m/s** (it is only dangerous up to its front). Where it meets the ground it explodes constantly and leaves a **trail of burning marks** (§6.5 C). A glowing stripe on the ground shows its path. **Sweep side:** decided once when it fires, from the player's sideways velocity across the boss→player line (above 1.0 m/s: the side the player moves to; otherwise random). The beam fires straight at where the player was and **starts sweeping once its front reaches the ground**; it then only sweeps that way, at up to **ω** toward the player, and **never reverses**. **Walking sideways at full speed outruns it** within about 15 m (rage: 10 m); rolling against the sweep also works. The boss faces the beam | 3.0 s, ω 0.40 rad/s | 2.0 s, ω 0.60 rad/s |
 | The beam stops at once if the player is hit, or if the boss takes damage | — | — |
 | Recovery (short, to reward the counter-roll; a punish window) | 0.5 s | 0.4 s |
 
-**Kill rule:** while firing, the player is hit if the beam (radius **0.5 m**, from the boss's face to its front, at most the ground point) touches a hit sphere (horizontal distance from the sphere center to that segment ≤ 0.5 + 0.4 m).
+**Kill rule:** while firing, the player is hit if the beam (radius **1.0 m**, wider since 2026-10-12, from the boss's face to its front, at most the ground point) touches a hit sphere (horizontal distance from the sphere center to that segment ≤ 1.0 + 0.4 m).
 **How to survive:** walk or sprint away from the sweep (works at normal fight distances), or **roll against the sweep** as the beam reaches you: the i-frames carry you through it and it cannot turn back. Players beyond the ground point are safe. Then punish the boss from the side.
 
 #### G. Meteor Shower *(added 2026-10-12; once per fight)*
@@ -584,6 +584,8 @@ The game must therefore be complete and fully audible with **no sound files at a
 | `rage` | Rage transition starts |
 | `rebuke_windup` | Royal Rebuke tell starts (stoppable) |
 | `rebuke_burst` | Royal Rebuke burst |
+| `beam_charge` *(2026-10-12)* | Flame Beam charge starts (stoppable, lasts the charge) |
+| `beam_fire` *(2026-10-12)* | Flame Beam fires (stoppable, lasts while firing) |
 | `player_hurt` | The player takes a non-lethal hit |
 | `flask_drink` | A drink starts |
 | `flask_heal` | The drink restores 1 HP (0.60 s) |

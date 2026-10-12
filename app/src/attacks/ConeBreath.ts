@@ -101,7 +101,7 @@ export class ConeBreath implements Attack {
         const pulse = 0.5 * (1 - Math.cos(2 * Math.PI * 3 * this.t));
         this.placeOutline(ctx, b.yaw, CN.outlineOpacity * (0.6 + 0.4 * pulse));
         // Visuals lead the damage: the fire starts before the window, so it fills the cone in time.
-        if (this.t >= this.telegraph - CN.flameLead - EPS) ctx.vfx?.coneFlames(b.pos.x, b.pos.z, b.yaw, this.half, this.range, CN.flamesPerStep);
+        if (this.t >= this.telegraph - CN.flameLead - EPS) ctx.vfx?.coneSparks(b.pos.x, b.pos.z, b.yaw, this.half, this.range, CN.sparksPerStep);
         if (this.t >= this.telegraph - EPS) {
           this.axis = b.yaw;
           b.stuck = true;
@@ -126,7 +126,7 @@ export class ConeBreath implements Attack {
         if (this.wasActive && !active) ctx.vfx?.coneAftermath(b.pos.x, b.pos.z, this.axis, this.half, this.range);
         this.wasActive = active;
         this.placeOutline(ctx, this.axis, active ? 0.55 : 0.12);
-        if (this.flamesAt(this.t)) ctx.vfx?.coneFlames(b.pos.x, b.pos.z, this.axis, this.half, this.range, CN.flamesPerStep);
+        if (this.flamesAt(this.t)) ctx.vfx?.coneSparks(b.pos.x, b.pos.z, this.axis, this.half, this.range, CN.sparksPerStep);
         if (this.t >= (this.blasts - 1) * CN.blastGap + CN.blast - EPS) {
           if (this.wasActive) ctx.vfx?.coneAftermath(b.pos.x, b.pos.z, this.axis, this.half, this.range);
           this.outline.removeFromParent();
@@ -170,12 +170,12 @@ export class ConeBreath implements Attack {
     this.phase = 'done';
   }
 
-  /** The player died from this blast: the fire fills the whole cone at once, then burns. */
+  /** The player died from this blast: a final heavy spray of sparks, then burning marks. */
   finale(): void {
     const ctx = this.ctx;
     if (!ctx || this.phase !== 'blast') return;
     const b = ctx.boss.pos;
-    for (let i = 0; i < 5; i++) ctx.vfx?.coneFlames(b.x, b.z, this.axis, this.half, this.range, CN.flamesPerStep);
+    for (let i = 0; i < 4; i++) ctx.vfx?.coneSparks(b.x, b.z, this.axis, this.half, this.range, CN.sparksPerStep);
     ctx.vfx?.coneAftermath(b.x, b.z, this.axis, this.half, this.range);
   }
 
