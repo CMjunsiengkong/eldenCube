@@ -8,6 +8,7 @@ import { Vector3 } from 'three';
 import { CONFIG } from '../config';
 import type { Sphere } from '../entities/Player';
 import { horizontalDistance } from '../systems/collision';
+import { rebukeReach } from './Hazards';
 import type { Attack, AttackContext, SoundHandle } from './Attack';
 
 const RB = CONFIG.rebuke;
@@ -73,11 +74,16 @@ export class RoyalRebuke implements Attack {
     }
   }
 
-  /** During the burst: hit if the horizontal distance to the boss center is ≤ 4.5 + 0.4 m. */
+  /**
+   * During the burst: hit if the horizontal distance to the boss center is within the spikes'
+   * current reach + 0.4 m (the reach grows 2.0 → 4.5 m, ease-out, as drawn), so the damage never
+   * arrives before the spikes do (2026-10-12).
+   */
   checkPlayerHit(spheres: readonly Sphere[]): Vector3 | null {
     const ctx = this.ctx;
     if (!ctx || this.phase !== 'burst') return null;
-    if (horizontalDistance(spheres[0].center, ctx.boss.pos) <= RB.endRadius + CONFIG.player.radius + EPS) {
+    const reach = rebukeReach(this.t);
+    if (horizontalDistance(spheres[0].center, ctx.boss.pos) <= reach + CONFIG.player.radius + EPS) {
       return this.source.set(ctx.boss.pos.x, CONFIG.boss.halfSize, ctx.boss.pos.z);
     }
     return null;

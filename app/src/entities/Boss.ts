@@ -42,36 +42,54 @@ export type BossMode = 'grace' | 'cooldown' | 'attacking' | 'rageTransition' | '
 export type HitResult = 'hit' | 'rage' | 'defeated' | 'ignored';
 export type RebukeReason = 'poise' | 'close' | 'window' | 'debug';
 
-/**
- * GD §6.5 selection rule (pure). `history` is oldest → newest.
- * - Charge only when the player is farther than 6 m; Crown Rain only when no rain shard is alive.
- * - The attack used for the last `noRepeat` attacks in a row is blocked, unless nothing else is valid.
- */
-export function chooseAttack(history: readonly AttackId[], distance: number, rainAlive: boolean, rng: Rng): AttackId {
-  const n = history.length;
-  let blocked: AttackId | null = null;
-  if (n >= B.noRepeat) {
-    blocked = history[n - 1];
-    for (let i = 2; i <= B.noRepeat; i++) if (history[n - i] !== blocked) blocked = null;
-  }
-  const valid: AttackId[] = [];
-  const collect = (block: AttackId | null): void => {
-    valid.length = 0;
-    for (const id of ATTACK_IDS) {
-      if (id === block) continue;
-      if (id === 'charge' && distance <= CONFIG.charge.minDistance) continue;
-      if (id === 'rain' && rainAlive) continue;
-      valid.push(id);
-    }
-  };
-  collect(blocked);
-  if (valid.length === 0) collect(null);
-  return valid[Math.min(valid.length - 1, Math.floor(rng() * valid.length))];
+/** What the brain starts: one of the random attacks, or the Royal Rebuke. */
+export type BossMove = AttackId | 'rebuke';
+
+/** GD §6.5 (2026-10-12): the distance band index (0 extreme close, 1 close, 2 mid, 3 far). */
+export function distanceBand(distance: number): number {
+  const b = CONFIG.ai.bands;
+  return distance < b[0] ? 0 : distance < b[1] ? 1 : distance < b[2] ? 2 : 3;
 }
 
-/** GD §6.2a close timer (pure): +dt while closer than 5 m and waiting, −2·dt otherwise, never below 0. */
-export function updateCloseTimer(timer: number, distance: number, waiting: boolean, dt: number): number {
-  return waiting && distance < RB.closeDistance ? timer + dt : Math.max(0, timer - RB.closeDecayMult * dt);
+const MOVE_IDS: readonly BossMove[] = ['rebuke', ...ATTACK_IDS];
+
+/**
+ * GD §6.5 selection rule (pure, 2026-10-12): a weighted random pick from the band's weights.
+ * `history` is oldest → newest (random attacks only). Charge is not allowed within 6 m, Crown Rain
+ * while its shards fly; the attack used last time keeps 25% of its weight, the one used the last
+ * two times 0 (ignored when nothing else is allowed). The allowed weights are renormalized.
+ */
+export function chooseMove(history: readonly AttackId[], distance: number, rainAlive: boolean, phase: BossPhase, rng: Rng): BossMove {
+  const row = CONFIG.ai.weights[phase === 'rage' ? 'rage' : 'p1'];
+  const band = distanceBand(distance);
+  const n = history.length;
+  const last = n > 0 ? history[n - 1] : null;
+  const twice = n >= 2 && history[n - 2] === last ? last : null;
+  const weightOf = (id: BossMove, repeats: boolean): number => {
+    if (id === 'charge' && distance <= CONFIG.charge.minDistance) return 0;
+    if (id === 'rain' && rainAlive) return 0;
+    let w = row[id][band];
+    if (repeats && id !== 'rebuke') {
+      if (id === twice) w = 0;
+      else if (id === last) w *= CONFIG.ai.repeatKeep;
+    }
+    return w;
+  };
+  for (const repeats of [true, false]) {
+    let total = 0;
+    for (const id of MOVE_IDS) total += weightOf(id, repeats);
+    if (total <= 0) continue;
+    let r = rng() * total;
+    for (const id of MOVE_IDS) {
+      const w = weightOf(id, repeats);
+      if (w <= 0) continue;
+      if (r < w) return id;
+      r -= w;
+    }
+    // rng() ≈ 1: the last allowed move.
+    for (let i = MOVE_IDS.length - 1; i >= 0; i--) if (weightOf(MOVE_IDS[i], repeats) > 0) return MOVE_IDS[i];
+  }
+  return 'slam';
 }
 
 /** GD §6.2a poise (pure): damage outside punish windows adds up; at 3 it triggers a Rebuke and resets. */
@@ -80,9 +98,6 @@ export function addPoise(poise: number, damage: number, inWindow: boolean): { po
   const p = poise + damage;
   return p >= RB.poiseTrigger - EPS ? { poise: 0, trigger: true } : { poise: p, trigger: false };
 }
-
-/** What the brain starts: one of the random attacks, or the Royal Rebuke. */
-export type BossMove = AttackId | 'rebuke';
 
 /** Pure boss core: HP, phase, mode, cooldown scheduler and the Rebuke triggers. */
 export class BossBrain {
@@ -93,13 +108,12 @@ export class BossBrain {
   cooldownLeft: number = B.grace;
   /** Random attacks used so far, oldest first (the Rebuke is not recorded). */
   readonly history: AttackId[] = [];
-  closeTimer = 0;
   poise = 0;
   /** A Rebuke to perform as soon as the boss is free (and why). */
   pendingRebuke: RebukeReason | null = null;
   /** The reason of the last Rebuke started (debug text). */
   lastRebuke: RebukeReason | null = null;
-  /** Debug keys 1/2/3 override the next random choice. */
+  /** Debug keys 1/2/3/5/6 override the next random choice. */
   forceNext: AttackId | null = null;
   /** The running move (while mode === 'attacking'). */
   current: BossMove | null = null;
@@ -121,7 +135,6 @@ export class BossBrain {
     this.mode = 'grace';
     this.cooldownLeft = B.grace;
     this.history.length = 0;
-    this.closeTimer = 0;
     this.poise = 0;
     this.pendingRebuke = null;
     this.lastRebuke = null;
@@ -131,14 +144,9 @@ export class BossBrain {
     this.cancelRequested = false;
   }
 
-  /** Waiting for the next attack (grace or cooldown): chase, close timer and tells apply. */
+  /** Waiting for the next attack (grace or cooldown): chase applies. */
   get waiting(): boolean {
     return this.mode === 'grace' || this.mode === 'cooldown';
-  }
-
-  /** The close-timer tell is showing (doubled bounce). */
-  get annoyed(): boolean {
-    return this.waiting && this.closeTimer >= RB.annoyedAt - EPS;
   }
 
   canTakeDamage(): boolean {
@@ -166,7 +174,6 @@ export class BossBrain {
       this.current = null;
       this.rageT = 0;
       this.poise = 0;
-      this.closeTimer = 0;
       this.pendingRebuke = null;
       this.cancelRequested = true;
       return 'rage';
@@ -203,8 +210,11 @@ export class BossBrain {
   /** The running move's boss animation has ended (hazards may still fly): the cooldown starts. */
   attackFree(): void {
     if (this.mode !== 'attacking') return;
+    const was = this.current;
     this.current = null;
     this.startCooldown();
+    // GD §6.5 (2026-10-12): after a Crown Rain the next pick happens right away.
+    if (was === 'rain') this.cooldownLeft = 0;
   }
 
   /** Player died (DYING): stop attacking and gloat. */
@@ -222,8 +232,6 @@ export class BossBrain {
    */
   update(dt: number, distance: number, rainAlive: boolean): BossMove | null {
     if (this.mode === 'gloat' || this.mode === 'defeated') return null;
-    this.closeTimer = updateCloseTimer(this.closeTimer, distance, this.waiting, dt);
-
     if (this.mode === 'rageTransition') {
       this.rageT += dt;
       // D10: a fresh rage cooldown starts when the transition ends.
@@ -232,10 +240,6 @@ export class BossBrain {
     }
     if (!this.waiting) return null;
 
-    if (this.closeTimer >= RB.closeTrigger - EPS) {
-      this.closeTimer = 0;
-      if (!this.pendingRebuke) this.pendingRebuke = 'close';
-    }
     if (this.pendingRebuke) {
       this.lastRebuke = this.pendingRebuke;
       this.pendingRebuke = null;
@@ -246,12 +250,13 @@ export class BossBrain {
 
     this.cooldownLeft -= dt;
     if (this.cooldownLeft > EPS) return null;
-    let id: AttackId;
+    let id: BossMove;
     if (this.forceNext) {
       id = this.forceNext;
       this.forceNext = null;
     } else {
-      id = chooseAttack(this.history, distance, rainAlive, this.rng);
+      id = chooseMove(this.history, distance, rainAlive, this.phase, this.rng);
+      if (id === 'rebuke') this.lastRebuke = 'close';
     }
     this.beginAttack(id);
     return id;
@@ -595,7 +600,7 @@ export class Boss implements AttackBoss {
     this.root.position.copy(this.pos);
     this.root.rotation.y = this.yaw;
     // Idle bob (visual only); the close-timer tell doubles it (GD §6.2a).
-    const amp = this.brain.annoyed ? RB.annoyedBobAmplitude : B.bobAmplitude;
+    const amp = B.bobAmplitude;
     const bob = amp * Math.sin(2 * Math.PI * B.bobFrequency * this.time);
     const shake = this.brain.mode === 'rageTransition' ? RG.shakeAmplitude : this.shake;
     let sx = 0;

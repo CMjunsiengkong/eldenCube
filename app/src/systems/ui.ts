@@ -98,6 +98,10 @@ export class UI {
   private readonly continuePrompt: HTMLElement;
   private readonly pauseEl: HTMLElement;
   private readonly fadeEl: HTMLElement;
+  private readonly flashEl: HTMLElement;
+  private readonly vignetteEl: HTMLElement;
+  private shownFlash = -1;
+  private shownVignette = -1;
   private shownFade = -1;
 
   constructor(overlay: HTMLElement, debug: boolean) {
@@ -113,6 +117,8 @@ export class UI {
     this.continuePrompt = requireChild(overlay, '#continue-prompt');
     this.pauseEl = requireChild(overlay, '#pause');
     this.fadeEl = requireChild(overlay, '#fade');
+    this.flashEl = requireChild(overlay, '#flash');
+    this.vignetteEl = requireChild(overlay, '#vignette');
     this.debugEl = requireChild(overlay, '#debug');
     this.debugEl.hidden = !debug;
     this.healthEl = requireChild(overlay, '#boss-health');
@@ -193,6 +199,22 @@ export class UI {
 
   setPaused(paused: boolean): void {
     this.pauseEl.classList.toggle('visible', paused);
+  }
+
+  /** 2026-10-12: the white flash layer (Flame Beam fire). */
+  setFlash(opacity: number): void {
+    const o = Math.round(opacity * 100) / 100;
+    if (o === this.shownFlash) return;
+    this.shownFlash = o;
+    this.flashEl.style.opacity = String(o);
+  }
+
+  /** 2026-10-12: screen-edge darkening (Flame Beam charge). */
+  setVignette(opacity: number): void {
+    const o = Math.round(opacity * 100) / 100;
+    if (o === this.shownVignette) return;
+    this.shownVignette = o;
+    this.vignetteEl.style.opacity = String(o);
   }
 
   /** The black fade layer (inline opacity, touched only when the value changes). */

@@ -19,6 +19,9 @@ export type InputEdge =
   | 'debug2'
   | 'debug3'
   | 'debug4'
+  | 'debug5'
+  | 'debug6'
+  | 'debug7'
   | 'debugK'
   | 'debugG';
 
@@ -29,6 +32,9 @@ const DEBUG_KEYS: Readonly<Record<string, InputEdge>> = {
   Digit2: 'debug2',
   Digit3: 'debug3',
   Digit4: 'debug4',
+  Digit5: 'debug5',
+  Digit6: 'debug6',
+  Digit7: 'debug7',
   KeyK: 'debugK',
   KeyG: 'debugG',
 };

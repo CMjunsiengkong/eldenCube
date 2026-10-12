@@ -393,6 +393,24 @@ body {
   display: flex;
 }
 
+/* 2026-10-12 cinematic layers: under the HUD and screens, above the canvas. */
+#vignette,
+#flash {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+#vignette {
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 40%, rgba(10, 0, 0, 0.95) 100%);
+}
+
+#flash {
+  background: #fff;
+}
+
 #fade {
   position: absolute;
   inset: 0;

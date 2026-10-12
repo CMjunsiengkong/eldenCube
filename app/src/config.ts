@@ -336,11 +336,6 @@ const RAW = {
   /** GD §6.2a + §6.5 D — Royal Rebuke and its triggers. */
   rebuke: {
     poiseTrigger: 3, // damage outside punish windows (tune)
-    closeDistance: 5.0, // m horizontal to the boss center (tune)
-    closeTrigger: 1.0, // s of close timer (tune)
-    closeDecayMult: 2, // timer decreases at 2 × dt otherwise
-    annoyedAt: 0.5, // s: the doubled-bounce tell starts
-    annoyedBobAmplitude: 0.16, // m (tell)
     windowEndDistance: 5.0, // m: Rebuke when the Slam window ends this close (tune)
     tell: 0.35, // s (× easy only, never × rage) (tune)
     burst: 0.1, // s
@@ -367,7 +362,7 @@ const RAW = {
 
   /** GD §6.4 — rage (Phase 2). */
   rage: {
-    hpThreshold: 12, // rage when HP ≤ 12 (40% of max, scaled with the 30 HP)
+    hpThreshold: 15, // rage when HP ≤ 15 (50% of max; changed 2026-10-12)
     transitionDuration: 1.0, // s, no attacks, no damage taken
     colorFade: 0.5, // s body color → rage color
     shakeAmplitude: 0.1, // m boss shake during the transition
@@ -390,6 +385,100 @@ const RAW = {
     staggerExtraFlight: 0.3, // s extra flight time for wave 0's center shard (tune)
     staggerCenterPulseHz: 1,
     staggerSidePulseHz: 3,
+  },
+
+  /** GD §6.5 selection (2026-10-12): distance bands and weights. All (tune). */
+  ai: {
+    bands: [4.5, 8, 16], // m: extreme close | close | mid | far
+    repeatKeep: 0.25, // weight kept by the attack used last time (the last two: 0)
+    /** Weights per band [extreme close, close, mid, far]. */
+    weights: {
+      p1: {
+        rebuke: [80, 0, 0, 0],
+        slam: [8, 30, 20, 10],
+        charge: [0, 10, 25, 35],
+        rain: [4, 15, 20, 25],
+        cone: [8, 45, 25, 0],
+        beam: [0, 10, 12, 30],
+      },
+      rage: {
+        rebuke: [80, 0, 0, 0],
+        slam: [6, 20, 15, 5],
+        charge: [0, 10, 20, 25],
+        rain: [4, 15, 15, 20],
+        cone: [10, 55, 30, 0],
+        beam: [0, 10, 15, 50],
+      },
+    },
+  },
+
+  /** GD §6.5 E — Cone Flame Breath (2026-10-12). All (tune). */
+  cone: {
+    telegraph: 0.9, // s (P1)
+    rageTelegraph: 0.7, // s (rage; not × the rage telegraph factor)
+    angle: deg(110),
+    rageAngle: deg(130),
+    range: 12, // m
+    rageRange: 13,
+    blast: 0.15, // s damage window per blast (< the 0.35 s roll i-frames; 0.25 → 0.15 on 2026-10-12 to end with the flames)
+    rageBlasts: 2,
+    blastGap: 0.7, // s between blast starts (rage double)
+    recovery: 0.8, // s
+    rageRecovery: 0.6,
+    outlineOpacity: 0.35,
+    burnsPerBlast: 8, // burning marks left in the cone after each blast (visual)
+    hold: 0.12, // s a white-hot ball compresses at the mouth before each release (visual)
+    releaseLead: 0.08, // s the release comes before the damage window; the flames cross the cone in it
+    crownCount: 180, // cel crown flames per release (visual; +50% on 2026-10-12)
+    crownLife: [0.08, 0.12] as Range, // s: very short
+    crownSize: [0.6, 1.8] as Range, // m
+    sparkAccents: 24, // a few spark streaks with each release (visual)
+    emberRatio: 0.25, // fraction of slower, bigger embers among the accents
+    waveTime: 0.3, // s the ring of fire takes to cross the cone (visual)
+    mouthHeight: 2.0, // m
+  },
+
+  /** GD §6.5 F — Flame Beam (2026-10-12, reworked like Hyper Beam). All (tune). */
+  beam: {
+    charge: 1.0, // s
+    rageCharge: 0.7,
+    fire: 3.0, // s
+    rageFire: 2.0,
+    sweep: 0.62, // rad/s: sprinting from the lock flash barely outruns it at ~10 m (2026-10-12)
+    rageSweep: 0.65, // rad/s
+    travelSpeed: 60, // m/s: the front is near-instant (14 → 28 → 60 on 2026-10-12)
+    minGround: 6, // m: ground point distance (locked at the player's feet), clamped
+    maxGround: 26,
+    hitRadius: 1.0, // m from the beam segment to a hit sphere (0.5 → 1.0 on 2026-10-12)
+    lockLead: 0.3, // s before firing the aim locks (the aiming line freezes and flashes)
+    lateralDeadzone: 1.0, // m/s: below this the sweep side is random
+    recovery: 0.5,
+    rageRecovery: 0.4,
+    mouthHeight: 2.0, // m: the beam starts here and slants down to the ground point
+    startOffset: 2.1, // m from the boss center (its face)
+    radius: 0.7, // m visual core
+    glowRadius: 1.6, // m visual glow
+    stripeWidth: 2.8, // m glowing ground stripe
+    burnEvery: 0.07, // s between burning marks at the ground point
+    nearFade: [1.5, 3.0] as Range, // m: the beam fades out this close to the camera
+    orbRadius: 0.75, // m charge orb at full charge
+    flash: 0.35, // white flash opacity at fire (≤ 0.1 s)
+    vignette: 0.55, // screen-edge darkening at full charge
+    rumble: 0.07, // m continuous camera shake while firing
+  },
+
+  /** GD §6.5 G — Meteor Shower (once, from the rage transition; 2026-10-12). All (tune). */
+  meteor: {
+    duration: 10, // s
+    rate: 12, // meteors per second (dense)
+    warning: 0.9, // s from the circle appearing to impact
+    radius: 1.8, // m (= the rage Crown Rain radius)
+    minSeparation: 2.0, // m between live targets
+    tries: 12,
+    pool: 24, // live meteors at once
+    fallHeight: 26, // m
+    fallOffset: 7, // m horizontal offset of the start point (slanted fall)
+    soundGap: 0.15, // s minimum between impact sounds
   },
 
   /** GD §6.5 A — Cube Slam. */
@@ -440,9 +529,10 @@ const RAW = {
     leadTime: 0.5, // s: aim point = P + V × leadTime
     cage: { ring: 6, radius: 3.5 }, // + 1 center circle
     wall: { count: 5, spacing: 3.0 },
-    scatter: { count: 12, minSpacing: 5.0, tries: 30 },
+    scatter: { count: 12, minSpacing: 5.0, rageMinSpacing: 6.2, tries: 30 }, // rage spacing keeps 1.8 m gaps (2026-10-12)
     maxPerWave: 12,
     circleRadius: 1.2, // m
+    rageCircleRadius: 1.8, // m: rage circles and kill radius (2026-10-12) (tune)
     circleOpacity: 0.5,
     circlePulseHz: 3, // (tune, agent-chosen)
     circlePulseDepth: 0.4, // opacity dips by up to this fraction (tune, agent-chosen)
@@ -469,6 +559,9 @@ const RAW = {
       closeHeight: 4.2,
       lookBlend: 0.4, // lerp(player, boss, 0.4)
       lookHeight: 1.2,
+      liftHeight: 6.5, // m during the Flame Beam (2026-10-12)
+      liftDistance: 7.5,
+      liftSmoothing: 3, // 1 − exp(−3·dt)
     },
     smoothing: 6, // lerp factor 1 − exp(−6 × dt)
     minY: 1.0,
@@ -576,7 +669,11 @@ const RAW = {
   /** 1.5b visual effects (ARCHITECTURE §4.6). Visual only. */
   vfx: {
     particles: {
-      glowCapacity: 2048, // additive pool (tune, agent-chosen)
+      glowCapacity: 4096, // additive pool (tune, agent-chosen)
+      sparkCapacity: 2048, // velocity-stretched streaks (cone sparks) (tune, agent-chosen)
+      sparkStretch: 0.06, // s of motion each streak shows
+      sparkSoftness: 0.55, // harder edge than glow particles (sharper streaks)
+      crownCapacity: 512, // cel crown flames (Cone Breath release)
       smokeCapacity: 512, // alpha-blended pool (tune, agent-chosen)
       floor: 0.03, // m; particles never sink below this height
       glowSoftness: 0.0, // radial falloff start (0 = soft disc)
@@ -584,7 +681,7 @@ const RAW = {
     },
     /** GD §6.5 C burning marks. */
     burns: {
-      capacity: 48, // marks in the ring buffer (2 overlapping Crown Rains)
+      capacity: 128, // marks in the ring buffer (Crown Rain, meteors, beam trail, cone)
       life: 3.0, // s
       fadeStart: 1.8, // s; smooth fade to 0 at `life` (tune)
       growTime: 0.12, // s pop-in (tune, agent-chosen)
@@ -662,6 +759,12 @@ const RAW = {
       ringTo: 1.6,
       ringTime: 0.4,
     },
+    /** GD §6.5 cinematic boss light (always present, normally 0). (tune, agent-chosen) */
+    bossLight: { range: 34, decay: 1.6, beam: 70, cone: 90, slam: 110, flareTime: 0.35 },
+    /** GD §6.5 blood moon during the Meteor Shower. (tune, agent-chosen) */
+    bloodMoon: { fadeIn: 0.6, fadeOut: 1.5, sky: 0x2a0606, hemisphereSky: 0x7a2a2a, moon: 0xff6a5a },
+    /** GD §6.4 rage slow motion. (tune) */
+    rageSlowMo: { scale: 0.3, duration: 0.5, shake: 0.5, shakeTime: 0.6, lookUp: 3.5, lookUpTime: 1.2 },
     /** GD §8 torch flame particles. (tune, agent-chosen) */
     torch: { perSecond: 32, jitter: 0.18, up: [1.0, 1.6] as Range, life: [0.35, 0.55] as Range, size: 0.55 },
   },
@@ -793,6 +896,9 @@ const RAW = {
       victory: 0.4,
       rebuke_windup: 0.45,
       rebuke_burst: 0.7,
+      beam_charge: 1.0, // (2026-10-12)
+      beam_fire: 1.0, // (2026-10-12)
+      cone_blast: 0.8,
       player_hurt: 0.7,
       flask_drink: 0.4,
       flask_heal: 0.4,

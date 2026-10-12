@@ -266,6 +266,77 @@ const RECIPES: Record<SoundId, Recipe> = {
     osc(v, ctx, 'square', [300, 1200], t, d, f);
     return v;
   },
+  beam_charge(ctx, out, nb, o) {
+    // Rising energy: a saw sweeping up through a following bandpass, trembling faster and faster,
+    // plus a rising noise hiss (stoppable; lasts the charge time).
+    const v = new Voice(ctx, out, o.volume ?? 1);
+    const t = ctx.currentTime;
+    const d = o.duration ?? 1.0;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(FLOOR, t);
+    g.gain.exponentialRampToValueAtTime(0.3, t + d * 0.85);
+    g.connect(v.gain);
+    const lfo = ctx.createOscillator();
+    lfo.frequency.setValueAtTime(14, t);
+    lfo.frequency.linearRampToValueAtTime(40, t + d);
+    const lg = ctx.createGain();
+    lg.gain.value = 0.12;
+    lfo.connect(lg);
+    lg.connect(g.gain);
+    v.add(lfo, t, t + d + 0.05);
+    const f = filter(ctx, 'bandpass', 240, 3, g);
+    f.frequency.setValueAtTime(240, t);
+    f.frequency.exponentialRampToValueAtTime(1800, t + d);
+    osc(v, ctx, 'sawtooth', [120, 900], t, d, f);
+    const hiss = ctx.createGain();
+    hiss.gain.setValueAtTime(FLOOR, t);
+    hiss.gain.exponentialRampToValueAtTime(0.15, t + d);
+    hiss.connect(v.gain);
+    const hf = filter(ctx, 'bandpass', 400, 1.5, hiss);
+    hf.frequency.setValueAtTime(400, t);
+    hf.frequency.exponentialRampToValueAtTime(3000, t + d);
+    noise(v, ctx, nb, t, d, hf);
+    return v;
+  },
+  beam_fire(ctx, out, nb, o) {
+    // A burst, then a sustained fluttering roar with a low rumble (stoppable; lasts the firing).
+    const v = new Voice(ctx, out, o.volume ?? 1);
+    const t = ctx.currentTime;
+    const d = o.duration ?? 3.0;
+    noise(v, ctx, nb, t, 0.15, filter(ctx, 'lowpass', 4000, 0.7, env(ctx, v.gain, 0.8, t, 0.003, 0.15)));
+    const hold = t + Math.max(0.06, d - 0.2);
+    const roar = ctx.createGain();
+    roar.gain.setValueAtTime(FLOOR, t);
+    roar.gain.exponentialRampToValueAtTime(0.5, t + 0.05);
+    roar.gain.setValueAtTime(0.5, hold);
+    roar.gain.exponentialRampToValueAtTime(FLOOR, t + d);
+    roar.connect(v.gain);
+    const flutter = ctx.createOscillator();
+    flutter.frequency.value = 7;
+    const fg = ctx.createGain();
+    fg.gain.value = 0.15;
+    flutter.connect(fg);
+    fg.connect(roar.gain);
+    v.add(flutter, t, t + d + 0.05);
+    noise(v, ctx, nb, t, d, filter(ctx, 'bandpass', 700, 0.8, roar));
+    const rumble = ctx.createGain();
+    rumble.gain.setValueAtTime(FLOOR, t);
+    rumble.gain.exponentialRampToValueAtTime(0.5, t + 0.05);
+    rumble.gain.setValueAtTime(0.5, hold);
+    rumble.gain.exponentialRampToValueAtTime(FLOOR, t + d);
+    rumble.connect(v.gain);
+    osc(v, ctx, 'sawtooth', [55, 55], t, d, filter(ctx, 'lowpass', 300, 0.7, rumble));
+    return v;
+  },
+  cone_blast(ctx, out, nb, o) {
+    // A shotgun-like blast: a sharp noise crack, a low thump and a short crackle tail.
+    const v = new Voice(ctx, out, o.volume ?? 1);
+    const t = ctx.currentTime;
+    noise(v, ctx, nb, t, 0.35, filter(ctx, 'lowpass', 2500, 0.7, env(ctx, v.gain, 0.9, t, 0.002, 0.35)));
+    osc(v, ctx, 'sine', [120, 40], t, 0.25, env(ctx, v.gain, 0.8, t, 0.003, 0.25));
+    noise(v, ctx, nb, t + 0.04, 0.3, filter(ctx, 'highpass', 3000, 0.7, env(ctx, v.gain, 0.25, t + 0.04, 0.005, 0.3)));
+    return v;
+  },
   rebuke_burst(ctx, out, nb, o) {
     const v = new Voice(ctx, out, o.volume ?? 1);
     const t = ctx.currentTime;

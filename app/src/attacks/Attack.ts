@@ -9,8 +9,8 @@ import type { Vfx } from '../fx/vfx';
 import type { Rng } from '../util/rng';
 
 /** The random attacks (GD §6.5 A–C). The Royal Rebuke (D) is triggered, never picked. */
-export type AttackId = 'slam' | 'charge' | 'rain';
-export const ATTACK_IDS: readonly AttackId[] = ['slam', 'charge', 'rain'];
+export type AttackId = 'slam' | 'charge' | 'rain' | 'cone' | 'beam';
+export const ATTACK_IDS: readonly AttackId[] = ['slam', 'charge', 'rain', 'cone', 'beam'];
 export type MoveId = AttackId | 'rebuke';
 
 /** Sound IDs (ASSETS.md §1.1). The real audio arrives in milestone 1.5. */
@@ -27,6 +27,16 @@ export interface SoundOptions {
   volume?: number;
   /** Pitch multiplier (a file plays it as playbackRate). */
   pitch?: number;
+}
+
+/** Screen and camera effects an attack may drive (2026-10-12, visual only). */
+export interface Cinema {
+  /** A short white flash (≤ 0.1 s) at this opacity. */
+  flash(opacity: number): void;
+  /** Screen-edge darkening 0…1 (set every step while wanted). */
+  vignette(opacity: number): void;
+  /** Raise and pull back the lock-on camera (Flame Beam). */
+  lift(on: boolean): void;
 }
 
 export interface SoundSink {
@@ -89,6 +99,8 @@ export interface AttackContext {
   telegraphMult: number;
   /** The Rebuke tell (s): × easy only. */
   rebukeTell: number;
+  /** ?easy telegraph factor alone (1, or 1.3), for moves with explicit per-phase telegraphs. */
+  easyMult?: number;
   /** Rage phase. Upgrades are honoured only when true (GD §6.5a). */
   rage: boolean;
   upgrades: RageUpgrades;
@@ -98,6 +110,8 @@ export interface AttackContext {
   hazards: Hazards;
   /** Particles and other visual effects (absent in unit tests). */
   vfx?: Vfx;
+  /** Screen / camera effects (absent in unit tests). */
+  cinema?: Cinema;
 }
 
 export interface Attack {
@@ -120,6 +134,12 @@ export interface Attack {
   wantsRebuke(): boolean;
   /** Stops long sounds, removes attack-owned meshes, resets the boss pose. */
   dispose(): void;
+  /** The boss took damage (the Flame Beam stops). */
+  onBossHit?(): void;
+  /** The player was hit (the Flame Beam stops). */
+  onPlayerHit?(): void;
+  /** The player just died from this attack: a final burst so the killing blow is visible. */
+  finale?(): void;
 }
 
 /** True if this rage upgrade is active for the attack being run (rage AND switched on). */

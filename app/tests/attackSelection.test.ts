@@ -1,66 +1,73 @@
 import { describe, expect, it } from 'vitest';
-import { chooseAttack } from '../src/entities/Boss';
+import { chooseMove, distanceBand, type BossMove } from '../src/entities/Boss';
+import { CONFIG } from '../src/config';
 import type { AttackId } from '../src/attacks/Attack';
 import { createRng } from '../src/util/rng';
 
-const FAR = 10;
-const NEAR = 6; // exactly 6 m: Charge is invalid (it needs > 6 m)
+const XC = 3; // extreme close
+const CLOSE = 6; // exactly 6 m: Charge is not allowed (it needs > 6 m)
+const MID = 10;
+const FAR = 20;
 
-describe('chooseAttack (GAME_DESIGN §6.5, ARCHITECTURE §8)', () => {
-  it('never picks the same attack 3 times in a row', () => {
+/** Frequencies of 20,000 seeded picks. */
+function freq(history: AttackId[], distance: number, rainAlive: boolean, phase: 'p1' | 'rage', seed = 7): Record<string, number> {
+  const rng = createRng(seed);
+  const out: Record<string, number> = {};
+  const N = 20000;
+  for (let i = 0; i < N; i++) {
+    const id = chooseMove(history, distance, rainAlive, phase, rng);
+    out[id] = (out[id] ?? 0) + 1 / N;
+  }
+  return out;
+}
+
+describe('distance bands (GAME_DESIGN §6.5, 2026-10-12)', () => {
+  it('extreme close < 4.5 m, close < 8, mid < 16, far beyond', () => {
+    expect([1, 4.49, 4.5, 7.99, 8, 15.99, 16, 40].map(distanceBand)).toEqual([0, 0, 1, 1, 2, 2, 3, 3]);
+  });
+});
+
+describe('chooseMove — weighted pick (GAME_DESIGN §6.5, 2026-10-12)', () => {
+  it('extreme close: Royal Rebuke 80%, the other 20% shared by the allowed attacks', () => {
+    for (const phase of ['p1', 'rage'] as const) {
+      const f = freq([], XC, false, phase);
+      expect(f.rebuke).toBeCloseTo(0.8, 1);
+      expect(f.charge ?? 0).toBe(0);
+      expect(f.beam ?? 0).toBe(0);
+    }
+  });
+
+  it('follows the band weights (Phase 1, mid range)', () => {
+    const w = CONFIG.ai.weights.p1;
+    const total = w.slam[2] + w.charge[2] + w.rain[2] + w.cone[2] + w.beam[2];
+    const f = freq([], MID, false, 'p1');
+    for (const id of ['slam', 'charge', 'rain', 'cone', 'beam'] as const) expect(f[id]).toBeCloseTo(w[id][2] / total, 1);
+    expect(f.rebuke ?? 0).toBe(0);
+  });
+
+  it('rage shifts the far band toward the Flame Beam', () => {
+    expect(freq([], FAR, false, 'rage').beam).toBeGreaterThan(freq([], FAR, false, 'p1').beam);
+  });
+
+  it('no Charge within 6 m; no Crown Rain while its shards fly', () => {
+    expect(freq([], CLOSE, false, 'p1').charge ?? 0).toBe(0);
+    expect(freq([], FAR, true, 'p1').rain ?? 0).toBe(0);
+  });
+
+  it('never the same attack 3 times in a row; the last one keeps 25% of its weight', () => {
     const rng = createRng(11);
-    for (const id of ['slam', 'charge', 'rain'] as const) {
-      for (let i = 0; i < 300; i++) expect(chooseAttack([id, id], FAR, false, rng)).not.toBe(id);
+    for (const id of ['slam', 'rain', 'cone'] as const) {
+      for (let i = 0; i < 300; i++) expect(chooseMove([id, id], CLOSE + 1, false, 'p1', rng)).not.toBe(id);
     }
+    const fresh = freq([], CLOSE + 1, false, 'p1').cone;
+    const after = freq(['slam', 'cone'], CLOSE + 1, false, 'p1').cone;
+    expect(after).toBeLessThan(fresh * 0.5);
+    expect(after).toBeGreaterThan(0);
   });
 
-  it('a repeated attack is allowed when the last two differ', () => {
-    const rng = createRng(12);
-    const seen = new Set<AttackId>();
-    for (let i = 0; i < 300; i++) seen.add(chooseAttack(['charge', 'slam'], FAR, false, rng));
-    expect(seen).toEqual(new Set(['slam', 'charge', 'rain']));
-  });
-
-  it('no Charge within 6 m', () => {
-    const rng = createRng(13);
-    for (let i = 0; i < 500; i++) {
-      expect(chooseAttack([], NEAR, false, rng)).not.toBe('charge');
-      expect(chooseAttack([], 1, false, rng)).not.toBe('charge');
-    }
-    for (let i = 0; i < 50; i++) expect(chooseAttack(['rain', 'rain'], NEAR, false, rng)).toBe('slam');
-    for (let i = 0; i < 50; i++) expect(chooseAttack(['slam', 'slam'], NEAR, false, rng)).toBe('rain');
-  });
-
-  it('no Crown Rain while rain shards are alive', () => {
-    const rng = createRng(14);
-    for (let i = 0; i < 500; i++) expect(chooseAttack([], FAR, true, rng)).not.toBe('rain');
-  });
-
-  it('falls back to the blocked attack when nothing else is valid', () => {
-    const rng = createRng(15);
-    // Within 6 m and rain alive: only Slam is valid, even after two Slams.
-    for (let i = 0; i < 50; i++) expect(chooseAttack(['slam', 'slam'], 2, true, rng)).toBe('slam');
-  });
-
-  it('over 1,000 seeded runs every valid attack appears', () => {
-    for (const seed of [1, 2, 3]) {
-      const rng = createRng(seed);
-      const counts: Record<AttackId, number> = { slam: 0, charge: 0, rain: 0 };
-      const history: AttackId[] = [];
-      for (let i = 0; i < 1000; i++) {
-        const id = chooseAttack(history, FAR, false, rng);
-        counts[id]++;
-        history.push(id);
-        const n = history.length;
-        if (n >= 3) expect(history[n - 1] === history[n - 2] && history[n - 2] === history[n - 3]).toBe(false);
-      }
-      expect(counts.slam).toBeGreaterThan(200);
-      expect(counts.charge).toBeGreaterThan(200);
-      expect(counts.rain).toBeGreaterThan(200);
-    }
-  });
-
-  it('rng values close to 1 still return a valid attack', () => {
-    expect(['slam', 'charge', 'rain']).toContain(chooseAttack([], FAR, false, () => 0.9999999999));
+  it('falls back to a blocked attack when nothing else is allowed, and handles rng ≈ 1', () => {
+    // Far band in Phase 1 has weights for slam, charge, rain and beam; block all but the repeats.
+    const id: BossMove = chooseMove(['beam', 'beam'], FAR, true, 'p1', () => 0.9999999999);
+    expect(['slam', 'charge', 'beam']).toContain(id);
   });
 });

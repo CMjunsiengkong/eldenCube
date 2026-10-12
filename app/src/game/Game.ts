@@ -28,12 +28,14 @@ import { CONFIG } from '../config';
 import { getFlags, rebukeTellFor, speedMult, telegraphMult } from '../flags';
 import type { GameClock, LoopTarget } from '../loop';
 import { moveDirFromAxis, Player, type MotorInput, type PlayerEvent } from '../entities/Player';
-import { Boss, type HitResult } from '../entities/Boss';
-import type { Attack, AttackContext, MoveId } from '../attacks/Attack';
+import { Boss, distanceBand, type HitResult } from '../entities/Boss';
+import type { Attack, AttackContext, Cinema, MoveId } from '../attacks/Attack';
 import { CubeSlam } from '../attacks/CubeSlam';
 import { RoyalCharge } from '../attacks/RoyalCharge';
 import { CrownRain } from '../attacks/CrownRain';
 import { RoyalRebuke } from '../attacks/RoyalRebuke';
+import { ConeBreath } from '../attacks/ConeBreath';
+import { FlameBeam } from '../attacks/FlameBeam';
 import { Hazards, WAVES } from '../attacks/Hazards';
 import { debrisCenter, stepDebris, type DebrisPiece } from '../fx/debris';
 import { Puffs } from '../fx/effects';
@@ -43,7 +45,7 @@ import { CameraController } from '../systems/camera';
 import { pointInOBB } from '../systems/collision';
 import { Input } from '../systems/input';
 import { UI } from '../systems/ui';
-import { easeInOut, lerp, randRange } from '../util/math';
+import { easeInOut, lerp, randRange, smoothFactor } from '../util/math';
 import { createRng } from '../util/rng';
 import { Arena } from './Arena';
 
@@ -60,6 +62,7 @@ export type FlowCommand =
   | 'titleReady'; // the title input lock ended: show the start prompt
 
 const T = CONFIG.transitions;
+const FLASH_TIME = 0.1; // s (GD: flashes ≤ 0.1 s)
 const DEATH = CONFIG.fx.death;
 const EPS = 1e-9;
 
@@ -249,6 +252,21 @@ export class Game implements LoopTarget {
   private lastHit: HitResult | null = null;
   private rebukeMarker = 0;
   private hitboxes: DebugHitboxes | null = null;
+  // 2026-10-12 cinematic screen effects (real time)
+  private flashPeak = 0;
+  private flashLeft = 0;
+  private vignette = 0;
+  private vignetteWant = 0;
+  private readonly cinema: Cinema = {
+    flash: (o) => {
+      this.flashPeak = o;
+      this.flashLeft = FLASH_TIME;
+    },
+    vignette: (o) => {
+      this.vignetteWant = Math.max(this.vignetteWant, o);
+    },
+    lift: (on) => this.cameraCtl.setLift(on),
+  };
 
   private readonly moveDir = { x: 0, z: 0 };
   private readonly camFwd = { x: 0, z: -1 };
@@ -291,7 +309,7 @@ export class Game implements LoopTarget {
     this.vfx = new Vfx(this.scene);
     this.hazards = new Hazards(this.scene, this.puffs, this.vfx);
     this.hazards.sound = this.audio;
-    this.attacks = { slam: new CubeSlam(), charge: new RoyalCharge(), rain: new CrownRain(), rebuke: new RoyalRebuke() };
+    this.attacks = { slam: new CubeSlam(), charge: new RoyalCharge(), rain: new CrownRain(), rebuke: new RoyalRebuke(), cone: new ConeBreath(), beam: new FlameBeam() };
 
     this.cameraCtl = new CameraController(this.camera, this.rng);
     this.cameraCtl.setOrbit();
@@ -312,6 +330,7 @@ export class Game implements LoopTarget {
       effects: this.puffs,
       hazards: this.hazards,
       vfx: this.vfx,
+      cinema: this.cinema,
     };
 
     if (this.debug) this.hitboxes = new DebugHitboxes(this.scene);
@@ -331,6 +350,8 @@ export class Game implements LoopTarget {
     const pool: Object3D[] = [
       ...this.hazards.scenePool,
       ...(this.attacks.slam as CubeSlam).scenePool,
+      ...(this.attacks.cone as ConeBreath).scenePool,
+      ...(this.attacks.beam as FlameBeam).scenePool,
       ...this.puffs.warmupPieces,
       ...this.vfx.scenePool,
     ];
@@ -358,6 +379,7 @@ export class Game implements LoopTarget {
 
   /** Fixed simulation step. */
   update(dt: number): void {
+    this.vignetteWant = 0; // attacks ask for it every step
     this.flow.update(dt);
     this.processCommands();
     switch (this.world) {
@@ -380,6 +402,7 @@ export class Game implements LoopTarget {
     stepDebris(this.debris, dt);
     this.puffs.step(dt);
     this.arena.step(dt, this.vfx);
+    this.arena.setBlood(this.hazards.bloodWeight);
     this.vfx.step(dt);
     this.rebukeMarker = Math.max(0, this.rebukeMarker - dt);
     this.syncPlayerHud();
@@ -402,6 +425,10 @@ export class Game implements LoopTarget {
     this.flow.realUpdate(frameDt, anyStart);
     this.processCommands();
     this.ui.setFade(this.flow.fade);
+    this.flashLeft = Math.max(0, this.flashLeft - frameDt);
+    this.ui.setFlash(this.flashPeak * (this.flashLeft / FLASH_TIME));
+    this.vignette += (this.vignetteWant - this.vignette) * smoothFactor(8, frameDt);
+    this.ui.setVignette(this.vignette);
     this.audio.setDuck(this.flow.duck);
 
     this.cameraCtl.update(frameDt, this.player.position, this.boss.pos);
@@ -432,6 +459,10 @@ export class Game implements LoopTarget {
     if (this.boss.brain.consumeCancel()) {
       this.cancelAttack();
       this.hazards.clear(result === 'rage');
+      // GD §6.4 / §6.5 G (2026-10-12): the Meteor Shower starts with the rage transition.
+      if (result === 'rage') this.hazards.startMeteors(this.rng);
+    } else {
+      this.attack?.onBossHit?.(); // the Flame Beam stops when the boss takes damage
     }
     this.ui.setHealth(this.boss.brain.hp);
 
@@ -449,6 +480,11 @@ export class Game implements LoopTarget {
       // GD §6.4 rage transition.
       this.boss.onRage();
       this.cameraCtl.shake(CONFIG.rage.cameraShake.amplitude, CONFIG.rage.cameraShake.duration);
+      // 2026-10-12 cinematic: slow motion, a hard shake, the camera looks up at the meteors.
+      const SM = CONFIG.vfx.rageSlowMo;
+      this.time.setTimeScale(SM.scale, SM.duration);
+      this.cameraCtl.shake(SM.shake, SM.shakeTime);
+      this.cameraCtl.lookUp(SM.lookUp, SM.lookUpTime);
       this.audio.play('rage');
     }
     return result;
@@ -513,6 +549,9 @@ export class Game implements LoopTarget {
     this.debris.length = 0;
     this.puffs.clear();
     this.vfx.clear();
+    this.arena.setBlood(0);
+    this.flashLeft = 0;
+    this.vignette = this.vignetteWant = 0;
     this.player.reset();
     this.boss.reset(this.scene);
     this.audio.stopMusic();
@@ -597,15 +636,18 @@ export class Game implements LoopTarget {
     const r = this.player.motor.takeHit(source.x, source.z);
     if (r === 'ignored') return;
     if (r === 'hurt') {
+      this.attack?.onPlayerHit?.(); // the Flame Beam stops when it hits
       this.time.hitStop(CONFIG.hurt.hitStop);
       this.cameraCtl.shake(CONFIG.hurt.shake.amplitude, CONFIG.hurt.shake.duration);
       this.audio.play('player_hurt');
       return;
     }
-    // Death @0.00: hit-stop, all hazards removed, long sounds stopped (attack.dispose), boss gloats.
+    // Death @0.00 (GD §9, 2026-10-12): hit-stop; the killing attack ends with a visible burst; long
+    // sounds stop (attack.dispose); hazards stop hurting but finish their animation; boss gloats.
     this.time.hitStop(DEATH.hitStop);
+    this.attack?.finale?.();
     this.cancelAttack();
-    this.hazards.clear(false);
+    this.hazards.stopShower();
     this.boss.brain.gloat();
     this.deathSource.copy(source);
     this.gloatTarget.copy(this.player.position);
@@ -617,6 +659,7 @@ export class Game implements LoopTarget {
 
   /** GD §9: the boss stops and turns to face the remains; the camera looks at them. */
   private updateDying(dt: number): void {
+    this.hazards.step(dt); // visual only: nothing is checked against the player while dying
     if (this.player.isBroken) {
       debrisCenter(this.debris, this.gloatTarget);
       this.cameraCtl.setLookOverride(this.gloatTarget);
@@ -633,6 +676,7 @@ export class Game implements LoopTarget {
     ctx.speedMult = speedMult(phase);
     ctx.telegraphMult = telegraphMult(phase);
     ctx.rage = phase === 'rage';
+    ctx.easyMult = getFlags().easy ? CONFIG.easy.telegraphMult : 1;
   }
 
   private cancelAttack(): void {
@@ -718,6 +762,9 @@ export class Game implements LoopTarget {
     if (this.input.consume('debug2')) brain.forceNext = 'charge';
     if (this.input.consume('debug3')) brain.forceNext = 'rain';
     if (this.input.consume('debug4')) brain.requestRebuke('debug');
+    if (this.input.consume('debug5')) brain.forceNext = 'cone';
+    if (this.input.consume('debug6')) brain.forceNext = 'beam';
+    if (this.input.consume('debug7')) this.hazards.startMeteors(this.rng);
     if (this.input.consume('debugG')) this.player.motor.godMode = !this.player.motor.godMode;
     if (this.input.consume('debugK')) this.applyBossHit(this.player.position, 1);
   }
@@ -746,7 +793,7 @@ export class Game implements LoopTarget {
         `speed ${m.speed().toFixed(2)} m/s  pos ${m.x.toFixed(1)}, ${m.z.toFixed(1)}`,
         `boss hp ${b.hp} ${b.phase} ${b.mode} last=${this.lastHit ?? '-'}`,
         `attack ${atk}${win}  next in ${b.waiting ? b.cooldownLeft.toFixed(2) : '-'}${b.forceNext ? ` forced=${b.forceNext}` : ''}`,
-        `poise ${b.poise}  close ${b.closeTimer.toFixed(2)}${b.annoyed ? ' ANNOYED' : ''}${this.rebukeMarker > 0 ? `  REBUKE(${b.lastRebuke})` : ''}`,
+        `poise ${b.poise}  band ${['XC', 'close', 'mid', 'far'][distanceBand(Math.hypot(m.x - this.boss.pos.x, m.z - this.boss.pos.z))]}${this.hazards.meteorsActive ? '  METEORS' : ''}${this.rebukeMarker > 0 ? `  REBUKE(${b.lastRebuke})` : ''}`,
         `sound ${this.audio.muted ? 'OFF' : 'ON'}${this.audio.unlocked ? '' : ' (locked)'}`,
       ].join('\n'),
     );

@@ -39,6 +39,16 @@ const G = CONFIG.fx.gravity;
 const PLAYER_R = CONFIG.player.radius;
 const EPS = 1e-9;
 export const WAVES = 3;
+
+/**
+ * Pure (tested): the Rebuke spikes' reach (m from the boss center) `t` s into the burst. It grows
+ * from startRadius to endRadius (ease-out) over the first 70% of the burst; both the drawing and
+ * the kill check use it, so the damage never arrives before the spikes (2026-10-12).
+ */
+export function rebukeReach(t: number): number {
+  const u = Math.min(1, Math.max(0, t / (CONFIG.rebuke.burst * 0.7)));
+  return CONFIG.rebuke.startRadius + (CONFIG.rebuke.endRadius - CONFIG.rebuke.startRadius) * easeOut(u);
+}
 const MAX = RN.maxPerWave;
 const RING_POOL = 3;
 
@@ -62,6 +72,18 @@ interface Shard {
   state: 'idle' | 'placed' | 'flying';
   landedNow: boolean;
   spin: number;
+  /** Circle and kill radius (rage Crown Rain is larger, 2026-10-12). */
+  radius: number;
+}
+
+/** A Meteor Shower meteor (GD §6.5 G): a warning circle and a fireball falling onto it. */
+interface Meteor {
+  readonly target: Vector3;
+  readonly start: Vector3;
+  readonly pos: Vector3;
+  t: number;
+  falling: boolean;
+  landedNow: boolean;
 }
 
 interface Wave {
@@ -73,6 +95,7 @@ interface Wave {
   t: number;
   /** A shard of this wave landed in the current step (one `shard_land` per wave moment). */
   landedThisStep: boolean;
+  radius: number;
 }
 
 const tmpM = new Matrix4();
@@ -97,6 +120,18 @@ export class Hazards {
   private readonly vfx: Vfx | null;
   /** Simulation time (shader streaks). */
   private time = 0;
+  // Meteor Shower (GD §6.5 G)
+  private readonly meteors: Meteor[] = [];
+  private readonly meteorCircles: InstancedMesh;
+  private readonly meteorCircleMat: MeshBasicMaterial;
+  private readonly meteorCores: InstancedMesh;
+  private meteorLeft = 0;
+  private meteorAcc = 0;
+  private meteorSoundT = 0;
+  private meteorRng: () => number = Math.random;
+  private meteorElapsed = 0;
+  /** Meteors spawned since the last startMeteors (tests, debug). */
+  meteorsSpawned = 0;
 
   constructor(scene: Scene, puffs: Puffs, vfx: Vfx | null = null) {
     this.scene = scene;
@@ -117,11 +152,22 @@ export class Hazards {
       circles.renderOrder = 1;
       const shards: Shard[] = [];
       for (let i = 0; i < MAX; i++) {
-        shards.push({ pos: new Vector3(), vel: new Vector3(), target: new Vector3(), flightTime: 0, t: 0, state: 'idle', landedNow: false, spin: 0 });
+        shards.push({ pos: new Vector3(), vel: new Vector3(), target: new Vector3(), flightTime: 0, t: 0, state: 'idle', landedNow: false, spin: 0, radius: RN.circleRadius });
       }
-      this.waves.push({ shards, count: 0, circles, circleMat, pulseHz: RN.circlePulseHz, t: 0, landedThisStep: false });
+      this.waves.push({ shards, count: 0, circles, circleMat, pulseHz: RN.circlePulseHz, t: 0, landedThisStep: false, radius: RN.circleRadius });
     }
     this.centerDisc = new GroundDisc(circleGeo, CONFIG.colors.warning, RN.circleLift);
+
+    const MT = CONFIG.meteor;
+    for (let i = 0; i < MT.pool; i++) {
+      this.meteors.push({ target: new Vector3(), start: new Vector3(), pos: new Vector3(), t: 0, falling: false, landedNow: false });
+    }
+    this.meteorCircleMat = new MeshBasicMaterial({ color: CONFIG.colors.warning, transparent: true, depthWrite: false, opacity: RN.circleOpacity });
+    this.meteorCircles = new InstancedMesh(discGeometry(MT.radius), this.meteorCircleMat, MT.pool);
+    this.meteorCircles.frustumCulled = false;
+    this.meteorCircles.renderOrder = 1;
+    this.meteorCores = new InstancedMesh(this.shardMesh.geometry, shardMat, MT.pool);
+    this.meteorCores.frustumCulled = false;
     this.hideAllInstances();
   }
 
@@ -144,16 +190,18 @@ export class Hazards {
    * Shows the warning circles of wave `w` at `targets` (y is ignored). `centerPulseHz`, if given,
    * makes target 0 (wave 0's center) pulse at its own rate.
    */
-  placeWave(w: number, targets: readonly Vec3Like[], count: number, pulseHz: number = RN.circlePulseHz, centerPulseHz?: number): void {
+  placeWave(w: number, targets: readonly Vec3Like[], count: number, pulseHz: number = RN.circlePulseHz, centerPulseHz?: number, radius: number = RN.circleRadius): void {
     const wave = this.waves[w];
     wave.count = Math.min(count, MAX);
     wave.t = 0;
     wave.pulseHz = pulseHz;
+    wave.radius = radius;
     for (let i = 0; i < MAX; i++) {
       const s = wave.shards[i];
       if (i < wave.count) {
         s.target.set(targets[i].x, RN.landHeight, targets[i].z);
         s.state = 'placed';
+        s.radius = radius;
       } else {
         s.state = 'idle';
       }
@@ -197,7 +245,43 @@ export class Hazards {
 
   /** Every normally detached mesh (shader warm-up). */
   get scenePool(): readonly (Mesh | InstancedMesh)[] {
-    return [...this.rings.map((r) => r.mesh.mesh), ...this.waves.map((w) => w.circles), this.shardMesh, this.centerDisc.mesh, this.spikes.mesh];
+    return [...this.rings.map((r) => r.mesh.mesh), ...this.waves.map((w) => w.circles), this.shardMesh, this.centerDisc.mesh, this.spikes.mesh, this.meteorCircles, this.meteorCores];
+  }
+
+  /** GD §6.5 G: the Meteor Shower starts now and falls for `CONFIG.meteor.duration` seconds. */
+  startMeteors(rng: () => number): void {
+    this.meteorRng = rng;
+    this.meteorLeft = CONFIG.meteor.duration;
+    this.meteorAcc = 0;
+    this.meteorsSpawned = 0;
+    this.meteorElapsed = 0;
+    if (!this.meteorCircles.parent) this.scene.add(this.meteorCircles);
+    if (!this.meteorCores.parent) this.scene.add(this.meteorCores);
+  }
+
+  /** Blood-moon weight 0…1 during the Meteor Shower (fades in and out; GD §6.5 cinematic). */
+  get bloodWeight(): number {
+    if (this.meteorLeft <= 0) return 0;
+    const B = CONFIG.vfx.bloodMoon;
+    return Math.min(1, this.meteorElapsed / B.fadeIn) * Math.min(1, this.meteorLeft / B.fadeOut);
+  }
+
+  /** The player died: no new meteors (the falling ones and every other hazard finish visually). */
+  stopShower(): void {
+    this.meteorLeft = 0;
+    this.meteorAcc = 0;
+  }
+
+  /** Meteor Shower still running or meteors still falling (debug, tests). */
+  get meteorsActive(): boolean {
+    return this.meteorLeft > 0 || this.meteors.some((m) => m.falling);
+  }
+
+  /** Live meteor targets (tests). */
+  meteorTargets(out: Vector3[]): Vector3[] {
+    out.length = 0;
+    for (const m of this.meteors) if (m.falling) out.push(m.target);
+    return out;
   }
 
   // --- queries -----------------------------------------------------------------------------------
@@ -273,8 +357,7 @@ export class Hazards {
       const S = RB.spikes;
       let tip: number;
       if (this.rebukeT <= RB.burst) {
-        const u = this.rebukeT / RB.burst;
-        tip = RB.startRadius + (RB.endRadius + S.overshoot - RB.startRadius) * easeOut(u);
+        tip = rebukeReach(this.rebukeT) + S.overshoot * Math.min(1, this.rebukeT / RB.burst);
       } else if (this.rebukeT <= RB.burst + S.hold) {
         const u = (this.rebukeT - RB.burst) / S.hold;
         tip = RB.endRadius + S.overshoot * (1 - u);
@@ -326,6 +409,101 @@ export class Hazards {
     }
     this.writeShards();
     if (!anyFlying && !this.rainAlive) this.shardMesh.removeFromParent();
+    this.stepMeteors(dt);
+  }
+
+  private stepMeteors(dt: number): void {
+    const MT = CONFIG.meteor;
+    this.meteorSoundT = Math.max(0, this.meteorSoundT - dt);
+    if (this.meteorLeft > 0) {
+      this.meteorLeft -= dt;
+      this.meteorElapsed += dt;
+      this.meteorAcc += MT.rate * dt;
+      while (this.meteorAcc >= 1) {
+        this.meteorAcc -= 1;
+        this.spawnMeteor();
+      }
+    }
+    let any = false;
+    for (let i = 0; i < this.meteors.length; i++) {
+      const m = this.meteors[i];
+      m.landedNow = false;
+      if (!m.falling) continue;
+      m.t += dt;
+      const u = Math.min(1, m.t / MT.warning);
+      m.pos.lerpVectors(m.start, m.target, u * u); // accelerating fall
+      if (u >= 1) {
+        m.falling = false;
+        m.landedNow = true;
+        if (this.vfx) this.vfx.fireExplosion(m.target.x, m.target.z);
+        if (this.meteorSoundT <= 0) {
+          this.sound.play('shard_land');
+          this.meteorSoundT = MT.soundGap;
+        }
+        continue;
+      }
+      any = true;
+      this.vfx?.fireballTrail(m.pos.x, m.pos.y, m.pos.z);
+    }
+    // Instances
+    for (let i = 0; i < this.meteors.length; i++) {
+      const m = this.meteors[i];
+      if (m.falling) {
+        tmpS.set(1, 1, 1);
+        tmpP.set(m.target.x, RN.circleLift, m.target.z);
+        tmpM.compose(tmpP, FLAT, tmpS);
+        this.meteorCircles.setMatrixAt(i, tmpM);
+        tmpM.makeTranslation(m.pos.x, m.pos.y, m.pos.z);
+        this.meteorCores.setMatrixAt(i, tmpM);
+      } else {
+        tmpM.makeScale(0, 0, 0);
+        this.meteorCircles.setMatrixAt(i, tmpM);
+        this.meteorCores.setMatrixAt(i, tmpM);
+      }
+    }
+    this.meteorCircles.instanceMatrix.needsUpdate = true;
+    this.meteorCores.instanceMatrix.needsUpdate = true;
+    const pulse = 0.5 * (1 - Math.cos(2 * Math.PI * RN.circlePulseHz * this.time));
+    this.meteorCircleMat.opacity = RN.circleOpacity * (1 - RN.circlePulseDepth * pulse);
+    if (!any && this.meteorLeft <= 0) {
+      this.meteorCircles.removeFromParent();
+      this.meteorCores.removeFromParent();
+    }
+  }
+
+  /** A random target in the arena, at least `minSeparation` from the other live targets. */
+  private spawnMeteor(): void {
+    const MT = CONFIG.meteor;
+    const slot = this.meteors.find((m) => !m.falling);
+    if (!slot) return;
+    const maxR = CONFIG.arena.radius - MT.radius;
+    const min2 = MT.minSeparation * MT.minSeparation;
+    for (let k = 0; k < MT.tries; k++) {
+      const r = maxR * Math.sqrt(this.meteorRng());
+      const a = this.meteorRng() * Math.PI * 2;
+      const x = Math.cos(a) * r;
+      const z = Math.sin(a) * r;
+      let ok = true;
+      for (const m of this.meteors) {
+        if (!m.falling) continue;
+        const dx = m.target.x - x;
+        const dz = m.target.z - z;
+        if (dx * dx + dz * dz < min2) {
+          ok = false;
+          break;
+        }
+      }
+      if (!ok) continue;
+      const sa = this.meteorRng() * Math.PI * 2;
+      slot.target.set(x, RN.landHeight, z);
+      slot.start.set(x + Math.cos(sa) * MT.fallOffset, MT.fallHeight, z + Math.sin(sa) * MT.fallOffset);
+      slot.pos.copy(slot.start);
+      slot.t = 0;
+      slot.falling = true;
+      slot.landedNow = false;
+      this.meteorsSpawned++;
+      return;
+    }
   }
 
   /**
@@ -344,10 +522,13 @@ export class Hazards {
         const s = w.shards[i];
         if (s.state === 'flying') {
           for (const sp of spheres) if (sphereSphere(s.pos, RN.hitRadius, sp.center, sp.radius)) return this.source.copy(s.pos);
-        } else if (s.landedNow && inCircle(p, s.target, RN.circleRadius + PLAYER_R)) {
+        } else if (s.landedNow && inCircle(p, s.target, s.radius + PLAYER_R)) {
           return this.source.set(s.target.x, 0, s.target.z);
         }
       }
+    }
+    for (const m of this.meteors) {
+      if (m.landedNow && inCircle(p, m.target, CONFIG.meteor.radius + PLAYER_R)) return this.source.set(m.target.x, 0, m.target.z);
     }
     return null;
   }
@@ -386,6 +567,15 @@ export class Hazards {
     this.hideRebuke();
     this.centerDisc.hide();
     this.shardMesh.removeFromParent();
+    for (const m of this.meteors) {
+      if (puff && m.falling) this.puffs.spawn(m.target.x, 0, m.target.z, 'warning');
+      m.falling = false;
+      m.landedNow = false;
+    }
+    this.meteorLeft = 0;
+    this.meteorAcc = 0;
+    this.meteorCircles.removeFromParent();
+    this.meteorCores.removeFromParent();
     this.hideAllInstances();
   }
 
@@ -403,7 +593,7 @@ export class Hazards {
       const s = wave.shards[i];
       const show = i < wave.count && s.state !== 'idle' && !(w === 0 && i === 0);
       if (show) {
-        tmpS.set(1, 1, 1);
+        tmpS.setScalar(s.radius / RN.circleRadius);
         tmpP.set(s.target.x, RN.circleLift, s.target.z);
         tmpM.compose(tmpP, FLAT, tmpS);
         visible++;
@@ -416,8 +606,10 @@ export class Hazards {
     if (visible === 0) wave.circles.removeFromParent();
     if (w === 0) {
       const c = wave.shards[0];
-      if (wave.count > 0 && c.state !== 'idle') this.centerDisc.show(this.scene, c.target.x, c.target.z, RN.circleOpacity);
-      else this.centerDisc.hide();
+      if (wave.count > 0 && c.state !== 'idle') {
+        this.centerDisc.show(this.scene, c.target.x, c.target.z, RN.circleOpacity);
+        this.centerDisc.mesh.scale.setScalar(c.radius / RN.circleRadius);
+      } else this.centerDisc.hide();
     }
   }
 
@@ -449,5 +641,11 @@ export class Hazards {
       for (let i = 0; i < MAX; i++) w.circles.setMatrixAt(i, tmpM);
       w.circles.instanceMatrix.needsUpdate = true;
     }
+    for (let i = 0; i < CONFIG.meteor.pool; i++) {
+      this.meteorCircles.setMatrixAt(i, tmpM);
+      this.meteorCores.setMatrixAt(i, tmpM);
+    }
+    this.meteorCircles.instanceMatrix.needsUpdate = true;
+    this.meteorCores.instanceMatrix.needsUpdate = true;
   }
 }

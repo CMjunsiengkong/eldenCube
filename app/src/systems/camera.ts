@@ -74,6 +74,13 @@ export class CameraController {
   private readonly finalLook = new Vector3();
   private lookOverride: Vector3 | null = null;
 
+  /** 2026-10-12: camera lift (Flame Beam) and the rage look-up. */
+  private liftTarget = 0;
+  private lift = 0;
+  private lookUpLeft = 0;
+  private lookUpTime = 0;
+  private lookUpHeight = 0;
+
   private shakeAmp = 0;
   private shakeDuration = 0;
   private shakeLeft = 0;
@@ -90,6 +97,8 @@ export class CameraController {
     this.mode = 'orbit';
     this.orbitAngle = CAM.orbit.startAngle;
     this.lookOverride = null;
+    this.lift = this.liftTarget = 0;
+    this.lookUpLeft = 0;
     this.clearShake();
     orbitPose(this.orbitAngle, this.finalPos, this.finalLook);
     this.apply();
@@ -117,6 +126,18 @@ export class CameraController {
     }
     if (!this.lookOverride) this.lookOverride = new Vector3();
     this.lookOverride.set(p.x, p.y, p.z);
+  }
+
+  /** Raise and pull back the lock-on camera (smoothly), e.g. during the Flame Beam. */
+  setLift(on: boolean): void {
+    this.liftTarget = on ? 1 : 0;
+  }
+
+  /** The look-at point rises by up to `height` m and comes back over `duration` s (rage). */
+  lookUp(height: number, duration: number): void {
+    this.lookUpHeight = height;
+    this.lookUpTime = duration;
+    this.lookUpLeft = duration;
   }
 
   /** A new shake replaces the current one only if it is stronger (GD §7). */
@@ -158,6 +179,21 @@ export class CameraController {
     }
     if (this.mode !== 'orbit') {
       lockOnPose(player, boss, this.dir, this.desiredPos, this.desiredLook);
+      // Lift: blend toward a higher, farther camera (the beam is seen from above, not end-on).
+      this.lift += (this.liftTarget - this.lift) * smoothFactor(F.liftSmoothing, dt);
+      if (this.lift > 1e-3) {
+        const close = Math.hypot(player.x - boss.x, player.z - boss.z) < F.closeThreshold;
+        const back = close ? F.closeDistance : F.distance;
+        const height = close ? F.closeHeight : F.height;
+        const extraBack = (F.liftDistance - back) * this.lift;
+        this.desiredPos.x += this.dir.x * Math.max(0, extraBack);
+        this.desiredPos.z += this.dir.z * Math.max(0, extraBack);
+        this.desiredPos.y += Math.max(0, F.liftHeight - height) * this.lift;
+      }
+      if (this.lookUpLeft > 0) {
+        this.lookUpLeft = Math.max(0, this.lookUpLeft - dt);
+        this.desiredLook.y += this.lookUpHeight * Math.sin(Math.PI * (1 - this.lookUpLeft / this.lookUpTime));
+      }
       if (this.lookOverride) this.desiredLook.copy(this.lookOverride);
       const f = smoothFactor(CAM.smoothing, dt);
       this.lockPos.lerp(this.desiredPos, f);
