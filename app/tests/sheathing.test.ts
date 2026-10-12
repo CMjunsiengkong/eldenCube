@@ -53,7 +53,7 @@ describe('sheathing (GAME_DESIGN §4.3, 1.5b)', () => {
     expect(h.state).toBe('drawn');
   });
 
-  it('puts the sword away 1.5 s after the combo, then the arm drops', () => {
+  it('puts the sword away 0.4 s after the combo, then the arm drops', () => {
     const m = new PlayerMotor();
     const h = new SwordHolster();
     m.step(STEP, input(true));

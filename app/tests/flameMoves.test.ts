@@ -21,7 +21,7 @@ describe('Cone Flame Breath (GAME_DESIGN §6.5 E, 2026-10-12)', () => {
     expect(inCone(0, CN.range + 1, 0, 0, 0, CN.range, half)).toBe(false); // out of range
   });
 
-  it('each blast window (0.25 s) fits inside the roll i-frames (0.35 s)', () => {
+  it('each blast window (0.15 s) fits inside the roll i-frames (0.35 s)', () => {
     expect(CN.blast).toBeLessThan(R.iFrameEnd - R.iFrameStart);
   });
 
@@ -35,7 +35,7 @@ describe('Cone Flame Breath (GAME_DESIGN §6.5 E, 2026-10-12)', () => {
     expect(2 * CONFIG.stamina.rollCost).toBe(60);
   });
 
-  it('timeline: telegraph 0.9 s, a 0.25 s damage window, 0.8 s recovery (Phase 1)', () => {
+  it('timeline: telegraph 0.9 s, a 0.15 s damage window, 0.8 s recovery (Phase 1)', () => {
     const ctx = makeCtx();
     const cone = new ConeBreath();
     ctx.playerPos.set(0, 0, 8);
@@ -220,7 +220,7 @@ describe('Flame Beam (GAME_DESIGN §6.5 F, 2026-10-12)', () => {
 });
 
 describe('Meteor Shower and rage Crown Rain (GAME_DESIGN §6.5 C, G, 2026-10-12)', () => {
-  it('falls for 10 s at about 8 per second, all inside the arena, then stops', () => {
+  it('falls for 10 s at about 12 per second, all inside the arena, then stops', () => {
     const ctx = makeCtx({ seed: 5 });
     const h = ctx.hazards;
     h.startMeteors(ctx.rng);

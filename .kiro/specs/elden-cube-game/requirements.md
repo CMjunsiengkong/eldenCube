@@ -222,12 +222,12 @@ All with Vitest in a Node environment, seeded RNG where randomness is involved:
 
 1. **collision.ts:** `pointInOBB`, `sphereOBB` (incl. push-out direction), `sphereSphere`, `inRingBand`, `inCircle`, including yawed boxes and boundary cases.
 2. **springStep:** settles to the target and never explodes at the 1/60 s step for the documented k/damping values.
-3. **chooseAttack:** never 3 in a row; never Charge within 6 m; close timer ≥ 3.0 s forces Slam, or Shards when Slam is blocked; over 1,000 seeded runs every valid attack appears.
-4. **updateCloseTimer:** +dt when close, −2·dt when not, never below 0.
-5. **applyMissPunish:** −0.8 s, floor 0.3 s, once per cooldown.
-6. **Boss HP / phase:** `takeHit` sequence → `hit, hit, rage, hit, defeated`; ignored during invulnerability and during the rage transition; 3rd hit during an attack → attack cancelled and transition starts in the same step, while hits 1, 2 and 4 during an attack leave it running (D9).
-7. **Swing timing:** damage only in the active window; at most one hit per swing.
-8. **Roll timing:** i-frames exactly 0.05–0.40 s; direction locked; no swing or roll during roll or recovery; no roll during cooldown (swing allowed in cooldown, D1).
+3. **chooseMove** (replaces `chooseAttack`, 2026-10-12): distance bands and per-phase weights; Royal Rebuke 80% at extreme close; the last attack keeps 25% of its weight and never 3 in a row; never Charge within 6 m; no Crown Rain while its shards fly; fallback when nothing is valid.
+4. **addPoise / Rebuke triggers** (replace `updateCloseTimer`, 1.4b and 2026-10-12): poise counts only outside windows and triggers at 3; the Slam window end within 5 m asks for a Rebuke.
+5. **Scheduler** (replaces `applyMissPunish`, removed in 1.4b): the first attack after the grace; the cooldown starts when the boss is free; debug forcing.
+6. **Boss HP / phase:** 30 HP, damage 1/1/2, rage at ≤ 15, defeat at 0; ignored during the rage transition; the rage hit cancels the attack and hazards in the same step, while other hits leave the attack running (D9).
+7. **Combo timing:** damage only in the active windows; at most one hit per combo hit; chain point and window; no cancels.
+8. **Roll timing:** i-frames exactly 0.05–0.40 s; direction locked; no attack or roll start during roll or recovery except via the buffer; no roll cooldown (1.4b).
 9. **State flow:** death → `TO_TITLE` after 2.0 s; victory → `TO_TITLE` on input after 1.0 s or automatically after 8 s; reset happens exactly once, at full black.
 10. **flags.ts:** parsing of none / `?easy` / `?debug` / both.
 11. **resolveSfxSources:** empty glob → every sound uses its recipe; `hit.mp3` → `hit`; mp3 beats ogg/wav for the same ID; unknown names ignored.

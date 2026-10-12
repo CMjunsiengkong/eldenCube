@@ -40,7 +40,7 @@ describe('multipliers (GAME_DESIGN §6.4, §11; decisions D3, D4)', () => {
     expect(telegraphMult('rage', EASY)).toBeCloseTo(0.78);
   });
 
-  it('cooldown: 2.5 s / rage 1.6 s, easy ×1.3', () => {
+  it('cooldown: 1.0 s / rage 0.6 s, easy ×1.3', () => {
     expect(cooldownFor('p1', NONE)).toBeCloseTo(1.0);
     expect(cooldownFor('rage', NONE)).toBeCloseTo(0.6);
     expect(cooldownFor('p1', EASY)).toBeCloseTo(1.3);

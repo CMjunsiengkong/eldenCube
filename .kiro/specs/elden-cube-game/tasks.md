@@ -99,12 +99,12 @@ Rules: follow `requirements.md` and `design.md`; git per `.kiro/steering/git.md`
 
 ## Milestone 1.6 — Tests, tuning, bug bash (`feat/1.6-tuning`)
 
-- [ ] 1.6.1 Audit unit tests against AR §8 / Req 21 (all 11 groups present and passing); `npm run build` passes. _Req 21, 20.3_
-- [ ] 1.6.2 Sound checks: empty `sfx/` → recipes; drop a test `hit.mp3` → file plays; remove → recipe again (test file not committed). _Req 18.10_
-- [ ] 1.6.3 Performance on this Mac: `?debug` FPS steady 60; Chrome Performance trace during attacks/debris shows no long frames; draw calls < 100 (`renderer.info`). _Req 20.2_
-- [ ] 1.6.4 Console hygiene: full session title → 3 deaths → win with zero errors/warnings (MCP console read). _Req 20.1_
+- [x] 1.6.1 Audit unit tests against AR §8 / Req 21 (all 11 groups present and passing); `npm run build` passes. _Req 21, 20.3_ — 203 tests in 20 files; AR §8 and Req 21 updated to the reworked AI/HP; stale test titles fixed.
+- [x] 1.6.2 Sound checks: empty `sfx/` → recipes; drop a test `hit.mp3` → file plays; remove → recipe again (test file not committed). _Req 18.10_
+- [x] 1.6.3 Performance on this Mac: `?debug` FPS steady 60; Chrome Performance trace during attacks/debris shows no long frames; draw calls < 100 (`renderer.info`). _Req 20.2_ — headless Chrome, full session: worst frame 16.8 ms, peak 59 draw calls (after the puff fix; was 105 during the rage cancel).
+- [x] 1.6.4 Console hygiene: full session title → 3 deaths → win with zero errors/warnings (MCP console read). _Req 20.1_
 - [ ] 1.6.5 **[User]** playtest with ≥ 3 first-time players; report attempts-to-win. Tune only *(tune)* values in `config.ts` per PP 1.6 order (i-frames, recovery, cooldowns, telegraphs; then rage upgrades one at a time). _Req 20.4_
-- [ ] 1.6.6 Fix every bug found (`fix/<name>` branches as needed).
-- [ ] 1.6.7 `npm run preview` → built game correct at `http://localhost:4173`. _Req 20.3_
+- [ ] 1.6.6 Fix every bug found (`fix/<name>` branches as needed). Found so far: debris puffs were one draw call per cube (up to 105 calls in the rage cancel) → one instanced mesh.
+- [x] 1.6.7 `npm run preview` → built game correct at `http://localhost:4173`. _Req 20.3_
 - [ ] 1.6.8 Walk the full GD §13 checklist on this Mac with evidence per item. _Req 20.5_
 - [ ] 1.6.9 Stage 1 report with every exit criterion. **Ask to merge.** Then start the `elden-cube-deploy` spec.

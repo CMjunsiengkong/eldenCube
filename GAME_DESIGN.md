@@ -644,11 +644,11 @@ Do **not** build any of these:
 - [ ] The player survives the first two hits (stagger, knockback, 1.0 s blinking invincibility) and dies on the third; a flask restores 1 HP after 0.6 s, can be interrupted, and has 3 charges
 
 **Boss**
-- [ ] All 4 attacks are telegraphed and can be avoided as described (roll through the ring, strafe or roll past the charge, read the Crown Rain waves, roll the Rebuke); each can also be survived with well-timed roll i-frames
+- [ ] Every attack is telegraphed and can be avoided as described (roll through the ring, strafe or roll past the charge, read the Crown Rain waves, roll the Rebuke, roll through the Cone Breath, roll against the Flame Beam, keep moving in the Meteor Shower); each can also be survived with well-timed roll i-frames
 - [ ] The boss stays busy: its cooldown starts when it is free, never while waiting for hazards; it chases beyond 5 m
 - [ ] Attack selection never repeats the same attack 3 times in a row; Charge is never chosen within 6 m; Crown Rain never overlaps itself
 - [ ] Slam opens a 2.0 s punish window that fits one full combo, followed by a Rebuke if the player is still close
-- [ ] Rebuke triggers on poise 3 (outside windows), after 1.0 s close, and at the end of the Slam window, always with its 0.35 s tell
+- [ ] Rebuke triggers on poise 3 (outside windows), as the 80% pick when extremely close (2026-10-12), and at the end of the Slam window, always with its 0.35 s tell
 - [ ] Rage starts when HP falls to 15 or below (50%), with its transition (cancelling the attack and all hazards) and the 10 s Meteor Shower; the boss dies at 0 HP (30 damage)
 - [ ] *(2026-10-12)* Moves follow the distance-weighted table (Rebuke 80% when extremely close); Crown Rain is followed immediately by another attack; the Cone Breath can only be rolled through (double in rage, 60 stamina); the Flame Beam sweeps after the player, never reverses and can be beaten by rolling against it; it stops when either side takes damage
 - [ ] Hit reactions (hit-stop, flash, squash, shake, sound, HUD) all play

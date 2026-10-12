@@ -18,6 +18,7 @@ import {
   MeshBasicMaterial,
   MeshStandardMaterial,
   NormalBlending,
+  Object3D,
   Quaternion,
   RingGeometry,
   ShaderMaterial,
@@ -385,10 +386,13 @@ export type PuffColor = 'crown' | 'shockwave' | 'warning' | 'rebuke';
  * A fixed pool of tiny cubes; each lives `puffLifetime` seconds.
  */
 export class Puffs {
+  /** All pieces share one instanced mesh: one draw call however many puffs are alive (1.6). */
+  private readonly mesh: InstancedMesh;
   private readonly pool: DebrisPiece[] = [];
   private readonly active: DebrisPiece[] = [];
   private readonly life = new Map<DebrisPiece, number>();
-  private readonly materials: Record<PuffColor, MeshStandardMaterial>;
+  private readonly tint = new Map<DebrisPiece, Color>();
+  private readonly colors: Record<PuffColor, Color>;
   private next = 0;
   private readonly scene: Scene;
   private readonly rng: Rng;
@@ -398,17 +402,19 @@ export class Puffs {
     this.rng = rng;
     const S = CONFIG.fx.puff;
     const C = CONFIG.colors;
-    this.materials = {
-      crown: new MeshStandardMaterial({ color: C.crown }),
-      shockwave: new MeshStandardMaterial({ color: C.shockwave }),
-      warning: new MeshStandardMaterial({ color: C.warning }),
-      rebuke: new MeshStandardMaterial({ color: C.rebukeRing }),
+    this.colors = {
+      crown: new Color(C.crown),
+      shockwave: new Color(C.shockwave),
+      warning: new Color(C.warning),
+      rebuke: new Color(C.rebukeRing),
     };
-    const geo = new BoxGeometry(S.size, S.size, S.size);
+    this.mesh = new InstancedMesh(new BoxGeometry(S.size, S.size, S.size), new MeshStandardMaterial({ color: 0xffffff }), S.pool);
+    this.mesh.castShadow = false;
+    this.mesh.frustumCulled = false;
+    this.mesh.count = 0;
     for (let i = 0; i < S.pool; i++) {
-      const m = new Mesh(geo, this.materials.crown);
-      m.castShadow = false;
-      this.pool.push(createPiece(m, S.size / 2));
+      this.mesh.setColorAt(i, this.colors.crown);
+      this.pool.push(createPiece(new Object3D(), S.size / 2));
     }
   }
 
@@ -418,10 +424,10 @@ export class Puffs {
     for (let i = 0; i < pieces; i++) {
       const p = this.pool[this.next];
       this.next = (this.next + 1) % this.pool.length;
-      const m = p.object as Mesh;
-      m.material = this.materials[color];
-      m.position.set(x, Math.max(y, p.groundR), z);
-      m.rotation.set(0, 0, 0);
+      const o = p.object;
+      this.tint.set(p, this.colors[color]);
+      o.position.set(x, Math.max(y, p.groundR), z);
+      o.rotation.set(0, 0, 0);
       const a = this.rng() * Math.PI * 2;
       const sp = randRange(this.rng, S.speed[0], S.speed[1]);
       p.vel.set(Math.cos(a) * sp, sp, Math.sin(a) * sp);
@@ -429,8 +435,9 @@ export class Puffs {
       p.asleep = false;
       if (!this.life.has(p)) this.active.push(p);
       this.life.set(p, S.lifetime);
-      if (!m.parent) this.scene.add(m);
     }
+    if (!this.mesh.parent) this.scene.add(this.mesh);
+    this.sync();
   }
 
   step(dt: number): void {
@@ -443,15 +450,30 @@ export class Puffs {
         continue;
       }
       this.life.delete(p);
-      p.object.removeFromParent();
       this.active[i] = this.active[this.active.length - 1];
       this.active.pop();
     }
+    if (this.active.length === 0) this.mesh.removeFromParent();
+    this.sync();
   }
 
-  /** One pooled piece per material (shader warm-up). */
+  /** Writes the live pieces into the first instance slots. */
+  private sync(): void {
+    const m = this.mesh;
+    for (let i = 0; i < this.active.length; i++) {
+      const p = this.active[i];
+      p.object.updateMatrix();
+      m.setMatrixAt(i, p.object.matrix);
+      m.setColorAt(i, this.tint.get(p) ?? this.colors.crown);
+    }
+    m.count = this.active.length;
+    m.instanceMatrix.needsUpdate = true;
+    if (m.instanceColor) m.instanceColor.needsUpdate = true;
+  }
+
+  /** The instanced mesh (shader warm-up). */
   get warmupPieces(): readonly Mesh[] {
-    return this.pool.slice(0, 1).map((p) => p.object as Mesh);
+    return [this.mesh];
   }
 
   /** Visible puff pieces (tests, debug). */
@@ -460,8 +482,9 @@ export class Puffs {
   }
 
   clear(): void {
-    for (const p of this.active) p.object.removeFromParent();
     this.active.length = 0;
     this.life.clear();
+    this.mesh.count = 0;
+    this.mesh.removeFromParent();
   }
 }
