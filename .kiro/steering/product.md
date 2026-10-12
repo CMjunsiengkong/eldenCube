@@ -24,7 +24,7 @@ A small, funny 3D boss fight in the browser: a clumsy hero ("The Tarnished Inter
 - Sound: files in `app/src/assets/sfx/` when present; otherwise (default) code-generated Web Audio recipes.
 
 ## Targets
-- Attempt length 30–120 s. A first-time player wins in about 3–6 attempts.
+- Attempt length 30–120 s. Very hard to clear (2026-10-12): first-time players struggle; a practiced player can win.
 - Steady 60 fps in Chrome on the booth laptop. No console errors or warnings.
 
 ## Source of truth
