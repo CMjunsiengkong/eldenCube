@@ -28,12 +28,14 @@ import { CONFIG } from '../config';
 import { getFlags, rebukeTellFor, speedMult, telegraphMult } from '../flags';
 import type { GameClock, LoopTarget } from '../loop';
 import { moveDirFromAxis, Player, type MotorInput, type PlayerEvent } from '../entities/Player';
-import { Boss, type HitResult } from '../entities/Boss';
+import { Boss, distanceBand, type HitResult } from '../entities/Boss';
 import type { Attack, AttackContext, MoveId } from '../attacks/Attack';
 import { CubeSlam } from '../attacks/CubeSlam';
 import { RoyalCharge } from '../attacks/RoyalCharge';
 import { CrownRain } from '../attacks/CrownRain';
 import { RoyalRebuke } from '../attacks/RoyalRebuke';
+import { ConeBreath } from '../attacks/ConeBreath';
+import { FlameBeam } from '../attacks/FlameBeam';
 import { Hazards, WAVES } from '../attacks/Hazards';
 import { debrisCenter, stepDebris, type DebrisPiece } from '../fx/debris';
 import { Puffs } from '../fx/effects';
@@ -291,7 +293,7 @@ export class Game implements LoopTarget {
     this.vfx = new Vfx(this.scene);
     this.hazards = new Hazards(this.scene, this.puffs, this.vfx);
     this.hazards.sound = this.audio;
-    this.attacks = { slam: new CubeSlam(), charge: new RoyalCharge(), rain: new CrownRain(), rebuke: new RoyalRebuke() };
+    this.attacks = { slam: new CubeSlam(), charge: new RoyalCharge(), rain: new CrownRain(), rebuke: new RoyalRebuke(), cone: new ConeBreath(), beam: new FlameBeam() };
 
     this.cameraCtl = new CameraController(this.camera, this.rng);
     this.cameraCtl.setOrbit();
@@ -331,6 +333,8 @@ export class Game implements LoopTarget {
     const pool: Object3D[] = [
       ...this.hazards.scenePool,
       ...(this.attacks.slam as CubeSlam).scenePool,
+      ...(this.attacks.cone as ConeBreath).scenePool,
+      ...(this.attacks.beam as FlameBeam).scenePool,
       ...this.puffs.warmupPieces,
       ...this.vfx.scenePool,
     ];
@@ -432,6 +436,10 @@ export class Game implements LoopTarget {
     if (this.boss.brain.consumeCancel()) {
       this.cancelAttack();
       this.hazards.clear(result === 'rage');
+      // GD §6.4 / §6.5 G (2026-10-12): the Meteor Shower starts with the rage transition.
+      if (result === 'rage') this.hazards.startMeteors(this.rng);
+    } else {
+      this.attack?.onBossHit?.(); // the Flame Beam stops when the boss takes damage
     }
     this.ui.setHealth(this.boss.brain.hp);
 
@@ -597,6 +605,7 @@ export class Game implements LoopTarget {
     const r = this.player.motor.takeHit(source.x, source.z);
     if (r === 'ignored') return;
     if (r === 'hurt') {
+      this.attack?.onPlayerHit?.(); // the Flame Beam stops when it hits
       this.time.hitStop(CONFIG.hurt.hitStop);
       this.cameraCtl.shake(CONFIG.hurt.shake.amplitude, CONFIG.hurt.shake.duration);
       this.audio.play('player_hurt');
@@ -633,6 +642,7 @@ export class Game implements LoopTarget {
     ctx.speedMult = speedMult(phase);
     ctx.telegraphMult = telegraphMult(phase);
     ctx.rage = phase === 'rage';
+    ctx.easyMult = getFlags().easy ? CONFIG.easy.telegraphMult : 1;
   }
 
   private cancelAttack(): void {
@@ -718,6 +728,9 @@ export class Game implements LoopTarget {
     if (this.input.consume('debug2')) brain.forceNext = 'charge';
     if (this.input.consume('debug3')) brain.forceNext = 'rain';
     if (this.input.consume('debug4')) brain.requestRebuke('debug');
+    if (this.input.consume('debug5')) brain.forceNext = 'cone';
+    if (this.input.consume('debug6')) brain.forceNext = 'beam';
+    if (this.input.consume('debug7')) this.hazards.startMeteors(this.rng);
     if (this.input.consume('debugG')) this.player.motor.godMode = !this.player.motor.godMode;
     if (this.input.consume('debugK')) this.applyBossHit(this.player.position, 1);
   }
@@ -746,7 +759,7 @@ export class Game implements LoopTarget {
         `speed ${m.speed().toFixed(2)} m/s  pos ${m.x.toFixed(1)}, ${m.z.toFixed(1)}`,
         `boss hp ${b.hp} ${b.phase} ${b.mode} last=${this.lastHit ?? '-'}`,
         `attack ${atk}${win}  next in ${b.waiting ? b.cooldownLeft.toFixed(2) : '-'}${b.forceNext ? ` forced=${b.forceNext}` : ''}`,
-        `poise ${b.poise}  close ${b.closeTimer.toFixed(2)}${b.annoyed ? ' ANNOYED' : ''}${this.rebukeMarker > 0 ? `  REBUKE(${b.lastRebuke})` : ''}`,
+        `poise ${b.poise}  band ${['XC', 'close', 'mid', 'far'][distanceBand(Math.hypot(m.x - this.boss.pos.x, m.z - this.boss.pos.z))]}${this.hazards.meteorsActive ? '  METEORS' : ''}${this.rebukeMarker > 0 ? `  REBUKE(${b.lastRebuke})` : ''}`,
         `sound ${this.audio.muted ? 'OFF' : 'ON'}${this.audio.unlocked ? '' : ' (locked)'}`,
       ].join('\n'),
     );

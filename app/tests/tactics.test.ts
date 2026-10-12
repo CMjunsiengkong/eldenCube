@@ -1,12 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { addPoise, BossBrain, updateCloseTimer } from '../src/entities/Boss';
+import { addPoise, BossBrain } from '../src/entities/Boss';
 import { CONFIG } from '../src/config';
 import { STEP } from '../src/loop';
 import { createRng } from '../src/util/rng';
 import type { Flags } from '../src/flags';
 
 const NORMAL: Flags = { easy: false, debug: false };
-const RB = CONFIG.rebuke;
 
 /** A brain waiting in a cooldown that never ends on its own. */
 function waitingBrain(): BossBrain {
@@ -16,18 +15,6 @@ function waitingBrain(): BossBrain {
   b.cooldownLeft = Infinity;
   return b;
 }
-
-describe('updateCloseTimer (GAME_DESIGN §6.2a)', () => {
-  it('+dt while closer than 5.0 m and waiting', () => {
-    expect(updateCloseTimer(0.2, 4.99, true, 0.5)).toBeCloseTo(0.7);
-  });
-
-  it('−2·dt otherwise (5.0 m counts as not close; not waiting), never below 0', () => {
-    expect(updateCloseTimer(1, 5.0, true, 0.25)).toBeCloseTo(0.5);
-    expect(updateCloseTimer(1, 2, false, 0.25)).toBeCloseTo(0.5);
-    expect(updateCloseTimer(0.1, 10, true, 0.25)).toBe(0);
-  });
-});
 
 describe('addPoise (GAME_DESIGN §6.2a)', () => {
   it('adds damage outside windows and triggers at 3, then resets', () => {
@@ -73,21 +60,25 @@ describe('Royal Rebuke triggers — BossBrain', () => {
     expect(b.pendingRebuke).toBeNull();
   });
 
-  it('close: 1.0 s within 5 m while waiting triggers a Rebuke; the tell starts at 0.5 s', () => {
-    const b = waitingBrain();
-    let t = 0;
-    let started = null;
-    let annoyedAt = -1;
-    while (!started && t < 3) {
-      started = b.update(STEP, 3, false);
-      t += STEP;
-      if (annoyedAt < 0 && b.annoyed) annoyedAt = t;
+  it('close (2026-10-12): extremely close at the end of the cooldown, Rebuke is picked about 80% of the time', () => {
+    let rebukes = 0;
+    for (let seed = 1; seed <= 400; seed++) {
+      const b = new BossBrain(createRng(seed), NORMAL);
+      b.beginAttack('slam');
+      b.attackFree();
+      b.cooldownLeft = STEP / 2;
+      if (b.update(STEP, 3, false) === 'rebuke') rebukes++;
     }
-    expect(started).toBe('rebuke');
-    expect(b.lastRebuke).toBe('close');
-    expect(t).toBeCloseTo(RB.closeTrigger, 1);
-    expect(annoyedAt).toBeCloseTo(RB.annoyedAt, 1);
-    expect(b.closeTimer).toBe(0);
+    expect(rebukes / 400).toBeGreaterThan(0.7);
+    expect(rebukes / 400).toBeLessThan(0.9);
+  });
+
+  it('after a Crown Rain the next pick happens right away (cooldown 0)', () => {
+    const b = new BossBrain(createRng(3), NORMAL);
+    b.beginAttack('rain');
+    b.attackFree();
+    expect(b.cooldownLeft).toBe(0);
+    expect(b.update(STEP, 10, true)).not.toBeNull();
   });
 
   it('window end: requestRebuke("window") is honored when the boss becomes free', () => {

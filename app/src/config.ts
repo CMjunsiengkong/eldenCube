@@ -336,11 +336,6 @@ const RAW = {
   /** GD §6.2a + §6.5 D — Royal Rebuke and its triggers. */
   rebuke: {
     poiseTrigger: 3, // damage outside punish windows (tune)
-    closeDistance: 5.0, // m horizontal to the boss center (tune)
-    closeTrigger: 1.0, // s of close timer (tune)
-    closeDecayMult: 2, // timer decreases at 2 × dt otherwise
-    annoyedAt: 0.5, // s: the doubled-bounce tell starts
-    annoyedBobAmplitude: 0.16, // m (tell)
     windowEndDistance: 5.0, // m: Rebuke when the Slam window ends this close (tune)
     tell: 0.35, // s (× easy only, never × rage) (tune)
     burst: 0.1, // s
@@ -367,7 +362,7 @@ const RAW = {
 
   /** GD §6.4 — rage (Phase 2). */
   rage: {
-    hpThreshold: 12, // rage when HP ≤ 12 (40% of max, scaled with the 30 HP)
+    hpThreshold: 15, // rage when HP ≤ 15 (50% of max; changed 2026-10-12)
     transitionDuration: 1.0, // s, no attacks, no damage taken
     colorFade: 0.5, // s body color → rage color
     shakeAmplitude: 0.1, // m boss shake during the transition
@@ -390,6 +385,81 @@ const RAW = {
     staggerExtraFlight: 0.3, // s extra flight time for wave 0's center shard (tune)
     staggerCenterPulseHz: 1,
     staggerSidePulseHz: 3,
+  },
+
+  /** GD §6.5 selection (2026-10-12): distance bands and weights. All (tune). */
+  ai: {
+    bands: [4.5, 8, 16], // m: extreme close | close | mid | far
+    repeatKeep: 0.25, // weight kept by the attack used last time (the last two: 0)
+    /** Weights per band [extreme close, close, mid, far]. */
+    weights: {
+      p1: {
+        rebuke: [80, 0, 0, 0],
+        slam: [8, 30, 20, 10],
+        charge: [0, 10, 25, 35],
+        rain: [4, 15, 20, 25],
+        cone: [8, 45, 25, 0],
+        beam: [0, 0, 10, 30],
+      },
+      rage: {
+        rebuke: [80, 0, 0, 0],
+        slam: [6, 20, 15, 5],
+        charge: [0, 10, 20, 25],
+        rain: [4, 15, 15, 20],
+        cone: [10, 55, 30, 0],
+        beam: [0, 0, 20, 50],
+      },
+    },
+  },
+
+  /** GD §6.5 E — Cone Flame Breath (2026-10-12). All (tune). */
+  cone: {
+    telegraph: 0.9, // s (P1)
+    rageTelegraph: 0.7, // s (rage; not × the rage telegraph factor)
+    angle: deg(110),
+    rageAngle: deg(130),
+    range: 12, // m
+    rageRange: 13,
+    blast: 0.25, // s damage window per blast (< the 0.35 s roll i-frames)
+    rageBlasts: 2,
+    blastGap: 0.7, // s between blast starts (rage double)
+    recovery: 0.8, // s
+    rageRecovery: 0.6,
+    outlineOpacity: 0.35,
+    flamesPerStep: 26, // particles per step during a blast (visual)
+    mouthHeight: 2.0, // m
+  },
+
+  /** GD §6.5 F — Flame Beam (2026-10-12). All (tune). */
+  beam: {
+    charge: 1.0, // s
+    rageCharge: 0.7,
+    fire: 3.0, // s
+    rageFire: 2.0,
+    sweep: 1.0, // rad/s
+    rageSweep: 2.4,
+    length: 28, // m
+    hitRadius: 0.5, // m from the beam segment to a hit sphere
+    lateralDeadzone: 1.0, // m/s: below this the sweep side comes from the offset
+    recovery: 0.5,
+    rageRecovery: 0.4,
+    height: 1.1, // m (beam axis above the ground)
+    startOffset: 2.1, // m from the boss center (its face)
+    radius: 0.35, // m visual core
+  },
+
+  /** GD §6.5 G — Meteor Shower (once, from the rage transition; 2026-10-12). All (tune). */
+  meteor: {
+    duration: 10, // s
+    rate: 12, // meteors per second (dense)
+    warning: 0.9, // s from the circle appearing to impact
+    radius: 1.8, // m (= the rage Crown Rain radius)
+    minSeparation: 2.0, // m between live targets
+    tries: 12,
+    pool: 24, // live meteors at once
+    fallHeight: 26, // m
+    fallOffset: 7, // m horizontal offset of the start point (slanted fall)
+    soundGap: 0.15, // s minimum between impact sounds
   },
 
   /** GD §6.5 A — Cube Slam. */
@@ -440,9 +510,10 @@ const RAW = {
     leadTime: 0.5, // s: aim point = P + V × leadTime
     cage: { ring: 6, radius: 3.5 }, // + 1 center circle
     wall: { count: 5, spacing: 3.0 },
-    scatter: { count: 12, minSpacing: 5.0, tries: 30 },
+    scatter: { count: 12, minSpacing: 5.0, rageMinSpacing: 6.2, tries: 30 }, // rage spacing keeps 1.8 m gaps (2026-10-12)
     maxPerWave: 12,
     circleRadius: 1.2, // m
+    rageCircleRadius: 1.8, // m: rage circles and kill radius (2026-10-12) (tune)
     circleOpacity: 0.5,
     circlePulseHz: 3, // (tune, agent-chosen)
     circlePulseDepth: 0.4, // opacity dips by up to this fraction (tune, agent-chosen)
@@ -576,7 +647,7 @@ const RAW = {
   /** 1.5b visual effects (ARCHITECTURE §4.6). Visual only. */
   vfx: {
     particles: {
-      glowCapacity: 2048, // additive pool (tune, agent-chosen)
+      glowCapacity: 4096, // additive pool (tune, agent-chosen)
       smokeCapacity: 512, // alpha-blended pool (tune, agent-chosen)
       floor: 0.03, // m; particles never sink below this height
       glowSoftness: 0.0, // radial falloff start (0 = soft disc)

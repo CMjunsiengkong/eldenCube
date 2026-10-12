@@ -283,6 +283,56 @@ export class Vfx {
     this.flash(x, z, H.ringFrom, H.ringTo, H.ringTime, this.cHeal, 0.8);
   }
 
+  /** GD §6.5 E: fire filling the cone from the boss's mouth (one step of a blast). */
+  coneFlames(bx: number, bz: number, yaw: number, half: number, range: number, count: number): void {
+    const r = this.rng;
+    const s = this.spec;
+    const mouth = CONFIG.boss.halfSize;
+    for (let i = 0; i < count; i++) {
+      const a = yaw + (r() * 2 - 1) * half;
+      const sa = Math.sin(a);
+      const ca = Math.cos(a);
+      const speed = range / 0.38;
+      s.x = bx + sa * mouth;
+      s.y = CONFIG.cone.mouthHeight * (0.5 + 0.5 * r());
+      s.z = bz + ca * mouth;
+      s.vx = sa * speed * (0.7 + 0.3 * r());
+      s.vz = ca * speed * (0.7 + 0.3 * r());
+      s.vy = -1.5 - r() * 2;
+      s.life = 0.3 + r() * 0.12;
+      s.size0 = 0.7;
+      s.size1 = 2.0;
+      s.gravity = -2;
+      s.alpha = 0.55;
+      s.color.copy(this.cFlameCore).lerp(this.cFire, 0.5 + r() * 0.5);
+      this.glow.spawn(s);
+    }
+  }
+
+  /** GD §6.5 F: embers flying off the beam (one step). */
+  beamSparks(bx: number, bz: number, yaw: number, from: number, to: number, height: number): void {
+    const r = this.rng;
+    const s = this.spec;
+    const sa = Math.sin(yaw);
+    const ca = Math.cos(yaw);
+    for (let i = 0; i < 8; i++) {
+      const d = from + r() * (to - from);
+      s.x = bx + sa * d;
+      s.y = height + (r() - 0.5) * 0.4;
+      s.z = bz + ca * d;
+      s.vx = (r() - 0.5) * 3;
+      s.vz = (r() - 0.5) * 3;
+      s.vy = 1 + r() * 2;
+      s.life = 0.25 + r() * 0.2;
+      s.size0 = 0.45;
+      s.size1 = 0;
+      s.gravity = 4;
+      s.alpha = 1;
+      s.color.copy(this.cFlameCore).lerp(this.cFire, r());
+      this.glow.spawn(s);
+    }
+  }
+
   /** One flame particle of a torch at (x, y, z). */
   torchFlame(x: number, y: number, z: number): void {
     const T = V.torch;

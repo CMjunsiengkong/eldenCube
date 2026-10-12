@@ -68,9 +68,9 @@ export function placeWall(px: number, pz: number, vx: number, vz: number, bx: nu
  * Wave 2 "scatter" (pure): up to 12 random circles in the arena, each at least 5.0 m from the
  * others (rejection sampling; a circle that can't be placed in 30 tries is skipped).
  */
-export function placeScatter(rng: Rng, out: Vector3[]): number {
+export function placeScatter(rng: Rng, out: Vector3[], minSpacing: number = RN.scatter.minSpacing): number {
   let n = 0;
-  const min2 = RN.scatter.minSpacing * RN.scatter.minSpacing;
+  const min2 = minSpacing * minSpacing;
   for (let c = 0; c < RN.scatter.count; c++) {
     for (let t = 0; t < RN.scatter.tries; t++) {
       const r = RAIN_MAX_R * Math.sqrt(rng());
@@ -101,6 +101,7 @@ export class CrownRain implements Attack {
   private cast = 0;
   private staggered = false;
   private flight = 0;
+  private radius: number = RN.circleRadius;
   private readonly buf: Vector3[] = Array.from({ length: RN.maxPerWave }, () => new Vector3());
   private readonly launch = new Vector3();
   private ctx: AttackContext | null = null;
@@ -117,8 +118,9 @@ export class CrownRain implements Attack {
     this.staggered = upgradeOn(ctx, 'staggeredShards');
     this.flight = RN.flightTime / ctx.speedMult; // D4
     const b = ctx.boss;
+    this.radius = ctx.rage ? RN.rageCircleRadius : RN.circleRadius; // rage: larger circles (2026-10-12)
     const n = placeCage(ctx.playerPos.x, ctx.playerPos.z, ctx.playerVel.x, ctx.playerVel.z, b.pos.x, b.pos.z, b.yaw, this.buf);
-    ctx.hazards.placeWave(0, this.buf, n, this.staggered ? U.staggerSidePulseHz : RN.circlePulseHz, this.staggered ? U.staggerCenterPulseHz : undefined);
+    ctx.hazards.placeWave(0, this.buf, n, this.staggered ? U.staggerSidePulseHz : RN.circlePulseHz, this.staggered ? U.staggerCenterPulseHz : undefined, this.radius);
   }
 
   update(dt: number, ctx: AttackContext): void {
@@ -138,9 +140,9 @@ export class CrownRain implements Attack {
     const p = ctx.playerPos;
     const v = ctx.playerVel;
     const n1 = placeWall(p.x, p.z, v.x, v.z, b.pos.x, b.pos.z, b.yaw, this.buf);
-    h.placeWave(1, this.buf, n1);
-    const n2 = placeScatter(ctx.rng, this.buf);
-    h.placeWave(2, this.buf, n2);
+    h.placeWave(1, this.buf, n1, RN.circlePulseHz, undefined, this.radius);
+    const n2 = placeScatter(ctx.rng, this.buf, ctx.rage ? RN.scatter.rageMinSpacing : RN.scatter.minSpacing);
+    h.placeWave(2, this.buf, n2, RN.circlePulseHz, undefined, this.radius);
     this.launch.set(b.pos.x, b.pos.y + RN.launchHeight, b.pos.z);
     const T = this.flight;
     const extra = this.staggered ? U.staggerExtraFlight : 0;
