@@ -375,13 +375,13 @@ Every attack is **telegraphed**, and every attack hit costs the player **1 HP** 
 | Royal Charge | – | 10 | 25 | 35 |
 | Crown Rain | 4 | 15 | 20 | 25 |
 | Cone Flame Breath | 8 | 45 | 25 | – |
-| Flame Beam | – | 10 | 25 | 30 |
+| Flame Beam | – | 10 | 12 | 30 |
 | **Rage** Royal Rebuke | **80** | – | – | – |
 | Cube Slam | 6 | 20 | 15 | 5 |
 | Royal Charge | – | 10 | 20 | 25 |
 | Crown Rain | 4 | 15 | 15 | 20 |
 | Cone Flame Breath (double) | 10 | 55 | 30 | – |
-| Flame Beam | – | 10 | 30 | 50 |
+| Flame Beam | – | 10 | 15 | 50 |
 
    - Not allowed (weight 0): Charge within 6 m; Crown Rain while one of its shards is still in the air.
    - Repeats: an attack used last time keeps 25% of its weight; one used the last two times is not allowed. If nothing is allowed, the repeat rule is ignored.
@@ -457,18 +457,18 @@ Why: the waves land 0.4 s apart, longer than the 0.35 s of roll i-frames, so one
 | Step | Phase 1 | Rage |
 |---|---|---|
 | Telegraph: the boss turns toward the player normally; its mouth glows orange and a red cone outline (110°, 12 m; rage 130°, 13 m) pulses on the ground in front of it. `cone_blast` plays at each release | 0.9 s | 0.7 s (not scaled by the rage telegraph factor) |
-| Blast (the boss is stuck; the cone is fixed): a wide burst of fire fills the cone, a ring of fire rushes outward across the cone on the ground, the boss light flares, and about **8 burning marks** (§6.5 C) are left scattered in the cone; smoke follows | 1 blast, damage window **0.25 s** | **2 blasts**: the second starts **0.70 s** after the first (each 0.25 s), timed to the second roll's i-frames |
+| Blast (the boss is stuck; the cone is fixed; damage window **0.15 s**, ending with the flames): a wide burst of fire fills the cone, a ring of fire rushes outward across the cone on the ground, the boss light flares, and about **8 burning marks** (§6.5 C) are left scattered in the cone; smoke follows | 1 blast, damage window **0.15 s** | **2 blasts**: the second starts **0.70 s** after the first (each 0.15 s), timed to the second roll's i-frames |
 | Recovery (a punish window: no turning, damage does not count toward poise) | 0.8 s | 0.6 s |
 
 **Hold and release** *(2026-10-12)*: before each blast a white-hot ball **compresses at the boss's mouth for 0.12 s** (it shakes, the boss light builds). Then everything is **released in one frame, 0.08 s before the damage window**: about 180 flat **anime cel-style "spiky crown" flames** (3–5 sharp peaks pointing where they fly; white-yellow core, orange body, red rim) burst across the cone so fast that they reach its end as the damage starts, and live only about 0.1 s; plus a big flash flame at the mouth, a few spark accents, the ring of fire, a hard camera kick and the `cone_blast` sound. The cone glows hot on the ground for the rest of the damage window. The cone stops following the player when the first hold begins.
 **Kill rule:** during a blast's damage window, the player is hit if their horizontal distance to the boss center is at most `range + 0.4` and the angle from the boss's facing to the player is within half the cone angle (plus the player's radius).
-**How to survive:** the cone is too wide to run out of during the telegraph: **roll through it** (the 0.25 s window fits inside the 0.35 s i-frames), or already be **behind the boss** (outside the cone). In rage you need **2 rolls (60 stamina)**; without enough stamina, one hit is guaranteed. Hurt invincibility means the double blast deals at most 1 damage.
+**How to survive:** the cone is too wide to run out of during the telegraph: **roll through it** (the 0.15 s window fits inside the 0.35 s i-frames), or already be **behind the boss** (outside the cone). In rage you need **2 rolls (60 stamina)**; without enough stamina, one hit is guaranteed. Hurt invincibility means the double blast deals at most 1 damage.
 
 #### F. Flame Beam *(added 2026-10-12)*
 | Step | Phase 1 | Rage |
 |---|---|---|
 | Charge: `beam_charge` sound; the boss turns toward the player; a thin red aiming line shows the path; sparks rush into a growing glowing orb at the boss's mouth and the screen edges darken. **0.3 s before firing the beam locks** onto the player, **aimed down at their feet** (ground distance clamped to 6–26 m): the aiming line stops following and flashes bright. A player who starts walking at the flash gets clear | 1.0 s | 0.7 s |
-| Fire *(reworked 2026-10-12, like Hyper Beam)*: `beam_fire` sound (lasts while firing), a short white flash, a hard camera shake and a low rumble. The beam slants from the boss's mouth down to the ground at the locked distance; its **front travels out at 28 m/s** (it is only dangerous up to its front). Where it meets the ground it explodes constantly and leaves a **trail of burning marks** (§6.5 C). A glowing stripe on the ground shows its path. **Sweep side:** decided once when it fires, from the player's sideways velocity across the boss→player line (above 1.0 m/s: the side the player moves to; otherwise random). The beam fires straight at where the player was and **starts sweeping once its front reaches the ground**; it then only sweeps that way, at up to **ω** toward the player, and **never reverses**. **Walking sideways at full speed outruns it** within about 15 m (rage: 10 m); rolling against the sweep also works. The boss faces the beam | 3.0 s, ω 0.40 rad/s | 2.0 s, ω 0.60 rad/s |
+| Fire *(reworked 2026-10-12, like Hyper Beam)*: `beam_fire` sound (lasts while firing), a short white flash, a hard camera shake and a low rumble. The beam slants from the boss's mouth down to the ground at the locked distance; its **front travels out at 60 m/s** (near-instant) (it is only dangerous up to its front). Where it meets the ground it explodes constantly and leaves a **trail of burning marks** (§6.5 C). A glowing stripe on the ground shows its path. **Sweep side:** decided once when it fires, from the player's sideways velocity across the boss→player line (above 1.0 m/s: the side the player moves to; otherwise random). The beam fires straight at where the player was and **starts sweeping once its front reaches the ground**; it then only sweeps that way, at up to **ω** toward the player, and **never reverses**. **Sprinting sideways from the lock flash only just outruns it** at about 10 m (easier closer, impossible farther: roll); rolling against the sweep also works. The boss faces the beam | 3.0 s, ω 0.62 rad/s | 2.0 s, ω 0.65 rad/s |
 | The beam stops at once if the player is hit, or if the boss takes damage | — | — |
 | Recovery (short, to reward the counter-roll; a punish window) | 0.5 s | 0.4 s |
 

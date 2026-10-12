@@ -399,7 +399,7 @@ const RAW = {
         charge: [0, 10, 25, 35],
         rain: [4, 15, 20, 25],
         cone: [8, 45, 25, 0],
-        beam: [0, 10, 25, 30],
+        beam: [0, 10, 12, 30],
       },
       rage: {
         rebuke: [80, 0, 0, 0],
@@ -407,7 +407,7 @@ const RAW = {
         charge: [0, 10, 20, 25],
         rain: [4, 15, 15, 20],
         cone: [10, 55, 30, 0],
-        beam: [0, 10, 30, 50],
+        beam: [0, 10, 15, 50],
       },
     },
   },
@@ -420,7 +420,7 @@ const RAW = {
     rageAngle: deg(130),
     range: 12, // m
     rageRange: 13,
-    blast: 0.25, // s damage window per blast (< the 0.35 s roll i-frames)
+    blast: 0.15, // s damage window per blast (< the 0.35 s roll i-frames; 0.25 → 0.15 on 2026-10-12 to end with the flames)
     rageBlasts: 2,
     blastGap: 0.7, // s between blast starts (rage double)
     recovery: 0.8, // s
@@ -444,9 +444,9 @@ const RAW = {
     rageCharge: 0.7,
     fire: 3.0, // s
     rageFire: 2.0,
-    sweep: 0.4, // rad/s: walking outruns it within ~15 m
-    rageSweep: 0.6, // rad/s: within ~10 m
-    travelSpeed: 28, // m/s: the beam's front shoots out from the mouth (14 → 28 on 2026-10-12)
+    sweep: 0.62, // rad/s: sprinting from the lock flash barely outruns it at ~10 m (2026-10-12)
+    rageSweep: 0.65, // rad/s
+    travelSpeed: 60, // m/s: the front is near-instant (14 → 28 → 60 on 2026-10-12)
     minGround: 6, // m: ground point distance (locked at the player's feet), clamped
     maxGround: 26,
     hitRadius: 1.0, // m from the beam segment to a hit sphere (0.5 → 1.0 on 2026-10-12)
@@ -896,8 +896,8 @@ const RAW = {
       victory: 0.4,
       rebuke_windup: 0.45,
       rebuke_burst: 0.7,
-      beam_charge: 0.7, // +55% (2026-10-12)
-      beam_fire: 0.9, // +50% (2026-10-12)
+      beam_charge: 1.0, // (2026-10-12)
+      beam_fire: 1.0, // (2026-10-12)
       cone_blast: 0.8,
       player_hurt: 0.7,
       flask_drink: 0.4,

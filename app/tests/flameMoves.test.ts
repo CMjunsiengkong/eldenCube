@@ -177,6 +177,29 @@ describe('Flame Beam (GAME_DESIGN §6.5 F, 2026-10-12)', () => {
     expect(hit).toBe(true);
   });
 
+  it('beyond ~12 m sprinting is not enough (roll through it)', () => {
+    const ctx = makeCtx();
+    const beam = new FlameBeam();
+    const r = 13;
+    let a = 0;
+    let t = 0;
+    const lockAt = BM.charge - BM.lockLead;
+    ctx.playerPos.set(0, 0, r);
+    beam.start(ctx);
+    let hit = false;
+    for (let i = 0; i < 400 && !hit && beam.phaseName !== 'recovery'; i++) {
+      t += STEP;
+      if (t >= lockAt) {
+        a += (6 / r) * STEP;
+        ctx.playerPos.set(Math.sin(a) * r, 0, Math.cos(a) * r);
+        ctx.playerVel.set(Math.cos(a) * 6, 0, -Math.sin(a) * 6);
+      }
+      beam.update(STEP, ctx);
+      if (beam.checkPlayerHit(spheresAt(ctx.playerPos.x, ctx.playerPos.z))) hit = true;
+    }
+    expect(hit).toBe(true);
+  });
+
   it('the ground point is clamped to 6–26 m', () => {
     const ctx = makeCtx();
     const beam = new FlameBeam();
