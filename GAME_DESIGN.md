@@ -375,13 +375,13 @@ Every attack is **telegraphed**, and every attack hit costs the player **1 HP** 
 | Royal Charge | – | 10 | 25 | 35 |
 | Crown Rain | 4 | 15 | 20 | 25 |
 | Cone Flame Breath | 8 | 45 | 25 | – |
-| Flame Beam | – | – | 10 | 30 |
+| Flame Beam | – | 10 | 25 | 30 |
 | **Rage** Royal Rebuke | **80** | – | – | – |
 | Cube Slam | 6 | 20 | 15 | 5 |
 | Royal Charge | – | 10 | 20 | 25 |
 | Crown Rain | 4 | 15 | 15 | 20 |
 | Cone Flame Breath (double) | 10 | 55 | 30 | – |
-| Flame Beam | – | – | 20 | 50 |
+| Flame Beam | – | 10 | 30 | 50 |
 
    - Not allowed (weight 0): Charge within 6 m; Crown Rain while one of its shards is still in the air.
    - Repeats: an attack used last time keeps 25% of its weight; one used the last two times is not allowed. If nothing is allowed, the repeat rule is ignored.
@@ -457,7 +457,7 @@ Why: the waves land 0.4 s apart, longer than the 0.35 s of roll i-frames, so one
 | Step | Phase 1 | Rage |
 |---|---|---|
 | Telegraph: the boss turns toward the player normally; its mouth glows orange and a red cone outline (110°, 12 m; rage 130°, 13 m) pulses on the ground in front of it. `shard_launch` plays at each blast | 0.9 s | 0.7 s (not scaled by the rage telegraph factor) |
-| Blast (the boss is stuck; the cone is fixed): a wide burst of fire fills the cone | 1 blast, damage window **0.25 s** | **2 blasts**: the second starts **0.70 s** after the first (each 0.25 s), timed to the second roll's i-frames |
+| Blast (the boss is stuck; the cone is fixed): a wide burst of fire fills the cone, a ring of fire rushes outward across the cone on the ground, the boss light flares, and about **8 burning marks** (§6.5 C) are left scattered in the cone; smoke follows | 1 blast, damage window **0.25 s** | **2 blasts**: the second starts **0.70 s** after the first (each 0.25 s), timed to the second roll's i-frames |
 | Recovery (a punish window: no turning, damage does not count toward poise) | 0.8 s | 0.6 s |
 
 **Kill rule:** during a blast's damage window, the player is hit if their horizontal distance to the boss center is at most `range + 0.4` and the angle from the boss's facing to the player is within half the cone angle (plus the player's radius).
@@ -466,13 +466,13 @@ Why: the waves land 0.4 s apart, longer than the 0.35 s of roll i-frames, so one
 #### F. Flame Beam *(added 2026-10-12)*
 | Step | Phase 1 | Rage |
 |---|---|---|
-| Charge: the boss turns toward the player; a thin red aiming line shows where the beam will start; at the end the beam angle locks exactly onto the player | 1.0 s | 0.7 s |
-| Fire: a continuous flame beam (28 m long) from the boss's face, `shard_launch` at the start. **Sweep side:** decided once when it fires, from the player's sideways velocity across the boss→player line (above 1.0 m/s: the side the player moves to; otherwise the side the player is offset to, else random). The beam then only sweeps that way, at up to **ω** toward the player, and **never reverses**: once the player is behind the beam's sweep, it stops chasing. The boss faces the beam | 3.0 s, ω 1.0 rad/s | 2.0 s, ω 2.4 rad/s |
+| Charge: the boss turns toward the player; a thin red aiming line shows the path; sparks rush into a growing glowing orb at the boss's mouth and the screen edges darken. At the end the beam locks exactly onto the player, **aimed down at their feet** (ground distance clamped to 6–26 m) | 1.0 s | 0.7 s |
+| Fire *(reworked 2026-10-12, like Hyper Beam)*: a short white flash, a hard camera shake and a low rumble. The beam slants from the boss's mouth down to the ground at the locked distance; its **front travels out at 14 m/s** (it is only dangerous up to its front). Where it meets the ground it explodes constantly and leaves a **trail of burning marks** (§6.5 C). A glowing stripe on the ground shows its path. **Sweep side:** decided once when it fires, from the player's sideways velocity across the boss→player line (above 1.0 m/s: the side the player moves to; otherwise random). The beam fires straight at where the player was and **starts sweeping once its front reaches the ground**; it then only sweeps that way, at up to **ω** toward the player, and **never reverses**. **Walking sideways at full speed outruns it** within about 15 m (rage: 10 m); rolling against the sweep also works. The boss faces the beam | 3.0 s, ω 0.40 rad/s | 2.0 s, ω 0.60 rad/s |
 | The beam stops at once if the player is hit, or if the boss takes damage | — | — |
 | Recovery (short, to reward the counter-roll; a punish window) | 0.5 s | 0.4 s |
 
-**Kill rule:** while firing, the player is hit if the beam (radius **0.5 m**, from the boss's face to 28 m) touches a hit sphere (horizontal distance from the sphere center to the beam segment ≤ 0.5 + 0.4 m).
-**How to survive:** running is too slow (ω out-sweeps a running player beyond about 6 m). **Roll against the sweep** as the beam reaches you: the i-frames carry you through it, and it cannot turn back. Then punish the boss from the side.
+**Kill rule:** while firing, the player is hit if the beam (radius **0.5 m**, from the boss's face to its front, at most the ground point) touches a hit sphere (horizontal distance from the sphere center to that segment ≤ 0.5 + 0.4 m).
+**How to survive:** walk or sprint away from the sweep (works at normal fight distances), or **roll against the sweep** as the beam reaches you: the i-frames carry you through it and it cannot turn back. Players beyond the ground point are safe. Then punish the boss from the side.
 
 #### G. Meteor Shower *(added 2026-10-12; once per fight)*
 - Starts at the beginning of the rage transition (§6.4) and lasts **10 s**. It is a hazard: the boss is free to fight normally while it falls.
@@ -480,6 +480,13 @@ Why: the waves land 0.4 s apart, longer than the 0.35 s of roll i-frames, so one
 - Each target shows a red warning circle (r **1.8**, the rage Crown Rain radius) **0.9 s** before impact; a fireball falls from the sky onto it and explodes, leaving a burning mark (§6.5 C). `shard_land` at impacts (at most every 0.15 s).
 - **Kill rule:** at impact, the player is hit if their horizontal distance to the target is under `1.8 + 0.4`.
 - Removed by the player's death, defeat and reset.
+
+#### Cinematic effects *(added 2026-10-12, visual only)*
+- **Boss light:** one orange point light that always exists (so the light count never changes) at the boss's mouth, normally off. It flares during the Flame Beam (sustained, flickering), each Cone blast and the Slam impact, lighting the arena orange.
+- **Blood moon:** during the Meteor Shower the sky, fog, moon and hemisphere light turn dark red (0.6 s in), and fade back over the last 1.5 s.
+- **Rage slow motion:** when rage starts, time runs at 0.3× for 0.5 s (real time), with a strong camera shake and the camera looking up toward the sky as the first meteors appear.
+- **Camera lift during the Flame Beam:** the lock-on camera rises to 6.5 m and pulls back to 7.5 m (smoothly) while the beam charges and fires, so the beam is seen from above instead of end-on. The beam fades out within 3 m of the camera.
+- Flashes are short (≤ 0.1 s) and soft; nothing strobes.
 
 ### 6.5a Optional rage upgrades (off by default)
 
