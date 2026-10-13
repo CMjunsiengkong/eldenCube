@@ -90,7 +90,7 @@ Setup       Game complete & debugged (local)    Deploy to AWS       Release & fr
 | 2.4 | Check caching: change something visible, redeploy, reload. The new version appears (`index.html` is `no-cache`; hashed assets are immutable) |
 | 2.5 | Check security: the direct S3 object URL returns *AccessDenied*; `http://` redirects to `https://` |
 | 2.6 | Confirm the Budgets alert email subscription is active |
-| 2.7 | Record `GameUrl`, the deploy command and the teardown command in `README.md` |
+| 2.7 | Record `GameUrl`, the deploy command and the teardown command in `ARCHITECTURE.md` §9 (the README is a game-only overview since 2026-10-12) |
 
 **Exit criteria**
 - [ ] The game at `GameUrl` behaves the same as `npm run preview`
