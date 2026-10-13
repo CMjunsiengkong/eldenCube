@@ -203,8 +203,8 @@ There are **no textures, 3D models or image files** in the game. Every visual is
 
 | Item | Purpose | How / source | Status (2026-10-13) |
 |---|---|---|---|
-| Architecture diagram | Explaining the AWS part | `eldencube.drawio`, sheet 1 (updated 2026-10-13: real `GameUrl`, budget alerts, current game facts). Export as PNG/PDF from draw.io | Up to date |
-| Booth event flow diagram | Your own guide for the booth loop | `eldencube.drawio`, sheet 2 (updated 2026-10-13: 3-hit invite, pygame live demo, Snake/Tetris fallbacks) | Up to date |
+| Architecture diagram | Explaining the AWS part | Audience version: `eldencube.drawio` (one sheet: AWS, Kiro and the game only) and its export `eldencube-architecture.pdf`. The full proposal version, with the booth details, is `../eldencube.drawio` | Up to date |
+| Booth event flow diagram | Your own guide for the booth loop | Sheet 2 of the proposal copy `../eldencube.drawio` (not in the audience version) | Up to date |
 | Poster / signage | Draw visitors in: title, "Built with Kiro · Hosted on AWS", controls | Canva or Figma; print A3/A2. Use AWS and Kiro logos only according to their brand guidelines, or text only | Done |
 | QR code to `GameUrl` (optional) | Visitors can play later | Any free QR generator → https://d376ckm5wji8ku.cloudfront.net (the game stays hosted after the event) | Optional |
 | Backup gameplay video | Last-resort fallback | macOS screen recording (Cmd+Shift+5), 1–2 minutes: title → death → win | Optional |
