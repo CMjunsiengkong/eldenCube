@@ -93,10 +93,10 @@ Setup       Game complete & debugged (local)    Deploy to AWS       Release & fr
 | 2.7 | Record `GameUrl`, the deploy command and the teardown command in `ARCHITECTURE.md` §9 (the README is a game-only overview since 2026-10-12) |
 
 **Exit criteria**
-- [ ] The game at `GameUrl` behaves the same as `npm run preview`
-- [ ] The S3 bucket can't be read directly; HTTPS is enforced
-- [ ] The budget alert is in place
-- [ ] `npm run diff` (= `cdk diff … --profile elden-personal`) shows no unexpected changes
+- [x] The game at `GameUrl` behaves the same as `npm run preview`
+- [x] The S3 bucket can't be read directly; HTTPS is enforced
+- [x] The budget alert is in place
+- [x] `npm run diff` (= `cdk diff … --profile elden-personal`) shows no unexpected changes
 
 ---
 
