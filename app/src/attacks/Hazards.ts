@@ -25,12 +25,13 @@ import {
   type Scene,
 } from 'three';
 import { CONFIG } from '../config';
+import { fireBoost } from '../fx/hdr';
 import { GroundDisc, discGeometry, ShockwaveRing, SpikeBurst, type Puffs } from '../fx/effects';
 import type { Vfx } from '../fx/vfx';
 import { easeIn, easeOut } from '../util/math';
 import { inCircle, inRingBand, sphereSphere, type Vec3Like } from '../systems/collision';
 import type { Sphere } from '../entities/Player';
-import { SILENT, type SoundSink } from './Attack';
+import { SILENT, type PillarHit, type SoundSink } from './Attack';
 
 const SL = CONFIG.slam;
 const RN = CONFIG.rain;
@@ -57,6 +58,8 @@ interface Ring {
   readonly center: Vector3;
   radius: number;
   speed: number;
+  /** Radius at which this ring ends (Slam 14 m; Hop-Back splash smaller, 1.6). */
+  end: number;
   alive: boolean;
   /** Fractional embers carried to the next step. */
   emberAcc: number;
@@ -84,6 +87,8 @@ interface Meteor {
   t: number;
   falling: boolean;
   landedNow: boolean;
+  /** 1.6 V5: a huge "hero" meteor (visual only; same warning circle and kill radius). */
+  hero: boolean;
 }
 
 interface Wave {
@@ -102,6 +107,7 @@ const tmpM = new Matrix4();
 const tmpS = new Vector3();
 const tmpP = new Vector3();
 const FLAT = new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), -Math.PI / 2);
+const IDENTITY_Q = new Quaternion();
 
 export class Hazards {
   sound: SoundSink = SILENT;
@@ -137,10 +143,11 @@ export class Hazards {
     this.scene = scene;
     this.puffs = puffs;
     this.vfx = vfx;
-    for (let i = 0; i < RING_POOL; i++) this.rings.push({ mesh: new ShockwaveRing(), center: new Vector3(), radius: 0, speed: 0, alive: false, emberAcc: 0 });
+    for (let i = 0; i < RING_POOL; i++) this.rings.push({ mesh: new ShockwaveRing(), center: new Vector3(), radius: 0, speed: 0, end: SL.ringEndRadius, alive: false, emberAcc: 0 });
 
     // Fireball cores: unlit, so they glow at night (the trail is drawn by the particles).
     const shardMat = new MeshBasicMaterial({ color: CONFIG.colors.fireballCore, toneMapped: false });
+    shardMat.color.multiplyScalar(fireBoost()); // 1.6 V1: fireballs bloom
     this.shardMesh = new InstancedMesh(new IcosahedronGeometry(CONFIG.vfx.fireball.coreRadius, 1), shardMat, WAVES * MAX);
     this.shardMesh.castShadow = false;
     this.shardMesh.frustumCulled = false;
@@ -160,7 +167,7 @@ export class Hazards {
 
     const MT = CONFIG.meteor;
     for (let i = 0; i < MT.pool; i++) {
-      this.meteors.push({ target: new Vector3(), start: new Vector3(), pos: new Vector3(), t: 0, falling: false, landedNow: false });
+      this.meteors.push({ target: new Vector3(), start: new Vector3(), pos: new Vector3(), t: 0, falling: false, landedNow: false, hero: false });
     }
     this.meteorCircleMat = new MeshBasicMaterial({ color: CONFIG.colors.warning, transparent: true, depthWrite: false, opacity: RN.circleOpacity });
     this.meteorCircles = new InstancedMesh(discGeometry(MT.radius), this.meteorCircleMat, MT.pool);
@@ -174,12 +181,13 @@ export class Hazards {
   // --- spawning ----------------------------------------------------------------------------------
 
   /** A Slam shockwave ring centered at (x, z), expanding from 2.2 m at `speed` (GD §6.5 A). */
-  spawnRing(x: number, z: number, speed: number): void {
+  spawnRing(x: number, z: number, speed: number, end: number = SL.ringEndRadius): void {
     let ring = this.rings.find((r) => !r.alive);
     if (!ring) ring = this.rings.reduce((a, b) => (a.radius > b.radius ? a : b)); // reuse the oldest
     ring.center.set(x, 0, z);
     ring.radius = SL.ringStartRadius;
     ring.speed = speed;
+    ring.end = end;
     ring.alive = true;
     ring.emberAcc = 0;
     ring.mesh.setRadius(ring.radius);
@@ -277,6 +285,13 @@ export class Hazards {
     return this.meteorLeft > 0 || this.meteors.some((m) => m.falling);
   }
 
+  /** Meteors that landed this step (1.6: the impact screen effect near the player). */
+  landedMeteors(out: Vector3[]): Vector3[] {
+    out.length = 0;
+    for (const m of this.meteors) if (m.landedNow) out.push(m.target);
+    return out;
+  }
+
   /** Live meteor targets (tests). */
   meteorTargets(out: Vector3[]): Vector3[] {
     out.length = 0;
@@ -328,11 +343,11 @@ export class Hazards {
   step(dt: number): void {
     this.time += dt;
     // Rings
-    const travel = SL.ringEndRadius - SL.ringStartRadius;
     for (const r of this.rings) {
       if (!r.alive) continue;
+      const travel = r.end - SL.ringStartRadius;
       r.radius += r.speed * dt;
-      if (r.radius >= SL.ringEndRadius - EPS) {
+      if (r.radius >= r.end - EPS) {
         r.alive = false;
         r.mesh.hide();
         continue;
@@ -397,7 +412,8 @@ export class Hazards {
         s.spin += RN.spinRate * dt;
         this.vfx?.fireballTrail(s.pos.x, s.pos.y, s.pos.z);
       }
-      if (wave.landedThisStep) this.sound.play('shard_land');
+      // 1.6 playtest: rage Crown Rain fireballs (the larger circles) explode; Phase 1 shards clink.
+      if (wave.landedThisStep) this.sound.play(wave.radius > RN.circleRadius + 1e-6 ? 'explosion' : 'shard_land');
       if (circlesDirty) this.writeCircles(w);
       // Pulse
       const pulse = 0.5 * (1 - Math.cos(2 * Math.PI * wave.pulseHz * wave.t));
@@ -435,15 +451,23 @@ export class Hazards {
       if (u >= 1) {
         m.falling = false;
         m.landedNow = true;
-        if (this.vfx) this.vfx.fireExplosion(m.target.x, m.target.z);
+        if (this.vfx) {
+          this.vfx.fireExplosion(m.target.x, m.target.z);
+          if (m.hero) {
+            // 1.6 V5: a bigger blast (the crater decal was removed after the playtest).
+            const HM = CONFIG.vfx.heroMeteor;
+            for (let k = 1; k < HM.explosionMult; k++) this.vfx.fireExplosion(m.target.x + 0.6, m.target.z - 0.4);
+          }
+        }
         if (this.meteorSoundT <= 0) {
-          this.sound.play('shard_land');
+          this.sound.play('explosion'); // 1.6 playtest
           this.meteorSoundT = MT.soundGap;
         }
         continue;
       }
       any = true;
       this.vfx?.fireballTrail(m.pos.x, m.pos.y, m.pos.z);
+      if (m.hero) this.vfx?.meteorSmoke(m.pos.x, m.pos.y, m.pos.z);
     }
     // Instances
     for (let i = 0; i < this.meteors.length; i++) {
@@ -453,7 +477,9 @@ export class Hazards {
         tmpP.set(m.target.x, RN.circleLift, m.target.z);
         tmpM.compose(tmpP, FLAT, tmpS);
         this.meteorCircles.setMatrixAt(i, tmpM);
-        tmpM.makeTranslation(m.pos.x, m.pos.y, m.pos.z);
+        const k = m.hero ? CONFIG.vfx.heroMeteor.coreScale : 1;
+        tmpS.set(k, k, k);
+        tmpM.compose(m.pos, IDENTITY_Q, tmpS);
         this.meteorCores.setMatrixAt(i, tmpM);
       } else {
         tmpM.makeScale(0, 0, 0);
@@ -501,6 +527,8 @@ export class Hazards {
       slot.t = 0;
       slot.falling = true;
       slot.landedNow = false;
+      // Every Nth meteor is a hero (deterministic: the gameplay random sequence is unchanged).
+      slot.hero = this.meteorsSpawned % CONFIG.vfx.heroMeteor.every === 0;
       this.meteorsSpawned++;
       return;
     }
@@ -514,6 +542,7 @@ export class Hazards {
     const p = spheres[0].center;
     for (const r of this.rings) {
       if (r.alive && inRingBand(p, r.center, r.radius, SL.ringWidth / 2 + PLAYER_R)) {
+        this.lastHitKind = 'ring';
         return this.source.set(r.center.x, CONFIG.boss.halfSize, r.center.z);
       }
     }
@@ -521,17 +550,66 @@ export class Hazards {
       for (let i = 0; i < w.count; i++) {
         const s = w.shards[i];
         if (s.state === 'flying') {
-          for (const sp of spheres) if (sphereSphere(s.pos, RN.hitRadius, sp.center, sp.radius)) return this.source.copy(s.pos);
+          for (const sp of spheres) if (sphereSphere(s.pos, RN.hitRadius, sp.center, sp.radius)) {
+            this.lastHitKind = 'shard';
+            return this.source.copy(s.pos);
+          }
         } else if (s.landedNow && inCircle(p, s.target, s.radius + PLAYER_R)) {
+          this.lastHitKind = 'shard';
           return this.source.set(s.target.x, 0, s.target.z);
         }
       }
     }
     for (const m of this.meteors) {
-      if (m.landedNow && inCircle(p, m.target, CONFIG.meteor.radius + PLAYER_R)) return this.source.set(m.target.x, 0, m.target.z);
+      if (m.landedNow && inCircle(p, m.target, CONFIG.meteor.radius + PLAYER_R)) {
+        this.lastHitKind = 'meteor';
+        return this.source.set(m.target.x, 0, m.target.z);
+      }
     }
     return null;
   }
+
+  /**
+   * 1.6 pillars: a hazard touches the pillar circle (x, z, r) this step. A shockwave ring band
+   * collapses it and shields a player behind it while that ring lives; a Crown Rain shard or a
+   * meteor landing on it collapses it without shielding.
+   */
+  pillarHit(x: number, z: number, r: number, out: PillarHit): PillarHit | null {
+    for (const ring of this.rings) {
+      if (!ring.alive) continue;
+      const d = Math.hypot(x - ring.center.x, z - ring.center.z);
+      if (Math.abs(d - ring.radius) <= SL.ringWidth / 2 + r) {
+        out.shield = true;
+        out.ox = ring.center.x;
+        out.oz = ring.center.z;
+        out.life = (ring.end - ring.radius) / Math.max(1e-3, ring.speed) + CONFIG.pillars.shadowLife.ringPad;
+        return out;
+      }
+    }
+    out.shield = false;
+    out.life = 0;
+    for (const w of this.waves) {
+      for (let i = 0; i < w.count; i++) {
+        const s = w.shards[i];
+        if (s.landedNow && Math.hypot(x - s.target.x, z - s.target.z) <= s.radius + r) {
+          out.ox = s.target.x;
+          out.oz = s.target.z;
+          return out;
+        }
+      }
+    }
+    for (const m of this.meteors) {
+      if (m.landedNow && Math.hypot(x - m.target.x, z - m.target.z) <= CONFIG.meteor.radius + r) {
+        out.ox = m.target.x;
+        out.oz = m.target.z;
+        return out;
+      }
+    }
+    return null;
+  }
+
+  /** The kind of the last hit `check` returned (1.6: rings can be shielded by a pillar). */
+  lastHitKind: 'ring' | 'shard' | 'meteor' = 'ring';
 
   /** Removes every hazard; with `puff`, each removed object vanishes in a small puff (GD §6.4). */
   clear(puff: boolean): void {

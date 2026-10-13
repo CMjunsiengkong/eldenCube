@@ -4,8 +4,8 @@
  * → fire (a white flash; the beam slants from the mouth down to the ground at the player's locked
  * distance; its front travels out at 14 m/s; it sweeps toward the player on ONE side, decided when
  * it fires, slow enough to outwalk, and never reverses; the ground point explodes and leaves a
- * trail of burning marks) → a short recovery (a punish window) → free. The beam stops at once if
- * the player is hit or the boss takes damage.
+ * trail of burning marks) → a short recovery (a punish window) → free. The beam stops at once only if
+ * the boss takes damage; hitting the player does not stop it (1.6, 2026-10-12).
  */
 import {
   AdditiveBlending,
@@ -22,9 +22,10 @@ import {
   Vector3,
 } from 'three';
 import { CONFIG } from '../config';
+import { beamBoost } from '../fx/hdr';
 import type { Sphere } from '../entities/Player';
 import { wrapAngle } from '../util/math';
-import type { Attack, AttackContext, SoundHandle } from './Attack';
+import type { Attack, AttackContext, PillarHit, SoundHandle } from './Attack';
 
 const BM = CONFIG.beam;
 const PLAYER_R = CONFIG.player.radius;
@@ -90,7 +91,7 @@ function beamMaterial(color: number, opacity: number): ShaderMaterial {
     vertexShader: BEAM_VERTEX,
     fragmentShader: BEAM_FRAGMENT,
     uniforms: {
-      uColor: { value: new Color(color) },
+      uColor: { value: new Color(color).multiplyScalar(beamBoost()) }, // 1.6 V1: the beam blooms
       uOpacity: { value: opacity },
       uTime: { value: 0 },
       uLen: { value: 10 },
@@ -121,6 +122,9 @@ export class FlameBeam implements Attack {
   /** Horizontal distance of the beam's front from the boss center. */
   private head = 0;
   private burnT = 0;
+  /** The last molten-scar mark (NaN: none yet this firing). */
+  private moltenX = Number.NaN;
+  private moltenZ = 0;
   private time = 0;
   /** The aim is locked (the last `lockLead` seconds of the charge). */
   private locked = false;
@@ -157,6 +161,7 @@ export class FlameBeam implements Attack {
     plane.rotateX(-Math.PI / 2);
     plane.translate(0, 0, 0.5);
     this.stripeMat = add(CONFIG.colors.fire, 0.45);
+    this.stripeMat.color.multiplyScalar(beamBoost());
     this.stripe = new Mesh(plane, this.stripeMat);
     this.stripe.renderOrder = 2;
     const line = new BoxGeometry(0.06, 0.06, 1);
@@ -164,7 +169,9 @@ export class FlameBeam implements Attack {
     this.aimMat = add(CONFIG.colors.warning, 0.6);
     this.aim = new Mesh(line, this.aimMat);
     this.aim.renderOrder = 6;
-    this.orb = new Mesh(new SphereGeometry(1, 16, 12), add(CONFIG.colors.fireballCore, 0.9));
+    const orbMat = add(CONFIG.colors.fireballCore, 0.9);
+    orbMat.color.multiplyScalar(beamBoost());
+    this.orb = new Mesh(new SphereGeometry(1, 16, 12), orbMat);
     this.orb.renderOrder = 6;
   }
 
@@ -249,6 +256,13 @@ export class FlameBeam implements Attack {
         this.head = Math.min(this.ground, this.head + BM.travelSpeed * dt);
         this.placeBeam(ctx);
         this.effects(ctx, dt);
+        {
+          // 1.6 V5: heat shimmer from the mouth to the front.
+          this.mouth(ctx, this.phi, this.tmp);
+          const fx = b.pos.x + Math.sin(this.phi) * this.head;
+          const fz = b.pos.z + Math.cos(this.phi) * this.head;
+          ctx.cinema?.shimmer(this.tmp.x, this.tmp.y, this.tmp.z, fx, 0.3, fz);
+        }
         ctx.shake(BM.rumble, 0.15);
         ctx.cinema?.vignette(BM.vignette * 0.5);
         if (this.t >= this.fireTime - EPS) this.stopFiring();
@@ -275,6 +289,23 @@ export class FlameBeam implements Attack {
     return null;
   }
 
+  /** 1.6: the beam collapses a pillar it touches and goes straight through (never shields). */
+  pillarHit(x: number, z: number, r: number, out: PillarHit): PillarHit | null {
+    const ctx = this.ctx;
+    if (!ctx || this.phase !== 'fire' || this.head <= BM.startOffset) return null;
+    const b = ctx.boss.pos;
+    const s = Math.sin(this.phi);
+    const c = Math.cos(this.phi);
+    const d = segmentDistance(x, z, b.x + s * BM.startOffset, b.z + c * BM.startOffset, b.x + s * this.head, b.z + c * this.head);
+    if (d > BM.hitRadius + r) return null;
+    out.shield = false;
+    out.instant = true; // the beam knocks a pillar down at once and goes through
+    out.ox = b.x;
+    out.oz = b.z;
+    out.life = 0;
+    return out;
+  }
+
   /** The boss took damage: the beam stops (GD §6.5 F). */
   onBossHit(): void {
     if (this.phase === 'fire' || this.phase === 'charge') this.stopFiring();
@@ -289,11 +320,6 @@ export class FlameBeam implements Attack {
     const s = Math.sin(this.phi);
     const c = Math.cos(this.phi);
     for (let d = BM.startOffset + 1; d < this.head; d += 1.5) ctx.vfx.fireExplosion(b.x + s * d, b.z + c * d);
-  }
-
-  /** The player was hit: the beam stops. */
-  onPlayerHit(): void {
-    if (this.phase === 'fire') this.stopFiring();
   }
 
   isBossFree(): boolean {
@@ -351,6 +377,9 @@ export class FlameBeam implements Attack {
     this.fireSound = ctx.audio.play('beam_fire', { duration: this.fireTime });
     ctx.shake(0.4, 0.35);
     ctx.cinema?.flash(BM.flash);
+    this.mouth(ctx, this.phi, this.tmp);
+    ctx.cinema?.impact('beam', this.tmp.x, this.tmp.y, this.tmp.z); // 1.6 V3
+    this.moltenX = Number.NaN;
     this.next('fire');
     this.placeBeam(ctx);
   }
@@ -434,6 +463,20 @@ export class FlameBeam implements Attack {
     if (this.burnT <= 0) {
       this.burnT = BM.burnEvery;
       v.burnAt(gx, gz);
+    }
+    // 1.6 V5: a glowing molten scar along the swept ground path (a mark every 0.45 m).
+    const sp = CONFIG.vfx.decals.moltenSpacing;
+    if (Number.isNaN(this.moltenX)) {
+      this.moltenX = gx;
+      this.moltenZ = gz;
+      v.moltenAt(gx, gz);
+    }
+    let d = Math.hypot(gx - this.moltenX, gz - this.moltenZ);
+    while (d >= sp) {
+      this.moltenX += ((gx - this.moltenX) / d) * sp;
+      this.moltenZ += ((gz - this.moltenZ) / d) * sp;
+      v.moltenAt(this.moltenX, this.moltenZ);
+      d -= sp;
     }
   }
 

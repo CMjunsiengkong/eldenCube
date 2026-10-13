@@ -18,6 +18,7 @@ import {
   type Scene,
 } from 'three';
 import { CONFIG } from '../config';
+import { fireBoost } from './hdr';
 
 const BU = CONFIG.vfx.burns;
 const DEAD = -1e9;
@@ -164,7 +165,7 @@ export class Burns {
         uRadius: { value: BU.scorchRadius },
         uLift: { value: BU.lift },
         uScorch: { value: new Color(C.scorch) },
-        uEmber: { value: new Color(C.fire) },
+        uEmber: { value: new Color(C.fire).multiplyScalar(fireBoost()) }, // 1.6: embers bloom
         uScorchAlpha: { value: BU.scorchAlpha },
       },
       transparent: true,
@@ -196,9 +197,9 @@ export class Burns {
         ...shared,
         uWidth: { value: BU.flameWidth },
         uHeight: { value: BU.flameHeight },
-        uCore: { value: new Color(C.flameCore) },
-        uMid: { value: new Color(C.fireballCore) },
-        uTip: { value: new Color(C.fire) },
+        uCore: { value: new Color(C.flameCore).multiplyScalar(fireBoost()) },
+        uMid: { value: new Color(C.fireballCore).multiplyScalar(fireBoost()) },
+        uTip: { value: new Color(C.fire).multiplyScalar(fireBoost()) },
       },
       transparent: true,
       depthWrite: false,

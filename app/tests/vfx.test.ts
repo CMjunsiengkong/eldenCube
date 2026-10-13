@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG } from '../src/config';
 import { STEP } from '../src/loop';
+import { Scene } from 'three';
 import { Burns, burnFade } from '../src/fx/burns';
+import { Puffs } from '../src/fx/effects';
 import { newSpec, nextSlot, Particles } from '../src/fx/particles';
 import { SlimeBody } from '../src/fx/slime';
 import { torchFlicker } from '../src/game/Arena';
+import { createRng } from '../src/util/rng';
 
 const BU = CONFIG.vfx.burns;
 
@@ -117,5 +120,18 @@ describe('torch flicker (GAME_DESIGN §8, 1.5b)', () => {
       expect(v).toBeGreaterThanOrEqual(1 - f - 1e-9);
       expect(v).toBeLessThanOrEqual(1 + f + 1e-9);
     }
+  });
+});
+
+describe('debris puffs (ARCHITECTURE §4.6, 1.6)', () => {
+  it('a full pool of puffs is one scene object (one draw call), gone after its lifetime', () => {
+    const scene = new Scene();
+    const puffs = new Puffs(scene, createRng(1));
+    for (let i = 0; i < 40; i++) puffs.spawn(i, 0.5, 0, i % 2 ? 'crown' : 'rebuke');
+    expect(puffs.count).toBe(CONFIG.fx.puff.pool);
+    expect(scene.children).toHaveLength(1);
+    for (let t = 0; t < CONFIG.fx.puff.lifetime + STEP; t += STEP) puffs.step(STEP);
+    expect(puffs.count).toBe(0);
+    expect(scene.children).toHaveLength(0);
   });
 });

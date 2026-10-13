@@ -10,8 +10,11 @@ import type { Rng } from '../util/rng';
 
 /** The random attacks (GD §6.5 A–C). The Royal Rebuke (D) is triggered, never picked. */
 export type AttackId = 'slam' | 'charge' | 'rain' | 'cone' | 'beam';
+/** The close-range defences (1.6): triggered or picked at extreme close; never part of the attack history. */
+export type DefenceId = 'rebuke' | 'hop' | 'shove';
+export const DEFENCE_IDS: readonly DefenceId[] = ['rebuke', 'hop', 'shove'];
 export const ATTACK_IDS: readonly AttackId[] = ['slam', 'charge', 'rain', 'cone', 'beam'];
-export type MoveId = AttackId | 'rebuke';
+export type MoveId = AttackId | DefenceId;
 
 /** Sound IDs (ASSETS.md §1.1). The real audio arrives in milestone 1.5. */
 export type SoundId = keyof typeof CONFIG.audio.volume;
@@ -37,6 +40,25 @@ export interface Cinema {
   vignette(opacity: number): void;
   /** Raise and pull back the lock-on camera (Flame Beam). */
   lift(on: boolean): void;
+  /** 1.6 V3: a big impact at a world point (chromatic split, radial blur, extra shake). */
+  impact(kind: ImpactKind, x: number, y: number, z: number): void;
+  /** 1.6 V5: heat shimmer around the world segment a → b (call every step while wanted). */
+  shimmer(ax: number, ay: number, az: number, bx: number, by: number, bz: number): void;
+}
+
+export type ImpactKind = 'beam' | 'cone' | 'slam' | 'meteor';
+
+/**
+ * 1.6 pillars: a boss attack touches a pillar. `shield`: the wave (from origin ox, oz) cannot hit a
+ * player right behind the pillar for `life` seconds; otherwise the attack goes straight through.
+ */
+export interface PillarHit {
+  shield: boolean;
+  /** Collapse at once regardless of health (Charge, Flame Beam). */
+  instant?: boolean;
+  ox: number;
+  oz: number;
+  life: number;
 }
 
 export interface SoundSink {
@@ -126,6 +148,10 @@ export interface Attack {
    * Hazards are checked separately. Game calls it only when the player is not invincible.
    */
   checkPlayerHit(spheres: readonly Sphere[]): Vector3 | null;
+  /** Bounce Shove (1.6): a push source this step, without damage (checked only when not invincible). */
+  checkPlayerShove?(spheres: readonly Sphere[]): Vector3 | null;
+  /** 1.6: does the attack's damaging volume touch the pillar circle (x, z, r) this step? */
+  pillarHit?(x: number, z: number, r: number, out: PillarHit): PillarHit | null;
   /** The boss's own animation (incl. its recovery / punish window) has ended: the cooldown starts. */
   isBossFree(): boolean;
   /** Damage now does not count toward poise (Slam window, Charge recovery). */
@@ -136,8 +162,6 @@ export interface Attack {
   dispose(): void;
   /** The boss took damage (the Flame Beam stops). */
   onBossHit?(): void;
-  /** The player was hit (the Flame Beam stops). */
-  onPlayerHit?(): void;
   /** The player just died from this attack: a final burst so the killing blow is visible. */
   finale?(): void;
 }

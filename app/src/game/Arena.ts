@@ -5,7 +5,6 @@
  * The light count never changes during play.
  */
 import {
-  BufferAttribute,
   CircleGeometry,
   Color,
   CylinderGeometry,
@@ -17,22 +16,17 @@ import {
   Mesh,
   MeshStandardMaterial,
   PointLight,
-  RingGeometry,
   type Scene,
 } from 'three';
 import { CONFIG } from '../config';
 import { mergePainted, paint } from '../fx/materials';
+import { buildRuins } from './Ruins';
 import type { Vfx } from '../fx/vfx';
-import { createRng } from '../util/rng';
-import { randRange } from '../util/math';
 
 const A = CONFIG.arena;
 const L = CONFIG.lights;
 const T = L.torch;
 const C = CONFIG.colors;
-
-/** Fixed seed so the grass pattern looks the same every session. */
-const GRASS_SEED = 7;
 
 interface Torch {
   readonly light: PointLight;
@@ -69,24 +63,8 @@ export class Arena {
     scene.background = new Color(C.sky);
     scene.fog = new Fog(C.sky, A.fogNear, A.fogFar);
 
-    // Arena floor: radius 30, 64 segments, grass ±6% per vertex (vertex colors, no texture).
-    const floorGeo = new CircleGeometry(A.radius, A.segments);
-    floorGeo.rotateX(-Math.PI / 2);
-    const base = new Color(C.arenaGrass);
-    const rng = createRng(GRASS_SEED);
-    const count = floorGeo.getAttribute('position').count;
-    const colors = new Float32Array(count * 3);
-    const c = new Color();
-    for (let i = 0; i < count; i++) {
-      c.copy(base).multiplyScalar(1 + randRange(rng, -A.colorVariation, A.colorVariation));
-      colors[i * 3] = c.r;
-      colors[i * 3 + 1] = c.g;
-      colors[i * 3 + 2] = c.b;
-    }
-    floorGeo.setAttribute('color', new BufferAttribute(colors, 3));
-    const floor = new Mesh(floorGeo, new MeshStandardMaterial({ vertexColors: true }));
-    floor.receiveShadow = true;
-    scene.add(floor);
+    // 1.6: the abandoned-ruin floor (stone rings, 30% grass), the stone curb and outside decoration.
+    buildRuins(scene);
 
     // Outer field: radius 200, 1 cm below the arena; it fades into the night fog.
     const outerGeo = new CircleGeometry(A.outerRadius, A.segments);
@@ -94,14 +72,6 @@ export class Arena {
     const outer = new Mesh(outerGeo, new MeshStandardMaterial({ color: C.outerField }));
     outer.position.y = -A.outerOffset;
     scene.add(outer);
-
-    // Edge marker 29.8–30.2 m (where the invisible wall is).
-    const edgeGeo = new RingGeometry(A.edgeInner, A.edgeOuter, A.segments);
-    edgeGeo.rotateX(-Math.PI / 2);
-    const edge = new Mesh(edgeGeo, new MeshStandardMaterial({ color: C.arenaEdge }));
-    edge.position.y = A.edgeLift;
-    edge.receiveShadow = true;
-    scene.add(edge);
 
     // Lights: dim hemisphere + the moon, the only shadow caster.
     this.hemi = new HemisphereLight(C.hemisphereSky, C.hemisphereGround, L.hemisphereIntensity);

@@ -344,6 +344,60 @@ const RECIPES: Record<SoundId, Recipe> = {
     osc(v, ctx, 'sine', [220, 80], t, 0.15, env(ctx, v.gain, 0.5, t, 0.005, 0.15));
     return v;
   },
+  hop_jump(ctx, out, nb, o) {
+    // 1.6 Jelly Hop-Back take-off: a rising rubbery "boing" and a short whoosh.
+    const v = new Voice(ctx, out, o.volume ?? 1);
+    const t = ctx.currentTime;
+    const b = osc(v, ctx, 'sine', [110, 320], t, 0.25, env(ctx, v.gain, 0.8, t, 0.01, 0.25));
+    vibrato(v, ctx, b.frequency, 14, 25, t, 0.25);
+    noise(v, ctx, nb, t, 0.2, filter(ctx, 'bandpass', 900, 1.0, env(ctx, v.gain, 0.3, t, 0.02, 0.2)));
+    return v;
+  },
+  hop_land(ctx, out, nb, o) {
+    // 1.6 Jelly Hop-Back landing: a wet splat over a soft thump.
+    const v = new Voice(ctx, out, o.volume ?? 1);
+    const t = ctx.currentTime;
+    osc(v, ctx, 'sine', [90, 35], t, 0.4, env(ctx, v.gain, 0.9, t, 0.004, 0.4));
+    noise(v, ctx, nb, t, 0.3, filter(ctx, 'lowpass', 900, 1.5, env(ctx, v.gain, 0.6, t, 0.003, 0.3)));
+    return v;
+  },
+  shove(ctx, out, nb, o) {
+    // 1.6 Bounce Shove: a big wobbly "bwoing" with a puff of air.
+    const v = new Voice(ctx, out, o.volume ?? 1);
+    const t = ctx.currentTime;
+    const b = osc(v, ctx, 'triangle', [180, 90, 140], t, 0.35, env(ctx, v.gain, 0.8, t, 0.005, 0.35));
+    vibrato(v, ctx, b.frequency, 18, 30, t, 0.35);
+    noise(v, ctx, nb, t, 0.15, filter(ctx, 'lowpass', 1400, 0.7, env(ctx, v.gain, 0.4, t, 0.003, 0.15)));
+    return v;
+  },
+  explosion(ctx, out, nb, o) {
+    // 1.6 playtest: a fireball explosion (meteors, rage Crown Rain): a deep boom, a noise blast and a crackle tail.
+    const v = new Voice(ctx, out, o.volume ?? 1);
+    const t = ctx.currentTime;
+    const p = (o.pitch ?? 1) * (0.9 + Math.random() * 0.2);
+    osc(v, ctx, 'sine', [90 * p, 28 * p], t, 0.7, env(ctx, v.gain, 1.0, t, 0.004, 0.7));
+    noise(v, ctx, nb, t, 0.6, filter(ctx, 'lowpass', 1800 * p, 0.7, env(ctx, v.gain, 0.8, t, 0.003, 0.6)));
+    noise(v, ctx, nb, t + 0.05, 0.5, filter(ctx, 'highpass', 2500, 0.7, env(ctx, v.gain, 0.2, t + 0.05, 0.01, 0.5)));
+    return v;
+  },
+  pillar_hit(ctx, out, nb, o) {
+    // 1.6 a crown pillar takes a hit: a short stone crack and a dull knock.
+    const v = new Voice(ctx, out, o.volume ?? 1);
+    const t = ctx.currentTime;
+    noise(v, ctx, nb, t, 0.18, filter(ctx, 'bandpass', 1400, 1.2, env(ctx, v.gain, 0.8, t, 0.002, 0.18)));
+    osc(v, ctx, 'sine', [140, 60], t, 0.15, env(ctx, v.gain, 0.6, t, 0.003, 0.15));
+    clink(v, ctx, v.gain, t + 0.04, 0.12, 0.6);
+    return v;
+  },
+  pillar_break(ctx, out, nb, o) {
+    // 1.6 crown pillar collapse: a stony crack, a low rumble and a few rock clinks.
+    const v = new Voice(ctx, out, o.volume ?? 1);
+    const t = ctx.currentTime;
+    noise(v, ctx, nb, t, 0.6, filter(ctx, 'lowpass', 700, 0.8, env(ctx, v.gain, 0.9, t, 0.004, 0.6)));
+    osc(v, ctx, 'sine', [80, 30], t, 0.5, env(ctx, v.gain, 0.7, t, 0.005, 0.5));
+    for (const d of [0.08, 0.17, 0.29]) clink(v, ctx, v.gain, t + d, 0.15, 0.45 + d);
+    return v;
+  },
   player_hurt(ctx, out, nb, o) {
     const v = new Voice(ctx, out, o.volume ?? 1);
     const t = ctx.currentTime;

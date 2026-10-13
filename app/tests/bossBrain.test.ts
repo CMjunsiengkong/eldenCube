@@ -5,8 +5,8 @@ import { STEP } from '../src/loop';
 import { createRng } from '../src/util/rng';
 import type { Flags } from '../src/flags';
 
-const NORMAL: Flags = { easy: false, debug: false };
-const EASY: Flags = { easy: true, debug: false };
+const NORMAL: Flags = { easy: false, debug: false, lowfx: false };
+const EASY: Flags = { easy: true, debug: false, lowfx: false };
 /** Player distance that is neither "close" nor blocks Charge. */
 const FAR = 10;
 
@@ -28,7 +28,7 @@ function stepUntil(b: BossBrain, pred: () => boolean, distance = FAR, max = 20):
 }
 
 describe('boss HP / phase transitions (GAME_DESIGN §5, §6.4)', () => {
-  it('30 HP; damage 1/1/2 per combo; rage at ≤ 15 (50%); defeat at 0', () => {
+  it('36 HP; damage 1/1/2 per combo; rage at ≤ 18 (50%); defeat at 0', () => {
     const b = quietBrain();
     const results: HitResult[] = [];
     // Full combos (1 + 1 + 2) until defeat, all inside punish windows so no Rebuke interferes.
@@ -44,9 +44,9 @@ describe('boss HP / phase transitions (GAME_DESIGN §5, §6.4)', () => {
       results.push(b.takeHit(d, true));
     }
     expect(results.filter((r) => r === 'rage')).toHaveLength(1);
-    expect(results.indexOf('rage')).toBe(rageAt); // HP 30 → 14 on the 12th hit (4th combo's finisher)
-    expect(rageAt).toBe(11);
-    expect(results).toHaveLength(23); // 7 full combos (28) + 1 + 1
+    expect(results.indexOf('rage')).toBe(rageAt); // HP 36 → 18 on the 14th hit (5th combo's 2nd hit)
+    expect(rageAt).toBe(13);
+    expect(results).toHaveLength(27); // 9 full combos (36)
     expect(results.at(-1)).toBe('defeated');
     expect(b.hp).toBe(0);
     expect(b.mode).toBe('defeated');

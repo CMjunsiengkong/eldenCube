@@ -11,11 +11,11 @@ A small, funny 3D boss fight in the browser: a clumsy hero ("The Tarnished Inter
 - Introduce Kiro (spec-first development).
 - Promote AWS (static hosting for almost no cost, infrastructure as code).
 
-## Locked decisions (README)
+## Locked decisions (this file is their home; the README is now a game-only overview, 2026-10-12)
 - Solo build with Kiro. Everything done, including polish, by **Tue 13 Oct 2026**.
 - Platform: desktop Chrome on the booth laptop. One player at a time.
-- Input: keyboard (WASD move, Space roll, F attack, R flask, M mute) + mouse/touchpad click to attack. No gamepad.
-- 3D, simple geometric primitives (rounded where it helps) and small procedural effects; flat green grass ground at moonlit dusk; the only scenery is a ring of torches outside the arena edge (1.5b, 2026-10-11).
+- Input: keyboard (WASD move, Space roll, F attack, R flask, Esc pause, M mute) + mouse/touchpad click to attack. No gamepad.
+- 3D, simple geometric primitives (rounded where it helps) and small procedural effects; moonlit dusk; the arena is an abandoned stone ruin (concentric slabs, ~30% grass patches, a stone curb) with 4 crown pillars, a ring of torches and a few fallen ruin pieces outside the edge (1.6, 2026-10-13; was flat green grass in 1.5b).
 - No stored data: no leaderboard, accounts, scores. Each play is a one-time session.
 - AWS: static hosting only (S3 + CloudFront, CDK). No AWS or network calls at runtime.
 - Post-event hosting optional, only within ~USD 5/month.

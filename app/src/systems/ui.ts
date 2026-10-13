@@ -28,6 +28,7 @@ export function applyCssVariables(root: HTMLElement = document.documentElement):
     '--hint-opacity': String(U.controlsHintOpacity),
     '--sound-size': px(U.soundIndicatorSize),
     '--attempts-size': px(U.attemptsSize),
+    '--tip-size': px(U.tipSize),
     '--result-size': U.resultTextSize,
     '--result-spacing': U.resultLetterSpacing,
     '--result-fade': `${U.resultFadeIn}s`,
@@ -91,6 +92,7 @@ export class UI {
   private readonly titleEl: HTMLElement;
   private readonly startPrompt: HTMLElement;
   private readonly attemptsEl: HTMLElement;
+  private readonly tipEl: HTMLElement;
   private readonly hintEl: HTMLElement;
   private readonly soundEl: HTMLElement;
   private readonly resultEl: HTMLElement;
@@ -110,6 +112,7 @@ export class UI {
     this.titleEl = requireChild(overlay, '#title-screen');
     this.startPrompt = requireChild(overlay, '#start-prompt');
     this.attemptsEl = requireChild(overlay, '#attempts');
+    this.tipEl = requireChild(overlay, '#tip');
     this.hintEl = requireChild(overlay, '#controls-hint');
     this.soundEl = requireChild(overlay, '#sound-indicator');
     this.resultEl = requireChild(overlay, '#result');
@@ -188,6 +191,11 @@ export class UI {
     this.continuePrompt.classList.toggle('visible', visible);
   }
 
+  /** 1.6: the title-screen tip. */
+  setTip(text: string): void {
+    this.tipEl.textContent = text;
+  }
+
   /** "Attempts: N", shown on the start screen only after the first fight. */
   setAttempts(n: number): void {
     this.attemptsEl.textContent = n > 0 ? `Attempts: ${n}` : '';
@@ -227,7 +235,7 @@ export class UI {
   }
 
   /**
-   * GD §2: 20 HP shown as 5 segments of 4, draining from the right. The part lost by a hit flashes
+   * GD §2: 36 HP shown as 6 segments of 6, draining from the right. The part lost by a hit flashes
    * white for 0.15 s before turning empty.
    */
   setHealth(hp: number): void {
@@ -289,6 +297,14 @@ export function showWebGLError(): void {
   el.className = 'webgl-error';
   el.textContent = 'This game needs WebGL. Please use the latest Chrome.';
   document.body.replaceChildren(el);
+}
+
+/** Pure (tested, 1.6): a random tip index in [0, count), never `prev` when there is a choice. */
+export function pickTip(count: number, prev: number, rng: () => number): number {
+  if (count <= 1) return 0;
+  let i = Math.floor(rng() * (count - 1));
+  if (prev >= 0 && i >= prev) i++;
+  return Math.min(i, count - 1);
 }
 
 function requireChild(parent: HTMLElement, selector: string): HTMLElement {

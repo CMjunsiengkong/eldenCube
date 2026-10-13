@@ -79,7 +79,9 @@ eldenCube/
 │   │   ├── loop.ts                 # fixed-timestep loop, hit-stop, time scale
 │   │   ├── game/
 │   │   │   ├── Game.ts             # owns everything; the state machine (§4.2)
-│   │   │   └── Arena.ts            # floor, outer field, edge ring, sky, fog, lights
+│   │   │   ├── Arena.ts            # outer field, sky, fog, lights, torches
+│   │   │   ├── Ruins.ts            # ruin floor shader (stone rings, 30% grass), curb, outside ruin pieces (1.6)
+│   │   │   └── Pillars.ts          # crown pillars: collapse/shadow rules (pure) + instanced view (1.6)
 │   │   ├── entities/
 │   │   │   ├── Player.ts           # model, movement, roll (i-frames), combo, stamina, flask, HP/stagger, input buffer, wobble, hitbox, break-apart
 │   │   │   └── Boss.ts             # model, HP, phases, chase, hit reaction, attack scheduler, poise/Rebuke triggers, defeat
@@ -89,7 +91,11 @@ eldenCube/
 │   │   │   ├── CubeSlam.ts
 │   │   │   ├── RoyalCharge.ts
 │   │   │   ├── CrownRain.ts
-│   │   │   └── RoyalRebuke.ts
+│   │   │   ├── RoyalRebuke.ts      # incl. the rage Feint (1.6)
+│   │   │   ├── ConeBreath.ts
+│   │   │   ├── FlameBeam.ts
+│   │   │   ├── JellyHop.ts         # close-range defence (1.6)
+│   │   │   └── BounceShove.ts      # close-range defence, no damage (1.6)
 │   │   ├── systems/
 │   │   │   ├── input.ts            # key/mouse state, edge-triggered actions, blur handling
 │   │   │   ├── camera.ts           # title orbit, lock-on follow, title→fight blend, shake
@@ -104,7 +110,10 @@ eldenCube/
 │   │   │   ├── particles.ts        # pooled GPU particle systems (glow + smoke) (1.5b)
 │   │   │   ├── burns.ts            # 3 s fading burn marks: scorch decals + flame tongues (1.5b)
 │   │   │   ├── vfx.ts              # named emitters: slam burst, embers, fireballs, explosions, dust, heal aura, torch flames (1.5b)
-│   │   │   └── slime.ts            # boss squash/stretch + lean springs (pure) (1.5b)
+│   │   │   ├── slime.ts            # boss squash/stretch + lean springs (pure) (1.5b)
+│   │   │   ├── hdr.ts              # bloom boost factors for fire / beam / molten (1.6)
+│   │   │   ├── post.ts             # composer: HDR clamp, bloom, impact + shimmer pass, output (1.6)
+│   │   │   └── decals.ts           # gel stains, molten scar (1.6)
 │   │   ├── util/
 │   │   │   ├── math.ts             # lerp, clamp, easing, damped spring step, random range
 │   │   │   └── rng.ts              # seedable random (seeded in tests)
@@ -183,7 +192,7 @@ interface Attack {
 ```
 
 - `AttackContext` gives access to the boss, the player's position and velocity, the scene, audio, the camera shake, the speed multiplier (rage × easy), the telegraph multiplier, the rage flag, the upgrade switches (an override, so tests never edit `config.ts`) and the **hazard system**.
-- **Hazards (`Hazards.ts`)** own everything that keeps moving after the boss is free: shockwave rings, shards in flight, warning circles and the Rebuke ring. Attacks spawn them into the shared system; `Game` steps them and checks them against the player every step. They are removed (optionally with a puff) by the rage transition, defeat, player death and reset. Shards and circles are drawn with `InstancedMesh` (one draw call per kind and wave), so Crown Rain stays within the draw-call budget.
+- **Hazards (`Hazards.ts`)** own everything that keeps moving after the boss is free: shockwave rings, shards in flight, warning circles and the Rebuke ring. Attacks spawn them into the shared system; `Game` steps them and checks them against the player every step. They are removed (optionally with a puff) by the rage transition, defeat, player death and reset. Shards and circles are drawn with `InstancedMesh` (one draw call per kind and wave), so Crown Rain stays within the draw-call budget. Debris puffs share one `InstancedMesh` with per-instance colors (1.6), so a rage transition that cancels many hazards at once adds a single draw call.
 - The boss's cooldown starts when `isBossFree()` turns true, not when the hazards are gone (GAME_DESIGN §6.2).
 - The attack **selection rule** (GAME_DESIGN §6.5) is a **pure function** in `Boss.ts`, so it can be unit tested:
   `chooseAttack(history, distanceToPlayer, rainAlive, rng) → id`
@@ -210,11 +219,13 @@ interface Attack {
 - On window `resize`: update the renderer size and the camera aspect.
 - Before creating the renderer, check WebGL 2 support (required by three r186). If it fails, show the WebGL error message (GAME_DESIGN §2) and stop.
 - Wait for `document.fonts.ready` before showing the TITLE overlay, so the title doesn't flash in a fallback font.
-- Performance budget: under 100 draw calls, a single shadow-casting light, no post-processing. Reuse geometries and materials; never create them per frame.
-- *(1.5b)* `toneMapping = ACESFilmicToneMapping`, exposure 1.0 (tone mapping runs inside the normal shaders; it is not post-processing). The moon is the only shadow caster; the 6 torch point lights cast no shadows. The light count never changes during play (a change would recompile every lit shader).
+- Performance budget: under 100 draw calls **per frame, counted over the scene and every post pass** (`renderer.info.autoReset = false`, reset once per frame; 1.6), a single shadow-casting light. Reuse geometries and materials; never create them per frame.
+- *(1.6)* **Post-processing (`fx/post.ts`), off with `?lowfx`:** the scene renders once into a half-float target with 4× MSAA → an HDR clamp (2.2) → `UnrealBloomPass` at half resolution (strength 0.5, radius 0.2, threshold 1.15) → the impact pass (chromatic split + radial blur for 0.15 s, heat shimmer in a screen band around the Flame Beam) → `OutputPass` (ACES with the scene exposure, sRGB). **Selective bloom without a second render:** only fire, beam and ember colors are multiplied above the threshold (`fx/hdr.ts`: fire ×1.8, beam ×0.65, molten ×1.1); white flashes that must not glow (boss hit flash, crown tell, heal flash) are scaled to 0.7 so they stay below it. With `?lowfx` every factor is 1 and the renderer draws straight to the screen with in-shader tone mapping (the 1.5b look).
+- *(1.5b)* `toneMapping = ACESFilmicToneMapping`, exposure 1.0 (1.6: applied by the `OutputPass`; inside the normal shaders only with `?lowfx`). The moon is the only shadow caster; the 6 torch point lights cast no shadows. The light count never changes during play (a change would recompile every lit shader).
 - *(1.5b)* **Shader warm-up:** after building the scene, `Game` temporarily attaches every pooled, normally detached object (hazards, telegraphs, particles, burn marks, spikes, debris puffs) and calls `renderer.compile()`, so the first Slam or Crown Rain never stutters.
 - *(1.5b)* **Particles (`fx/particles.ts`):** two pooled systems (additive "glow", alpha "smoke"), each a single `InstancedBufferGeometry` draw call with a fixed ring buffer of instances. Per instance: start position, velocity, birth time, life, size (start/end), color and gravity. The vertex shader computes `p0 + v·t + ½·g·t²`, faces the camera and fades by age; the CPU writes an instance only when it is spawned and uploads the changed range once per step. The shader clock `uTime` is **simulation time**, so effects freeze during hit-stop and slow down in slow motion.
 - *(1.5b)* **Burn marks (`fx/burns.ts`):** a ring buffer of 48 marks (scorch decal instances, one draw call) with 3 flame-tongue billboards each (one draw call). Per instance: center, birth time, seed. Alpha is `1 − smoothstep(1.8, 3.0, age)` in the shader; the CPU only writes on spawn. Cleared by reset.
+- *(1.6)* **Decals (`fx/decals.ts`):** one instanced ground-quad mesh (ring buffer of 160) for gel stains and the beam's molten scar; per instance center, birth (may be in the future: a droplet still falling), seed, radius, life, style and color; fade over the last 40% of the life. **Gel droplets** are a fifth particle pool (`drop`, alpha-blended, crisp). **Debris puffs** and **pillar rubble** are instanced meshes. **Crown pillars** (`game/Pillars.ts`) are one instanced mesh with a per-instance dither (screen-door) fade when one hides the player from the camera.
 - *(1.5b)* **Shared style:** `fx/materials.ts` adds a fresnel rim term to `MeshStandardMaterial` via `onBeforeCompile` (with a `customProgramCacheKey`); player and boss materials both use it. The boss's slime deformation is a matrix on its visual group (translation × shear × scale), so the body, face and crown deform together and the shadow follows; the hit box is never deformed.
 
 ### 4.7 UI (`systems/ui.ts`, `styles.css`)
@@ -326,7 +337,7 @@ The build fails if type checking or tests fail.
 
 | Level | What | Tool / method |
 |---|---|---|
-| Unit | `collision.ts` helpers; `springStep` stability (settles, no explosion at the fixed step); `chooseAttack` (no 3 in a row; no Charge within 6 m; no Crown Rain while rain shards are alive; falls back when nothing is valid; over 1,000 seeded runs every valid attack appears); `updateCloseTimer` (+dt when close and waiting, −2·dt otherwise, never below 0); `addPoise` (only outside windows, triggers at 3, resets); Rebuke triggers (poise, close 1.0 s, Slam window end within 5 m); cooldown starts when the boss is free, not when hazards end; boss HP / phase transitions (20 HP; damage 1/1/2; rage at ≤ 8 in the same step, cancelling the attack and hazards; defeat at 0; ignored during the rage transition); combo timing (phases, damage only in active windows, one hit per combo hit, chain point and 0.5 s window, reset rules, Hit 3 ends the combo, no cancels); input buffer (0.20 s window, newest wins, runs at the first legal step, never cancels; `bufferWindow = 0` drops all); stamina (3 rolls or 3 hits + 1 roll from full; ≥ cost rule; regen delay 0.4 s and 45/s; refusal); flask (heal at 0.60 s, interrupt loses the charge, blocked at full HP or 0 charges, 3 charges, no stamina restore); player damage (hurt → stagger 0.5 s, 3 m knockback, 1.0 s invincibility; second hit → dead); roll timing (i-frames exactly 0.05–0.40 s; direction locked; no attack or roll start during roll or recovery except via buffer); Crown Rain (wave timings T, T+0.4, T+0.8; cage and wall geometry; scatter spacing ≥ 5 m; all inside the arena; exact landing); rage upgrades through the `upgrades` override; state flow (death → `TO_TITLE` after 2.0 s; victory → `TO_TITLE` on input after 1.0 s or automatically after 8 s; reset happens exactly once, at full black); `flags.ts` parsing; `resolveSfxSources` (an empty glob means every sound uses its recipe; `hit.mp3` maps to `hit`; mp3 beats ogg/wav for the same ID; unknown names are ignored) | Vitest |
+| Unit | `collision.ts` helpers; `springStep` stability (settles, no explosion at the fixed step); `chooseMove` (distance bands 4.5 / 8 / 16 m; per-band and per-phase weights; Royal Rebuke 80% at extreme close; the last attack keeps 25% of its weight and never 3 in a row; no Charge within 6 m; no Crown Rain while its shards fly; falls back when nothing is valid); `addPoise` (only outside windows, triggers at 3, resets); Rebuke triggers (poise, the 80% extreme-close pick, Slam window end within 5 m); cooldown starts when the boss is free, not when hazards end; boss HP / phase transitions (36 HP; damage 1/1/2; rage at ≤ 18 in the same step, cancelling the attack and hazards; defeat at 0; ignored during the 1.0 s rage transition); combo timing (phases, damage only in active windows, one hit per combo hit, chain point and 0.5 s window, reset rules, Hit 3 ends the combo, no cancels); sheathing (draw inside Hit 1's wind-up, put away after combat, straight elbow in active phases); input buffer (0.20 s window, newest wins, runs at the first legal step, never cancels; `bufferWindow = 0` drops all); stamina (3 rolls or 3 hits + 1 roll from full; ≥ cost rule; regen delay 0.4 s and 45/s; refusal); flask (heal at 0.60 s, interrupt loses the charge, blocked at full HP or 0 charges, 3 charges, no stamina restore); player damage (HP 3; hurt → stagger 0.5 s, 3 m knockback, 1.0 s invincibility; third hit → dead); roll timing (i-frames exactly 0.05–0.40 s; direction locked; no attack or roll start during roll or recovery except via buffer); attacks (Slam timeline and punish window; Charge; Crown Rain wave timings T, T+0.4, T+0.8, cage and wall geometry, scatter spacing ≥ 5 m, all inside the arena, exact landing; Rebuke reach follows the spikes; Cone Breath geometry, hold/release and blast windows inside the roll i-frames; Flame Beam lock, one-way sweep, escape distances and stop rules; Meteor Shower rate, bounds and hits); rage upgrades through the `upgrades` override; state flow (death → `TO_TITLE` after 2.0 s; victory → `TO_TITLE` on input after 1.0 s or automatically after 8 s; reset happens exactly once, at full black); `flags.ts` parsing; `resolveSfxSources` (an empty glob means every sound uses its recipe; `hit.mp3` maps to `hit`; mp3 beats ogg/wav for the same ID; unknown names are ignored); VFX helpers (burn fade, particle pools, slime volume, torch flicker, instanced puffs); *(1.6)* close-range defences (Hop-Back target and landing, Shove push without damage, Feint timing and chance, triggered-defence weights), crown pillars (blocking geometry, shadows, push-out, what collapses and what shields) | Vitest |
 | Debug visual | Hitbox wireframes, forced attacks, god mode, instant damage (`?debug`) | Manual, in the browser |
 | Acceptance | The full GAME_DESIGN §13 checklist | Manual, on the booth laptop |
 | Console hygiene | No errors or warnings during a full session | Chrome DevTools |

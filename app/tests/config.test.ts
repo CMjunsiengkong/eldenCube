@@ -42,12 +42,33 @@ describe('CONFIG', () => {
     const [h1, h2, h3] = CONFIG.combo.hits;
     const toChain = (h: typeof h1) => h.windup.duration + h.active.duration + h.chainAt;
     expect(toChain(h1) + toChain(h2) + h3.windup.duration + h3.active.duration + h3.recovery.duration).toBeCloseTo(1.79);
-    // boss HP 30 in 5 segments of 6; rage at ≤ 15 (50%) (changed 2026-10-12)
+    // boss HP 36 in 6 segments of 6; rage at ≤ 18 (50%) (changed in 1.6)
     expect(CONFIG.boss.hp / CONFIG.boss.healthSegments).toBe(6);
     expect(CONFIG.rage.hpThreshold).toBe(CONFIG.boss.hp / 2);
     expect(CONFIG.player.accel).toBe(16);
     // rage ring speed 11.2 m/s, rage dash 25.2 m/s (GD §6.5)
     expect(CONFIG.slam.ringSpeed * CONFIG.rage.speedMult).toBeCloseTo(11.2);
     expect(CONFIG.charge.speed * CONFIG.rage.speedMult).toBeCloseTo(25.2);
+  });
+});
+
+describe('title tips (1.6)', () => {
+  it('12 tips; the random pick never repeats the previous tip and covers all of them', async () => {
+    const { pickTip } = await import('../src/systems/ui');
+    const { createRng } = await import('../src/util/rng');
+    const n = CONFIG.ui.tips.length;
+    expect(n).toBe(12);
+    const rng = createRng(4);
+    const seen = new Set<number>();
+    let prev = -1;
+    for (let k = 0; k < 500; k++) {
+      const i = pickTip(n, prev, rng);
+      expect(i).toBeGreaterThanOrEqual(0);
+      expect(i).toBeLessThan(n);
+      expect(i).not.toBe(prev);
+      seen.add(i);
+      prev = i;
+    }
+    expect(seen.size).toBe(n);
   });
 });

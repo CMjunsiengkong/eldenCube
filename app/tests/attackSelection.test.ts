@@ -28,10 +28,13 @@ describe('distance bands (GAME_DESIGN §6.5, 2026-10-12)', () => {
 });
 
 describe('chooseMove — weighted pick (GAME_DESIGN §6.5, 2026-10-12)', () => {
-  it('extreme close: Royal Rebuke 80%, the other 20% shared by the allowed attacks', () => {
+  it('extreme close (1.6): Rebuke 45%, Hop-Back 25%, Shove 15%, the other 15% shared by the allowed attacks', () => {
     for (const phase of ['p1', 'rage'] as const) {
       const f = freq([], XC, false, phase);
-      expect(f.rebuke).toBeCloseTo(0.8, 1);
+      expect(f.rebuke).toBeCloseTo(0.45, 1);
+      expect(f.hop).toBeCloseTo(0.25, 1);
+      expect(f.shove).toBeCloseTo(0.15, 1);
+      expect((f.slam ?? 0) + (f.rain ?? 0) + (f.cone ?? 0)).toBeCloseTo(0.15, 1);
       expect(f.charge ?? 0).toBe(0);
       expect(f.beam ?? 0).toBe(0);
     }
@@ -43,6 +46,7 @@ describe('chooseMove — weighted pick (GAME_DESIGN §6.5, 2026-10-12)', () => {
     const f = freq([], MID, false, 'p1');
     for (const id of ['slam', 'charge', 'rain', 'cone', 'beam'] as const) expect(f[id]).toBeCloseTo(w[id][2] / total, 1);
     expect(f.rebuke ?? 0).toBe(0);
+    expect((f.hop ?? 0) + (f.shove ?? 0)).toBe(0); // defences only at extreme close
   });
 
   it('rage shifts the far band toward the Flame Beam', () => {

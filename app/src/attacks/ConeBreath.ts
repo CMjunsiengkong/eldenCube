@@ -6,9 +6,10 @@
  */
 import { CircleGeometry, DoubleSide, Mesh, MeshBasicMaterial, Vector3 } from 'three';
 import { CONFIG } from '../config';
+import { fireBoost } from '../fx/hdr';
 import type { Sphere } from '../entities/Player';
 import { wrapAngle } from '../util/math';
-import type { Attack, AttackContext } from './Attack';
+import type { Attack, AttackContext, PillarHit } from './Attack';
 
 const CN = CONFIG.cone;
 const PLAYER_R = CONFIG.player.radius;
@@ -63,6 +64,7 @@ export class ConeBreath implements Attack {
   private readonly fire = new MeshBasicMaterial({ color: CONFIG.colors.fire, transparent: true, depthWrite: false, side: DoubleSide, toneMapped: false });
 
   constructor() {
+    this.fire.color.multiplyScalar(fireBoost()); // 1.6 V1: the cone fire blooms
     this.outline.renderOrder = 1;
   }
 
@@ -153,6 +155,19 @@ export class ConeBreath implements Attack {
     return null;
   }
 
+  /** 1.6: a pillar inside the cone during a blast collapses and shields that one blast. */
+  pillarHit(x: number, z: number, r: number, out: PillarHit): PillarHit | null {
+    const ctx = this.ctx;
+    if (!ctx || this.phase !== 'blast' || !this.activeAt(this.t)) return null;
+    const b = ctx.boss.pos;
+    if (!inCone(x, z, b.x, b.z, this.axis, this.range + r, this.half)) return null;
+    out.shield = true;
+    out.ox = b.x;
+    out.oz = b.z;
+    out.life = CONFIG.pillars.shadowLife.cone;
+    return out;
+  }
+
   isBossFree(): boolean {
     return this.phase === 'done';
   }
@@ -203,6 +218,7 @@ export class ConeBreath implements Attack {
     ctx.vfx?.coneRelease(b.pos.x, b.pos.z, this.axis, this.half, this.range);
     ctx.audio.play('cone_blast');
     ctx.shake(0.4, 0.18);
+    ctx.cinema?.impact('cone', mx, CN.mouthHeight, mz); // 1.6 V3
     b.splat(-3);
     this.nextRelease++;
   }

@@ -29,22 +29,27 @@ import { getFlags, rebukeTellFor, speedMult, telegraphMult } from '../flags';
 import type { GameClock, LoopTarget } from '../loop';
 import { moveDirFromAxis, Player, type MotorInput, type PlayerEvent } from '../entities/Player';
 import { Boss, distanceBand, type HitResult } from '../entities/Boss';
-import type { Attack, AttackContext, Cinema, MoveId } from '../attacks/Attack';
+import type { Attack, AttackContext, Cinema, MoveId, PillarHit } from '../attacks/Attack';
 import { CubeSlam } from '../attacks/CubeSlam';
 import { RoyalCharge } from '../attacks/RoyalCharge';
 import { CrownRain } from '../attacks/CrownRain';
 import { RoyalRebuke } from '../attacks/RoyalRebuke';
 import { ConeBreath } from '../attacks/ConeBreath';
 import { FlameBeam } from '../attacks/FlameBeam';
+import { JellyHop } from '../attacks/JellyHop';
+import { BounceShove } from '../attacks/BounceShove';
 import { Hazards, WAVES } from '../attacks/Hazards';
 import { debrisCenter, stepDebris, type DebrisPiece } from '../fx/debris';
 import { Puffs } from '../fx/effects';
+import { PostFx } from '../fx/post';
+import { PillarField, PillarView } from './Pillars';
+import { sphereOBB, createSphereOBBResult } from '../systems/collision';
 import { Vfx } from '../fx/vfx';
 import { Audio } from '../systems/audio';
 import { CameraController } from '../systems/camera';
 import { pointInOBB } from '../systems/collision';
 import { Input } from '../systems/input';
-import { UI } from '../systems/ui';
+import { pickTip, UI } from '../systems/ui';
 import { easeInOut, lerp, randRange, smoothFactor } from '../util/math';
 import { createRng } from '../util/rng';
 import { Arena } from './Arena';
@@ -266,7 +271,35 @@ export class Game implements LoopTarget {
       this.vignetteWant = Math.max(this.vignetteWant, o);
     },
     lift: (on) => this.cameraCtl.setLift(on),
+    impact: (kind, x, y, z) => {
+      const I = CONFIG.vfx.impact;
+      this.cameraCtl.shake(I.extraShake[kind], I.duration * 2);
+      if (!this.post) return;
+      this.toScreen(x, y, z, this.screenA);
+      this.post.impact(I.strength[kind], this.screenA.x, this.screenA.y);
+    },
+    shimmer: (ax, ay, az, bx, by, bz) => {
+      if (!this.post) return;
+      this.toScreen(ax, ay, az, this.screenA);
+      this.toScreen(bx, by, bz, this.screenB);
+      this.post.setShimmer(this.screenA.x, this.screenA.y, this.screenB.x, this.screenB.y);
+    },
   };
+  /** 1.6 post-processing (bloom, impact, shimmer); null with ?lowfx. */
+  private readonly post: PostFx | null;
+  private readonly screenA = new Vector3();
+  private readonly screenB = new Vector3();
+  private readonly landed: Vector3[] = [];
+  private tipIndex = -1;
+  /** 1.6 T1 crown pillars. */
+  private readonly pillars = new PillarField();
+  private readonly pillarView: PillarView;
+  private readonly pillarHit: PillarHit = { shield: false, ox: 0, oz: 0, life: 0 };
+  private readonly collapsed: number[] = [];
+  private readonly damaged: number[] = [];
+  private readonly pushTmp = { x: 0, z: 0, nx: 0, nz: 0 };
+  private readonly pillarObb = createSphereOBBResult();
+  private readonly pillarCenter = new Vector3();
 
   private readonly moveDir = { x: 0, z: 0 };
   private readonly camFwd = { x: 0, z: -1 };
@@ -295,6 +328,8 @@ export class Game implements LoopTarget {
     this.debug = getFlags().debug;
 
     this.camera = new PerspectiveCamera(CAM.fov, window.innerWidth / window.innerHeight, CAM.near, CAM.far);
+    this.renderer.info.autoReset = false;
+    this.post = getFlags().lowfx ? null : new PostFx(renderer, this.scene, this.camera, window.innerWidth, window.innerHeight);
     this.arena = new Arena(this.scene);
     this.input = new Input(canvas, this.debug);
     this.input.onGesture = () => this.audio.unlock();
@@ -307,9 +342,10 @@ export class Game implements LoopTarget {
     this.scene.add(this.player.root);
     this.puffs = new Puffs(this.scene, this.rng);
     this.vfx = new Vfx(this.scene);
+    this.pillarView = new PillarView(this.scene, this.pillars, createRng(0x9111a));
     this.hazards = new Hazards(this.scene, this.puffs, this.vfx);
     this.hazards.sound = this.audio;
-    this.attacks = { slam: new CubeSlam(), charge: new RoyalCharge(), rain: new CrownRain(), rebuke: new RoyalRebuke(), cone: new ConeBreath(), beam: new FlameBeam() };
+    this.attacks = { slam: new CubeSlam(), charge: new RoyalCharge(), rain: new CrownRain(), rebuke: new RoyalRebuke(), cone: new ConeBreath(), beam: new FlameBeam(), hop: new JellyHop(), shove: new BounceShove() };
 
     this.cameraCtl = new CameraController(this.camera, this.rng);
     this.cameraCtl.setOrbit();
@@ -337,6 +373,7 @@ export class Game implements LoopTarget {
     this.ui.setHealth(this.boss.brain.hp);
     this.syncPlayerHud();
     this.ui.setSound(!this.audio.muted);
+    this.showTip();
     this.ui.setScreen('title');
     this.prewarm();
   }
@@ -354,6 +391,7 @@ export class Game implements LoopTarget {
       ...(this.attacks.beam as FlameBeam).scenePool,
       ...this.puffs.warmupPieces,
       ...this.vfx.scenePool,
+      ...this.pillarView.scenePool,
     ];
     const saved = pool.map((o) => ({ o, parent: o.parent, visible: o.visible }));
     for (const s of saved) {
@@ -413,12 +451,14 @@ export class Game implements LoopTarget {
   realUpdate(frameDt: number): void {
     if (this.input.consume('mute')) this.ui.setSound(!this.audio.toggleMute());
 
+    const esc = this.input.consume('pause');
     if (this.flow.paused) {
-      if (this.input.consume('resumeClick')) this.resume();
+      if (this.input.consume('resumeClick') || esc) this.resume();
       if (this.debug) this.updateDebug(frameDt);
       return;
     }
     this.input.consume('resumeClick');
+    if (esc && this.pauseGame()) return;
 
     const s = this.flow.state;
     const anyStart = (s === 'TITLE' || s === 'VICTORY_SCREEN') && this.input.consume('anyStart');
@@ -432,18 +472,30 @@ export class Game implements LoopTarget {
     this.audio.setDuck(this.flow.duck);
 
     this.cameraCtl.update(frameDt, this.player.position, this.boss.pos);
+    this.post?.update(frameDt);
+    this.pillarView.updateFade(frameDt, this.camera.position.x, this.camera.position.z, this.player.position.x, this.player.position.z);
     if (this.hitboxes) this.hitboxes.sync(this.player, this.boss, this.hazards);
     if (this.debug) this.updateDebug(frameDt);
   }
 
   render(): void {
-    this.renderer.render(this.scene, this.camera);
+    // Draw calls are counted over the whole frame (scene + post passes), not per render call.
+    this.renderer.info.reset();
+    if (this.post) this.post.render();
+    else this.renderer.render(this.scene, this.camera);
+  }
+
+  /** World point → screen UV (x right, y up, 0…1) in `out`. */
+  private toScreen(x: number, y: number, z: number, out: Vector3): void {
+    out.set(x, y, z).project(this.camera);
+    out.set((out.x + 1) / 2, (out.y + 1) / 2, out.z);
   }
 
   onResize(width: number, height: number): void {
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height, false);
+    this.post?.setSize(width, height);
   }
 
   /**
@@ -465,6 +517,16 @@ export class Game implements LoopTarget {
       this.attack?.onBossHit?.(); // the Flame Beam stops when the boss takes damage
     }
     this.ui.setHealth(this.boss.brain.hp);
+    {
+      // 1.6 V4: jelly splashes out of the side that was hit, back toward the attacker.
+      const bx = this.boss.pos.x;
+      const bz = this.boss.pos.z;
+      const dx = bx - from.x;
+      const dz = bz - from.z;
+      const d = Math.hypot(dx, dz) || 1;
+      const h = B.halfSize;
+      this.vfx.gelSplash(bx - (dx / d) * h * 0.9, h * 0.9, bz - (dz / d) * h * 0.9, -dx / d, -dz / d, heavy || result === 'defeated', this.boss.gelColor);
+    }
 
     if (result === 'defeated') {
       this.onBossDefeated();
@@ -545,6 +607,8 @@ export class Game implements LoopTarget {
   private reset(): void {
     this.cancelAttack();
     this.hazards.clear(false);
+    this.pillars.reset();
+    this.pillarView.reset();
     for (const p of this.debris) p.object.removeFromParent();
     this.debris.length = 0;
     this.puffs.clear();
@@ -561,18 +625,33 @@ export class Game implements LoopTarget {
     this.rebukeMarker = 0;
     this.syncPlayerHud();
     this.cameraCtl.setOrbit();
+    this.showTip();
     this.ui.setScreen('title');
     this.world = 'title';
   }
 
-  private onFocusLost(): void {
-    if (!this.flow.pause()) return;
-    this.time.paused = true;
-    this.ui.setPaused(true);
-    this.audio.setMusicPaused(true);
+  /** 1.6: a new random tip each time the title appears (never the same twice in a row). */
+  private showTip(): void {
+    const tips = CONFIG.ui.tips;
+    this.tipIndex = pickTip(tips.length, this.tipIndex, this.audioRng);
+    this.ui.setTip(tips[this.tipIndex]);
   }
 
-  /** The click that resumes never attacks (D2): every pending edge is dropped. */
+  private onFocusLost(): void {
+    this.pauseGame();
+  }
+
+  /** Blur, hidden tab or ESC (1.6): pause, only during FIGHT. Held keys are cleared. */
+  private pauseGame(): boolean {
+    if (!this.flow.pause()) return false;
+    this.time.paused = true;
+    this.input.clearAll();
+    this.ui.setPaused(true);
+    this.audio.setMusicPaused(true);
+    return true;
+  }
+
+  /** The click (or ESC) that resumes never attacks (D2): every pending edge is dropped. */
   private resume(): void {
     this.flow.resume();
     this.time.paused = false;
@@ -601,6 +680,20 @@ export class Game implements LoopTarget {
     // The boss body is solid while it is on the ground and not dashing (GD §6.2).
     mi.obstacle = this.boss.solid ? this.boss.getBox() : null;
     this.onPlayerEvents(this.player.update(dt, mi));
+    // 1.6 T1: standing pillars are solid for the player.
+    {
+      const m = this.player.motor;
+      const o = this.pushTmp;
+      if (this.pillars.pushOut(m.x, m.z, CONFIG.player.radius, o)) {
+        m.x = o.x;
+        m.z = o.z;
+        const vn = m.vx * o.nx + m.vz * o.nz;
+        if (vn < 0) {
+          m.vx -= vn * o.nx;
+          m.vz -= vn * o.nz;
+        }
+      }
+    }
     if (broken) return;
 
     if (fighting) this.checkWeaponHit();
@@ -611,7 +704,7 @@ export class Game implements LoopTarget {
     if (start) {
       this.attack = this.attacks[start];
       this.attack.start(this.ctx);
-      if (start === 'rebuke') this.rebukeMarker = CONFIG.ui.rebukeMarker;
+      if (start === 'rebuke' || start === 'hop' || start === 'shove') this.rebukeMarker = CONFIG.ui.rebukeMarker;
     } else if (this.attack) {
       this.attack.update(dt, this.ctx);
     }
@@ -623,12 +716,75 @@ export class Game implements LoopTarget {
       this.boss.brain.attackFree();
     }
     this.hazards.step(dt);
+    // 1.6 V3: a meteor landing close to the player shakes the screen.
+    for (const m of this.hazards.landedMeteors(this.landed)) {
+      if (Math.hypot(m.x - this.player.position.x, m.z - this.player.position.z) <= CONFIG.vfx.impact.meteorRadius) {
+        this.cinema.impact('meteor', m.x, 0.5, m.z);
+        break;
+      }
+    }
+
+    this.updatePillars(dt);
 
     if (!this.player.isInvincible()) {
       const spheres = this.player.getHitSpheres();
-      const source = this.attack?.checkPlayerHit(spheres) ?? this.hazards.check(spheres);
+      const pp = this.player.position;
+      let source = this.attack?.checkPlayerHit(spheres) ?? null;
+      // 1.6 T1: a pillar that just collapsed under a Rebuke or Cone blast shields the player behind it.
+      if (source && (this.attack?.id === 'rebuke' || this.attack?.id === 'cone') && this.pillars.blocks(source.x, source.z, pp.x, pp.z)) source = null;
+      if (!source) {
+        source = this.hazards.check(spheres);
+        if (source && this.hazards.lastHitKind === 'ring' && this.pillars.blocks(source.x, source.z, pp.x, pp.z)) source = null;
+      }
       if (source) this.onPlayerHit(source);
+      else {
+        // GD §6.5 I (1.6): the Bounce Shove pushes without damage (a pillar in between shields it).
+        const push = this.attack?.checkPlayerShove?.(spheres);
+        if (push && !this.pillars.blocks(push.x, push.z, pp.x, pp.z) && this.player.motor.shove(push.x, push.z, CONFIG.shove.distance, CONFIG.shove.stumble)) {
+          this.cameraCtl.shake(CONFIG.shove.shake.amplitude, CONFIG.shove.shake.duration);
+        }
+      }
     }
+  }
+
+  /**
+   * 1.6 T1: any boss hit collapses a pillar at once — the running attack (Cone, Rebuke, Shove, Beam),
+   * a hazard (ring, Crown Rain or meteor landing) or the boss body itself (walking, Charge, landing).
+   */
+  private updatePillars(dt: number): void {
+    const field = this.pillars;
+    field.step(dt);
+    const box = this.boss.getBox();
+    const grounded = this.boss.pos.y < 0.5;
+    const h0 = this.pillarHit;
+    field.pillars.forEach((p, i) => {
+      if (!p.standing) return;
+      h0.instant = false;
+      const h = this.attack?.pillarHit?.(p.x, p.z, p.r, h0) ?? this.hazards.pillarHit(p.x, p.z, p.r, h0);
+      if (h) {
+        field.hit(i, h.shield, h.ox, h.oz, h.life, h.instant === true);
+        return;
+      }
+      // The boss body: a Charge dash knocks it down at once; walking or landing into it costs 1 health.
+      this.pillarCenter.set(p.x, box.center.y, p.z);
+      if (grounded && sphereOBB(this.pillarCenter, p.r, box.center, box.halfSize, box.yaw, this.pillarObb)) {
+        field.hit(i, false, this.boss.pos.x, this.boss.pos.z, 0, this.boss.dashing);
+      }
+    });
+    field.takeEvents(this.collapsed, this.damaged);
+    for (const i of this.collapsed) {
+      const p = field.pillars[i];
+      this.pillarView.breakApart(i, p.x - p.leanX, p.z - p.leanZ);
+      this.vfx.slamImpact(p.x, p.z);
+      this.audio.play('pillar_break');
+      this.cameraCtl.shake(0.12, 0.2);
+    }
+    for (const i of this.damaged) {
+      const p = field.pillars[i];
+      this.vfx.chargeDust(p.x, p.z, p.leanX, p.leanZ);
+      this.audio.play('pillar_hit');
+    }
+    this.pillarView.step(dt);
   }
 
   /** GD §4.6 / §9: a non-lethal hit staggers the player; the hit that takes the last HP kills (DYING). */
@@ -636,7 +792,6 @@ export class Game implements LoopTarget {
     const r = this.player.motor.takeHit(source.x, source.z);
     if (r === 'ignored') return;
     if (r === 'hurt') {
-      this.attack?.onPlayerHit?.(); // the Flame Beam stops when it hits
       this.time.hitStop(CONFIG.hurt.hitStop);
       this.cameraCtl.shake(CONFIG.hurt.shake.amplitude, CONFIG.hurt.shake.duration);
       this.audio.play('player_hurt');
@@ -660,6 +815,7 @@ export class Game implements LoopTarget {
   /** GD §9: the boss stops and turns to face the remains; the camera looks at them. */
   private updateDying(dt: number): void {
     this.hazards.step(dt); // visual only: nothing is checked against the player while dying
+    this.pillarView.step(dt);
     if (this.player.isBroken) {
       debrisCenter(this.debris, this.gloatTarget);
       this.cameraCtl.setLookOverride(this.gloatTarget);
@@ -761,10 +917,16 @@ export class Game implements LoopTarget {
     if (this.input.consume('debug1')) brain.forceNext = 'slam';
     if (this.input.consume('debug2')) brain.forceNext = 'charge';
     if (this.input.consume('debug3')) brain.forceNext = 'rain';
-    if (this.input.consume('debug4')) brain.requestRebuke('debug');
+    if (this.input.consume('debug4')) brain.forceNext = 'rebuke';
     if (this.input.consume('debug5')) brain.forceNext = 'cone';
     if (this.input.consume('debug6')) brain.forceNext = 'beam';
     if (this.input.consume('debug7')) this.hazards.startMeteors(this.rng);
+    if (this.input.consume('debug8')) brain.forceNext = 'hop';
+    if (this.input.consume('debug9')) brain.forceNext = 'shove';
+    if (this.input.consume('debug0')) {
+      brain.forceNext = 'rebuke';
+      (this.attacks.rebuke as RoyalRebuke).forceFeint = true;
+    }
     if (this.input.consume('debugG')) this.player.motor.godMode = !this.player.motor.godMode;
     if (this.input.consume('debugK')) this.applyBossHit(this.player.position, 1);
   }

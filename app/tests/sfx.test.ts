@@ -33,8 +33,8 @@ describe('resolveSfxSources (ARCHITECTURE §4.8)', () => {
     expect(msgs[0]).toContain('boing.mp3');
   });
 
-  it('every one of the 25 sound IDs has a recipe', () => {
-    expect(SFX_IDS).toHaveLength(25);
+  it('every one of the 31 sound IDs has a recipe', () => {
+    expect(SFX_IDS).toHaveLength(31); // 25 + hop_jump, hop_land, shove, pillar_break, pillar_hit, explosion (1.6)
     expect(new Set(RECIPE_IDS)).toEqual(new Set(SFX_IDS));
   });
 });

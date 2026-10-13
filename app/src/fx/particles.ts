@@ -29,6 +29,7 @@ uniform float uTime;
 uniform float uFloor;
 uniform float uStretch;
 uniform float uMode; // 0 soft disc, 1 spark streak, 2 cel crown flame (2026-10-12)
+uniform float uBoost; // 1.6: HDR multiplier so fire exceeds the bloom threshold
 varying vec2 vUv;
 varying vec4 vColor;
 varying float vSeed;
@@ -71,7 +72,7 @@ void main() {
   }
   gl_Position = projectionMatrix * mv;
   vUv = uv;
-  vColor = vec4(aColor, aShape.w * (1.0 - smoothstep(uMode > 1.5 ? 0.75 : 0.45, 1.0, u)));
+  vColor = vec4(aColor * uBoost, aShape.w * (1.0 - smoothstep(uMode > 1.5 ? 0.75 : 0.45, 1.0, u)));
 }`;
 
 const FRAGMENT = /* glsl */ `
@@ -83,6 +84,7 @@ uniform float uMode;
 uniform vec3 uCore;
 uniform vec3 uMid;
 uniform vec3 uRim;
+uniform float uBoost;
 void main() {
   if (uMode > 1.5) {
     // Spiky crown burst, anime cel style: x runs back → front (the flying direction), y across.
@@ -96,7 +98,7 @@ void main() {
     if (inside < 0.0 || abs(y) > 0.98) discard;
     // Three flat bands: a thin red rim, an orange body, a white-yellow core.
     vec3 col = inside < 0.05 ? uRim : (inside < 0.16 || abs(y) > 0.55 ? uMid : uCore);
-    gl_FragColor = vec4(col, vColor.a);
+    gl_FragColor = vec4(col * uBoost, vColor.a);
     #include <colorspace_fragment>
     return;
   }
@@ -106,7 +108,7 @@ void main() {
   #include <colorspace_fragment>
 }`;
 
-export type ParticleBlend = 'glow' | 'smoke' | 'spark' | 'crown';
+export type ParticleBlend = 'glow' | 'smoke' | 'spark' | 'crown' | 'drop';
 
 /** One spawn request; fields are reused by callers (no allocation per particle). */
 export interface ParticleSpec {
@@ -170,7 +172,8 @@ export class Particles {
       uniforms: {
         uTime: { value: 0 },
         uFloor: { value: P.floor },
-        uSoftness: { value: blend === 'smoke' ? P.smokeSoftness : blend === 'spark' ? P.sparkSoftness : P.glowSoftness },
+        uSoftness: { value: blend === 'smoke' ? P.smokeSoftness : blend === 'spark' ? P.sparkSoftness : blend === 'drop' ? P.dropSoftness : P.glowSoftness },
+        uBoost: { value: 1 },
         uStretch: { value: blend === 'spark' ? P.sparkStretch : 0 },
         uMode: { value: blend === 'crown' ? 2 : blend === 'spark' ? 1 : 0 },
         uCore: { value: new Color(CONFIG.colors.flameCore) },
@@ -179,17 +182,22 @@ export class Particles {
       },
       transparent: true,
       depthWrite: false,
-      blending: blend === 'smoke' || blend === 'crown' ? NormalBlending : AdditiveBlending, // cel flames are opaque
+      blending: blend === 'smoke' || blend === 'crown' || blend === 'drop' ? NormalBlending : AdditiveBlending, // cel flames and gel drops are opaque
       toneMapped: false,
     });
     this.mesh = new Mesh(geo, this.material);
     this.mesh.frustumCulled = false;
-    this.mesh.renderOrder = blend === 'smoke' ? 5 : blend === 'crown' ? 7 : 6;
+    this.mesh.renderOrder = blend === 'smoke' || blend === 'drop' ? 5 : blend === 'crown' ? 7 : 6;
   }
 
   /** Simulation time of the shader clock (tests). */
   get now(): number {
     return this.time;
+  }
+
+  /** 1.6: HDR color multiplier (fire pools use the bloom fire boost). */
+  setBoost(boost: number): void {
+    this.material.uniforms.uBoost.value = boost;
   }
 
   addTo(scene: Scene): void {
