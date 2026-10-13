@@ -27,10 +27,11 @@ import { createPiece, randomSpin, type DebrisPiece } from '../fx/debris';
 import { Fade, Squash, Timer } from '../fx/effects';
 import { addRim, mergePainted, paint, type RimHandle } from '../fx/materials';
 import { SlimeBody } from '../fx/slime';
+import { noGlow } from '../fx/hdr';
 import { randRange, turnToward } from '../util/math';
 import type { Rng } from '../util/rng';
 import { cooldownFor, getFlags, speedMult, type BossPhase, type Flags } from '../flags';
-import { ATTACK_IDS, type AttackBoss, type AttackId, type BossBox } from '../attacks/Attack';
+import { ATTACK_IDS, DEFENCE_IDS, type AttackBoss, type AttackId, type BossBox, type DefenceId, type MoveId } from '../attacks/Attack';
 
 const B = CONFIG.boss;
 const RG = CONFIG.rage;
@@ -42,8 +43,10 @@ export type BossMode = 'grace' | 'cooldown' | 'attacking' | 'rageTransition' | '
 export type HitResult = 'hit' | 'rage' | 'defeated' | 'ignored';
 export type RebukeReason = 'poise' | 'close' | 'window' | 'debug';
 
-/** What the brain starts: one of the random attacks, or the Royal Rebuke. */
-export type BossMove = AttackId | 'rebuke';
+/** What the brain starts: one of the random attacks, or a close-range defence (1.6). */
+export type BossMove = MoveId;
+
+const isDefence = (id: BossMove): id is DefenceId => (DEFENCE_IDS as readonly string[]).includes(id);
 
 /** GD §6.5 (2026-10-12): the distance band index (0 extreme close, 1 close, 2 mid, 3 far). */
 export function distanceBand(distance: number): number {
@@ -51,7 +54,7 @@ export function distanceBand(distance: number): number {
   return distance < b[0] ? 0 : distance < b[1] ? 1 : distance < b[2] ? 2 : 3;
 }
 
-const MOVE_IDS: readonly BossMove[] = ['rebuke', ...ATTACK_IDS];
+const MOVE_IDS: readonly BossMove[] = [...DEFENCE_IDS, ...ATTACK_IDS];
 
 /**
  * GD §6.5 selection rule (pure, 2026-10-12): a weighted random pick from the band's weights.
@@ -69,7 +72,7 @@ export function chooseMove(history: readonly AttackId[], distance: number, rainA
     if (id === 'charge' && distance <= CONFIG.charge.minDistance) return 0;
     if (id === 'rain' && rainAlive) return 0;
     let w = row[id][band];
-    if (repeats && id !== 'rebuke') {
+    if (repeats && !isDefence(id)) {
       if (id === twice) w = 0;
       else if (id === last) w *= CONFIG.ai.repeatKeep;
     }
@@ -92,6 +95,20 @@ export function chooseMove(history: readonly AttackId[], distance: number, rainA
   return 'slam';
 }
 
+/**
+ * GD §6.2a (1.6, pure): a triggered defence (poise, Slam window end) is one of Rebuke / Hop-Back /
+ * Shove, weighted 45 / 25 / 15.
+ */
+export function chooseDefence(rng: Rng): DefenceId {
+  const w = CONFIG.ai.defence;
+  let r = rng() * (w.rebuke + w.hop + w.shove);
+  for (const id of DEFENCE_IDS) {
+    if (r < w[id]) return id;
+    r -= w[id];
+  }
+  return 'rebuke';
+}
+
 /** GD §6.2a poise (pure): damage outside punish windows adds up; at 3 it triggers a Rebuke and resets. */
 export function addPoise(poise: number, damage: number, inWindow: boolean): { poise: number; trigger: boolean } {
   if (inWindow) return { poise, trigger: false };
@@ -106,15 +123,15 @@ export class BossBrain {
   mode: BossMode = 'grace';
   /** Seconds until the next attack starts (grace or cooldown). */
   cooldownLeft: number = B.grace;
-  /** Random attacks used so far, oldest first (the Rebuke is not recorded). */
+  /** Random attacks used so far, oldest first (defences are not recorded). */
   readonly history: AttackId[] = [];
   poise = 0;
-  /** A Rebuke to perform as soon as the boss is free (and why). */
+  /** A defence to perform as soon as the boss is free (and why; 1.6: Rebuke, Hop-Back or Shove). */
   pendingRebuke: RebukeReason | null = null;
-  /** The reason of the last Rebuke started (debug text). */
+  /** The reason of the last defence started (debug text). */
   lastRebuke: RebukeReason | null = null;
-  /** Debug keys 1/2/3/5/6 override the next random choice. */
-  forceNext: AttackId | null = null;
+  /** Debug keys override the next choice (any move). */
+  forceNext: BossMove | null = null;
   /** The running move (while mode === 'attacking'). */
   current: BossMove | null = null;
   /** Time spent in the rage transition (s). */
@@ -199,7 +216,7 @@ export class BossBrain {
 
   /** Starts a move now (used by `update`, and by tests). */
   beginAttack(id: BossMove): void {
-    if (id !== 'rebuke') {
+    if (!isDefence(id)) {
       this.history.push(id);
       if (this.history.length > 8) this.history.shift();
     }
@@ -244,8 +261,9 @@ export class BossBrain {
       this.lastRebuke = this.pendingRebuke;
       this.pendingRebuke = null;
       this.poise = 0;
-      this.beginAttack('rebuke');
-      return 'rebuke';
+      const d = chooseDefence(this.rng);
+      this.beginAttack(d);
+      return d;
     }
 
     this.cooldownLeft -= dt;
@@ -256,7 +274,7 @@ export class BossBrain {
       this.forceNext = null;
     } else {
       id = chooseMove(this.history, distance, rainAlive, this.phase, this.rng);
-      if (id === 'rebuke') this.lastRebuke = 'close';
+      if (isDefence(id)) this.lastRebuke = 'close';
     }
     this.beginAttack(id);
     return id;
@@ -312,6 +330,7 @@ export class Boss implements AttackBoss {
   private readonly pieceGeo = new RoundedBoxGeometry(B.defeat.pieceSize, B.defeat.pieceSize, B.defeat.pieceSize, 3, B.defeat.pieceCornerRadius);
   private readonly rng: Rng;
   private time = 0;
+  private readonly noGlow = noGlow();
   private broken = false;
   /** The cloned body material of the last break-apart (disposed on reset). */
   private debrisMat: MeshStandardMaterial | null = null;
@@ -403,6 +422,11 @@ export class Boss implements AttackBoss {
     return this.box;
   }
 
+  /** The current body color (1.6 gel splash). */
+  get gelColor(): Color {
+    return this.bodyColor;
+  }
+
   get isBroken(): boolean {
     return this.broken;
   }
@@ -488,7 +512,8 @@ export class Boss implements AttackBoss {
   /** White hit flash wins over the red Charge pulse. */
   private applyFlash(): void {
     if (this.flash.active) {
-      this.bodyMat.emissive.setRGB(1, 1, 1);
+      const k = this.noGlow; // 1.6: the hit flash never blooms
+      this.bodyMat.emissive.setRGB(k, k, k);
     } else {
       // A faint gel self-glow in the body color (reads at night), plus the red Charge pulse.
       const w = this.pulse * CONFIG.charge.pulseIntensity;
@@ -498,7 +523,8 @@ export class Boss implements AttackBoss {
     }
     // Faint gold glow at night, plus the white tell glow (Rebuke, Crown Rain).
     const g = B.model.crownGlow;
-    this.crownMat.emissive.setRGB(this.crownGold.r * g + this.crownGlow, this.crownGold.g * g + this.crownGlow, this.crownGold.b * g + this.crownGlow);
+    const w = this.crownGlow * this.noGlow;
+    this.crownMat.emissive.setRGB(this.crownGold.r * g + w, this.crownGold.g * g + w, this.crownGold.b * g + w);
   }
 
   /** GD §6.3 hit reaction visuals + knockback (Hit 3: heavier). Hit-stop, shake, sound, HUD: Game. */

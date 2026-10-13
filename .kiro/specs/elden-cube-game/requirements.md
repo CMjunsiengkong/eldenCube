@@ -225,7 +225,7 @@ All with Vitest in a Node environment, seeded RNG where randomness is involved:
 3. **chooseMove** (replaces `chooseAttack`, 2026-10-12): distance bands and per-phase weights; Royal Rebuke 80% at extreme close; the last attack keeps 25% of its weight and never 3 in a row; never Charge within 6 m; no Crown Rain while its shards fly; fallback when nothing is valid.
 4. **addPoise / Rebuke triggers** (replace `updateCloseTimer`, 1.4b and 2026-10-12): poise counts only outside windows and triggers at 3; the Slam window end within 5 m asks for a Rebuke.
 5. **Scheduler** (replaces `applyMissPunish`, removed in 1.4b): the first attack after the grace; the cooldown starts when the boss is free; debug forcing.
-6. **Boss HP / phase:** 30 HP, damage 1/1/2, rage at ≤ 15, defeat at 0; ignored during the rage transition; the rage hit cancels the attack and hazards in the same step, while other hits leave the attack running (D9).
+6. **Boss HP / phase:** 36 HP, damage 1/1/2, rage at ≤ 18, defeat at 0; ignored during the rage transition; the rage hit cancels the attack and hazards in the same step, while other hits leave the attack running (D9).
 7. **Combo timing:** damage only in the active windows; at most one hit per combo hit; chain point and window; no cancels.
 8. **Roll timing:** i-frames exactly 0.05–0.40 s; direction locked; no attack or roll start during roll or recovery except via the buffer; no roll cooldown (1.4b).
 9. **State flow:** death → `TO_TITLE` after 2.0 s; victory → `TO_TITLE` on input after 1.0 s or automatically after 8 s; reset happens exactly once, at full black.

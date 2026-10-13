@@ -38,9 +38,15 @@ sound file exists in app/src/assets/sfx/<id>.(mp3|ogg|wav)  and decodes OK ?
 | `charge_dash` | Should | Fast whoosh / roar | 0.5 s | 0.5 |
 | `shard_launch` | Should | Pop pop pop | 0.25 s | 0.4 |
 | `shard_land` | Should | Clinks | 0.10 s | 0.3 |
+| `explosion` *(1.6)* | Should | Fireball explosion: deep boom + blast + crackle (meteors, rage Crown Rain) | 1.3 s | 0.8 |
 | `rage` | Should | Angry growl | 0.8 s | 0.5 |
 | `rebuke_windup` | Must | Short rising crackle (the tell) | 0.35 s | 0.45 |
 | `rebuke_burst` | Should | Sharp burst / whip-crack | 0.25 s | 0.7 |
+| `hop_jump` *(1.6)* | Should | Rubbery rising "boing" + whoosh | 0.25 s | 0.45 |
+| `hop_land` *(1.6)* | Should | Wet splat over a soft thump | 0.4 s | 0.8 |
+| `shove` *(1.6)* | Should | Big wobbly "bwoing" + puff of air | 0.35 s | 0.6 |
+| `pillar_hit` *(1.6)* | Should | Short stone crack + dull knock | 0.2 s | 0.55 |
+| `pillar_break` *(1.6)* | Should | Stone crack + rumble + rock clinks | 0.6 s | 0.75 |
 | `beam_charge` | Must | Rising energy charge-up (stoppable; make the file ≥ 1.0 s) | = charge time | 1.0 |
 | `beam_fire` | Must | Roaring beam blast, sustained (stoppable; make the file ≥ 3 s) | = firing time | 1.0 |
 | `cone_blast` | Must | Shotgun-like fire blast (Cone Breath release) | ≈ 1 s | 0.8 |
@@ -76,9 +82,15 @@ Building blocks (helpers in `sfx.ts`):
 | `charge_dash` | Noise → bandpass sweeping 300 → 1200 Hz over 0.5 s. vol 0.5 |
 | `shard_launch` | Three "pops" 0.08 s apart: sine 400 → 900 Hz lasting 0.06 s each. vol 0.4 |
 | `shard_land` | Triangle 1800 → 1200 Hz lasting 0.08 s, plus triangle 2600 Hz at half volume. vol 0.3 |
+| `explosion` *(1.6)* | Sine 90 → 28 Hz over 0.7 s (vol 1.0), noise → lowpass 1800 Hz over 0.6 s (vol 0.8), noise → highpass 2500 Hz from 0.05 s over 0.5 s (vol 0.2); ±10% random pitch |
 | `rage` | Two sawtooths at 110 Hz and 116 Hz (the detune gives the growl) → lowpass sweeping 200 → 1500 Hz over 0.8 s. vol 0.5 |
 | `rebuke_windup` | Square 300 → 1200 Hz over the tell time (0.35 s) → bandpass Q 4 following the pitch, gain trembling with a 30 Hz LFO. vol 0.45. Stoppable |
 | `rebuke_burst` | Noise → highpass 1500 Hz decaying over 0.2 s (vol 0.7), plus sine 220 → 80 Hz over 0.15 s (vol 0.5) |
+| `hop_jump` *(1.6)* | Sine 110 → 320 Hz over 0.25 s with a 14 Hz ±25 Hz vibrato (vol 0.8), plus bandpassed noise at 900 Hz over 0.2 s (vol 0.3) |
+| `hop_land` *(1.6)* | Sine 90 → 35 Hz over 0.4 s (vol 0.9), plus noise → lowpass 900 Hz (Q 1.5) over 0.3 s (vol 0.6) |
+| `pillar_hit` *(1.6)* | Noise → bandpass 1400 Hz (Q 1.2) over 0.18 s (vol 0.8), sine 140 → 60 Hz over 0.15 s (vol 0.6), one low clink at 0.04 s |
+| `pillar_break` *(1.6)* | Noise → lowpass 700 Hz over 0.6 s (vol 0.9), sine 80 → 30 Hz over 0.5 s (vol 0.7), three `shard_land`-style clinks at 0.08 / 0.17 / 0.29 s (vol 0.15, low pitch) |
+| `shove` *(1.6)* | Triangle 180 → 90 → 140 Hz over 0.35 s with an 18 Hz ±30 Hz vibrato (vol 0.8), plus noise → lowpass 1400 Hz over 0.15 s (vol 0.4) |
 | `cone_blast` | Noise → lowpass 2500 Hz decaying over 0.35 s (vol 0.9), plus sine 120 → 40 Hz over 0.25 s (vol 0.8), plus a crackle: noise → highpass 3000 Hz from 0.04 s decaying over 0.3 s (vol 0.25) |
 | `beam_charge` | Sawtooth 120 → 900 Hz over the charge time → bandpass following the pitch, gain trembling with a 14 → 40 Hz LFO, plus noise → bandpass rising 400 → 3000 Hz. vol 0.45. Stoppable |
 | `beam_fire` | A burst (noise → lowpass 4000 Hz, 0.15 s, vol 0.8), then for the firing time: noise → bandpass 700 Hz (Q 0.8) with a 7 Hz flutter (vol 0.5) plus a 55 Hz sawtooth rumble → lowpass 300 Hz (vol 0.5). Stoppable |

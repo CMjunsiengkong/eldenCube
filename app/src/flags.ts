@@ -1,6 +1,6 @@
 /**
  * URL flags (GAME_DESIGN §11) and the effective multipliers derived from them.
- * `?easy` and `?debug` are parsed once and may be combined. CONFIG is never mutated:
+ * `?easy`, `?debug` and `?lowfx` (1.6: no bloom or screen effects) are parsed once and may be combined. CONFIG is never mutated:
  * multipliers are applied when values are read.
  */
 import { CONFIG } from './config';
@@ -8,6 +8,8 @@ import { CONFIG } from './config';
 export interface Flags {
   readonly easy: boolean;
   readonly debug: boolean;
+  /** 1.6: plain rendering without post-processing (bloom, impact effects, heat shimmer). */
+  readonly lowfx: boolean;
 }
 
 export type BossPhase = 'p1' | 'rage';
@@ -15,7 +17,7 @@ export type BossPhase = 'p1' | 'rage';
 /** Pure parser (presence check): '?easy', '?debug', '?easy&debug', '?debug=1', … */
 export function parseFlags(search: string): Flags {
   const params = new URLSearchParams(search);
-  return { easy: params.has('easy'), debug: params.has('debug') };
+  return { easy: params.has('easy'), debug: params.has('debug'), lowfx: params.has('lowfx') };
 }
 
 let cached: Flags | null = null;

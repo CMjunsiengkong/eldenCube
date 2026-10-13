@@ -15,6 +15,7 @@ export type InputEdge =
   | 'mute'
   | 'anyStart'
   | 'resumeClick'
+  | 'pause'
   | 'debug1'
   | 'debug2'
   | 'debug3'
@@ -22,6 +23,9 @@ export type InputEdge =
   | 'debug5'
   | 'debug6'
   | 'debug7'
+  | 'debug8'
+  | 'debug9'
+  | 'debug0'
   | 'debugK'
   | 'debugG';
 
@@ -35,6 +39,9 @@ const DEBUG_KEYS: Readonly<Record<string, InputEdge>> = {
   Digit5: 'debug5',
   Digit6: 'debug6',
   Digit7: 'debug7',
+  Digit8: 'debug8',
+  Digit9: 'debug9',
+  Digit0: 'debug0',
   KeyK: 'debugK',
   KeyG: 'debugG',
 };
@@ -42,6 +49,7 @@ const DEBUG_KEYS: Readonly<Record<string, InputEdge>> = {
 /** Pure: maps one keydown to the edges it raises (exported for tests). */
 export function edgesForKey(code: string, debug: boolean): InputEdge[] {
   if (code === 'KeyM') return ['mute']; // M never counts as "any key"
+  if (code === 'Escape') return ['pause']; // ESC only toggles pause (1.6); never "any key"
   const edges: InputEdge[] = ['anyStart'];
   if (code === 'Space') edges.push('roll');
   else if (code === 'KeyF') edges.push('swing');
@@ -127,7 +135,8 @@ export class Input {
   private onKeyDown(e: KeyboardEvent): void {
     if (e.code === 'Space') e.preventDefault(); // never scroll the page
     if (e.repeat) return;
-    this.onGesture();
+    // Esc is not a user activation in Chrome: unlocking audio on it would log an autoplay warning (1.6).
+    if (e.code !== 'Escape') this.onGesture();
     if ((MOVE_CODES as readonly string[]).includes(e.code)) this.held.add(e.code);
     for (const edge of edgesForKey(e.code, this.debug)) this.edges.add(edge);
   }

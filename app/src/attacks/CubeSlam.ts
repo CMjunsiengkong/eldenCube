@@ -177,6 +177,7 @@ export class CubeSlam implements Attack {
     ctx.vfx?.flareLight(ctx.boss.pos.x, 1.0, ctx.boss.pos.z, CONFIG.vfx.bossLight.slam * volume);
     ctx.hazards.spawnRing(ctx.boss.pos.x, ctx.boss.pos.z, this.ringSpeed);
     ctx.audio.play('slam_impact', { volume });
+    ctx.cinema?.impact('slam', ctx.boss.pos.x, 0.5, ctx.boss.pos.z); // 1.6 V3
     ctx.shake(S.impactShake.amplitude, S.impactShake.duration);
     this.riseSound = null;
   }

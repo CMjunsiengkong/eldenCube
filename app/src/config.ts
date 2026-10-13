@@ -254,8 +254,8 @@ const RAW = {
 
   /** GD §6 — The Elden Cube. */
   boss: {
-    hp: 30, // (tune; 20 → 30 on 2026-10-11 with accel 16); the health bar shows 5 segments of 6
-    healthSegments: 5,
+    hp: 36, // (tune; 20 → 30 on 2026-10-11 with accel 16; 30 → 36 in 1.6 for the pillars); the health bar shows 6 segments of 6
+    healthSegments: 6,
     spawn: { x: 0, y: 0, z: 0 }, // facing +Z
     halfSize: 2.0, // m, hit box (yaw-only)
     grace: 1.0, // s before the first attack (tune)
@@ -358,11 +358,72 @@ const RAW = {
     },
     crownFlashes: 2, // white flashes during the tell
     shake: { amplitude: 0.2, duration: 0.2 } as Shake,
+    /** GD §6.5 D2 Feint Rebuke (1.6): in rage, some Rebukes hold the full tell before bursting. */
+    feint: {
+      rageChance: 0.3, // of Rebukes in rage (never in Phase 1) (tune)
+      delay: 0.3, // s extra hold after the normal tell; the windup sound ends on time (tune)
+      quiver: 0.04, // m body shake while holding (visual)
+    },
+  },
+
+  /** GD §6.5 H Jelly Hop-Back (1.6): a close-range defence that jumps away. All (tune). */
+  hop: {
+    tell: 0.5, // s squat (× easy only, like the Rebuke)
+    tellSquash: { x: 1.18, y: 0.7, z: 1.18 },
+    distance: 9, // m away from the player (clamped inside the arena)
+    edgeMargin: 3, // m: the boss center stays this far inside the arena radius
+    airTime: 0.6, // s (÷ rage speed)
+    height: 3.5, // m apex
+    landKill: 0.4, // m added to the boss half size: crushed on landing
+    ringSpeed: 10, // m/s splash ring (× rage speed)
+    ringEndRadius: 10, // m: a smaller ring than the Slam's
+    landSplat: -9, // slime stretch kick at landing (visual)
+    recovery: 0.5, // s
+    landShake: { amplitude: 0.25, duration: 0.3 } as Shake,
+  },
+
+  /**
+   * GD §8a crown pillars (1.6, T1): cover that collapses at the first boss hit. A collapse by a
+   * shieldable wave (Slam/Hop ring, Rebuke, Shove, Cone) leaves a short "shadow": that one wave
+   * cannot hit a player directly behind the pillar. Charge, Beam, Crown Rain and meteors never
+   * shield. All (tune).
+   */
+  pillars: {
+    distance: 15, // m from the arena center, on the diagonals
+    angles: [45, 135, 225, 315], // degrees
+    radius: 1.1, // m (about 2.2 m wide; 0.55 → 1.1 after the 1.6 playtest)
+    height: 5, // m
+    health: 3, // hits to collapse (1.6 playtest); Charge and Beam collapse it at once
+    hitCooldown: 0.6, // s: one wave (a ring sweeping across it, one blast) costs at most 1 health
+    shadowMargin: 0.2, // m added to the radius for the shield test (the player must be close behind it)
+    shadowLife: { cone: 0.2, rebuke: 0.45, shove: 0.3, ringPad: 0.15 }, // s each shadow lasts
+    chunks: 8, // rubble pieces per pillar
+    chunkSize: 1.0, // m
+    chunkSpeed: [2, 5] as Range,
+    chunkUp: [2, 6] as Range,
+    damageLean: 3, // degrees the pillar tilts away per lost health (visual)
+    damageDarken: 0.22, // darker per lost health (visual)
+    fadeOpacity: 0.3, // dither level when it hides the player from the camera
+    fadeRate: 8,
+  },
+
+  /** GD §6.5 I Bounce Shove (1.6): a close-range defence that pushes without damage. All (tune). */
+  shove: {
+    tell: 0.4, // s wobble (× easy only)
+    wobbleHz: 9,
+    tellScale: 0.12, // ± body swell during the tell (visual)
+    burstSwell: 0.3, // the body bulges this much wider at the burst, relaxing over the recovery (visual)
+    burst: 0.12, // s: the push window
+    reach: 5.5, // m from the boss center (+ player radius)
+    distance: 5, // m pushed away
+    stumble: 0.45, // s the player stumbles (a stagger without damage)
+    recovery: 0.4, // s
+    shake: { amplitude: 0.18, duration: 0.25 } as Shake,
   },
 
   /** GD §6.4 — rage (Phase 2). */
   rage: {
-    hpThreshold: 15, // rage when HP ≤ 15 (50% of max; changed 2026-10-12)
+    hpThreshold: 18, // HP ≤ this → rage (50%; 15 → 18 with HP 36 in 1.6)
     transitionDuration: 1.0, // s, no attacks, no damage taken
     colorFade: 0.5, // s body color → rage color
     shakeAmplitude: 0.1, // m boss shake during the transition
@@ -392,24 +453,31 @@ const RAW = {
     bands: [4.5, 8, 16], // m: extreme close | close | mid | far
     repeatKeep: 0.25, // weight kept by the attack used last time (the last two: 0)
     /** Weights per band [extreme close, close, mid, far]. */
+    // Extreme close (1.6): Rebuke 45 / Hop-Back 25 / Shove 15 / other attacks 15.
     weights: {
       p1: {
-        rebuke: [80, 0, 0, 0],
-        slam: [8, 30, 20, 10],
+        rebuke: [45, 0, 0, 0],
+        hop: [25, 0, 0, 0],
+        shove: [15, 0, 0, 0],
+        slam: [6, 30, 20, 10],
         charge: [0, 10, 25, 35],
-        rain: [4, 15, 20, 25],
-        cone: [8, 45, 25, 0],
+        rain: [3, 15, 20, 25],
+        cone: [6, 45, 25, 0],
         beam: [0, 10, 12, 30],
       },
       rage: {
-        rebuke: [80, 0, 0, 0],
-        slam: [6, 20, 15, 5],
+        rebuke: [45, 0, 0, 0],
+        hop: [25, 0, 0, 0],
+        shove: [15, 0, 0, 0],
+        slam: [4.5, 20, 15, 5],
         charge: [0, 10, 20, 25],
-        rain: [4, 15, 15, 20],
-        cone: [10, 55, 30, 0],
+        rain: [3, 15, 15, 20],
+        cone: [7.5, 55, 30, 0],
         beam: [0, 10, 15, 50],
       },
     },
+    /** Triggered defences (poise, Slam window end) pick one of these (1.6). */
+    defence: { rebuke: 45, hop: 25, shove: 15 },
   },
 
   /** GD §6.5 E — Cone Flame Breath (2026-10-12). All (tune). */
@@ -571,14 +639,24 @@ const RAW = {
   arena: {
     radius: 30,
     segments: 64,
-    colorVariation: 0.06, // ± per vertex (vertex colors, no texture)
     outerRadius: 200,
     outerOffset: 0.01, // m below the arena
-    edgeInner: 29.8,
-    edgeOuter: 30.2,
-    edgeLift: 0.005, // m above the floor (avoids z-fighting) (tune, agent-chosen)
     fogNear: 35, // m (1.5b night) (tune)
     fogFar: 110, // (tune)
+    /** 1.6 abandoned ruin (GD §8): stone rings, 30% grass in random patches, curb, outside decoration. (tune) */
+    ruin: {
+      centerRadius: 2.2, // m: one round stone in the middle
+      ringWidth: 2.4, // m per ring of slabs
+      slabLength: 2.6, // m along a ring
+      joint: 0.09, // m: joints and cracks between slabs
+      grassShare: 0.3, // of the floor covered by grass patches
+      grassScale: 0.16, // noise frequency (1/m): patch size
+      curb: { inner: 29.8, outer: 30.6, height: 0.22 }, // m (the wall holds the player at 29.6)
+      decoRadius: [33.5, 46] as Range, // m: decoration only outside the wall
+      drums: 9, // fallen column drums
+      blocks: 14, // broken wall blocks
+      decoSeed: 11,
+    },
   },
 
   /** GD §8 — lights (1.5b: moonlit dusk, torches). */
@@ -642,7 +720,10 @@ const RAW = {
     slamShadow: 0x000000,
     arenaGrass: 0x6ab04c,
     outerField: 0x5e9e44,
-    arenaEdge: 0x4a7f35,
+    ruinStone: 0x8f9198, // 1.6: the pillars' grey, slightly darker
+    ruinStoneDark: 0x5f6169,
+    ruinCrack: 0x2c2e33,
+    ruinMoss: 0x5a6b42,
     sky: 0x0b1020, // night (1.5b)
     hemisphereSky: 0x3b4a7a,
     hemisphereGround: 0x141a10,
@@ -678,6 +759,8 @@ const RAW = {
       floor: 0.03, // m; particles never sink below this height
       glowSoftness: 0.0, // radial falloff start (0 = soft disc)
       smokeSoftness: 0.25,
+      dropCapacity: 384, // 1.6 gel droplets (alpha-blended, crisp)
+      dropSoftness: 0.7,
     },
     /** GD §6.5 C burning marks. */
     burns: {
@@ -761,6 +844,47 @@ const RAW = {
     },
     /** GD §6.5 cinematic boss light (always present, normally 0). (tune, agent-chosen) */
     bossLight: { range: 34, decay: 1.6, beam: 70, cone: 90, slam: 110, flareTime: 0.35 },
+    /**
+     * 1.6 V1 bloom (medium): only fire, beam and embers glow. Their colors are multiplied by
+     * `fireBoost` so they exceed `threshold` in the linear HDR image; nothing else does.
+     * Off with ?lowfx. (tune)
+     */
+    // The beam stacks several additive layers, so it gets a much smaller boost (`beamBoost`).
+    // `clamp` caps the HDR brightness before the bloom so one very bright source (the beam) cannot haze the screen.
+    bloom: { strength: 0.5, radius: 0.2, threshold: 1.15, clamp: 2.2, resolutionScale: 0.5, fireBoost: 1.8, beamBoost: 0.65, moltenBoost: 1.1, noGlowEmissive: 0.7, samples: 4 },
+    /** 1.6 V3 impact screen effects: chromatic split + radial blur, decaying over `duration` (real time). (tune) */
+    impact: {
+      duration: 0.15, // s
+      aberration: 0.009, // max UV offset at full strength (screen edge)
+      blur: 0.06, // max radial blur length (UV) at full strength
+      meteorRadius: 5, // m: a meteor impact this close to the player triggers it
+      strength: { beam: 1.0, cone: 0.85, slam: 0.8, meteor: 0.55 },
+      extraShake: { beam: 0.18, cone: 0.15, slam: 0.12, meteor: 0.12 }, // m, added to the attack's own shake
+    },
+    /** 1.6 V5 heat shimmer around the firing Flame Beam (screen space). (tune) */
+    shimmer: { width: 0.07, amount: 0.0045, fadeRate: 10 },
+    /** 1.6 V4 gel splash when the boss is hit (visual). (tune) */
+    gel: {
+      drops: 14,
+      heavyDrops: 22,
+      speed: [2.5, 6] as Range,
+      up: [2, 5] as Range,
+      size: [0.12, 0.26] as Range,
+      gravity: 14,
+      stainRadius: [0.25, 0.55] as Range,
+      stainLife: 3.0, // s
+      stainChance: 0.5, // of drops leave a stain where they land
+    },
+    /** 1.6 ground decals (gel stains, the beam's molten scar). (tune) */
+    decals: {
+      capacity: 160,
+      lift: 0.025, // m
+      moltenRadius: 0.5,
+      moltenLife: 2.5,
+      moltenSpacing: 0.45, // m between molten marks along the beam's ground path
+    },
+    /** 1.6 V5 hero meteors: every Nth meteor is huge with a smoke trail and a bigger blast (visual only). */
+    heroMeteor: { every: 6, coreScale: 2.4, smokePerStep: 3, explosionMult: 2 },
     /** GD §6.5 blood moon during the Meteor Shower. (tune, agent-chosen) */
     bloodMoon: { fadeIn: 0.6, fadeOut: 1.5, sky: 0x2a0606, hemisphereSky: 0x7a2a2a, moon: 0xff6a5a },
     /** GD §6.4 rage slow motion. (tune) */
@@ -815,6 +939,22 @@ const RAW = {
     controlsHintOpacity: 0.7,
     soundIndicatorSize: 14,
     attemptsSize: 18,
+    /** 1.6 title-screen tips: one at random each time the title appears, never the same twice in a row. */
+    tipSize: 16,
+    tips: [
+      'Old stone remembers how to stand in the way.',
+      "The cube's anger breaks on stone… three times, at most.",
+      'Stone stops a wave. Stone does not stop a charging king.',
+      'Greedy blades are answered by the crown.',
+      'When the cube crouches, it is not bowing.',
+      'In its fury, the crown sometimes waits. Wait with it.',
+      'A roll forgives everything, briefly.',
+      'Fire spreads wide. Roll through it, not away from it.',
+      'Two rolls for a doubled breath. Count your breath before it does.',
+      'Drinking in front of a king is a bold choice.',
+      'The cube has no patience for those who keep their distance.',
+      'You died. The cube did not even notice.',
+    ],
     resultTextSize: 'min(10vw, 140px)',
     resultLetterSpacing: '0.1em',
     resultFadeIn: 0.5, // s
@@ -896,6 +1036,12 @@ const RAW = {
       victory: 0.4,
       rebuke_windup: 0.45,
       rebuke_burst: 0.7,
+      explosion: 0.8, // (1.6 playtest) meteors and rage Crown Rain fireballs
+      hop_jump: 0.45, // (1.6)
+      hop_land: 0.8, // (1.6)
+      shove: 0.6, // (1.6)
+      pillar_break: 0.75, // (1.6)
+      pillar_hit: 0.55, // (1.6 playtest: pillar health)
       beam_charge: 1.0, // (2026-10-12)
       beam_fire: 1.0, // (2026-10-12)
       cone_blast: 0.8,

@@ -278,6 +278,21 @@ body {
   text-shadow: 0 2px 6px rgba(0, 0, 0, 0.7);
 }
 
+/* 1.6: a random tip on the title screen */
+#tip {
+  position: absolute;
+  bottom: 100px; /* just above the controls box, over the ground (reads better than over the boss) */
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(80vw, 640px);
+  text-align: center;
+  font-size: var(--tip-size);
+  font-style: italic;
+  color: #d9c79a;
+  opacity: 0.85;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.8);
+}
+
 .controls-box {
   position: absolute;
   bottom: 48px;

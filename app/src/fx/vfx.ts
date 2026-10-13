@@ -9,6 +9,8 @@ import { AdditiveBlending, Color, DoubleSide, Mesh, MeshBasicMaterial, PointLigh
 import { CONFIG } from '../config';
 import { createRng, type Rng } from '../util/rng';
 import { Burns } from './burns';
+import { Decals } from './decals';
+import { fireBoost } from './hdr';
 import { newSpec, Particles } from './particles';
 
 const V = CONFIG.vfx;
@@ -38,6 +40,9 @@ export class Vfx {
   readonly sparks = new Particles(V.particles.sparkCapacity, 'spark');
   readonly crowns = new Particles(V.particles.crownCapacity, 'crown');
   readonly burns = new Burns();
+  /** 1.6: gel droplets (V4) and ground decals (stains, molten scar). */
+  readonly drops = new Particles(V.particles.dropCapacity, 'drop');
+  readonly decals = new Decals();
   private readonly rng: Rng = createRng(0x51ab);
   private readonly spec = newSpec();
   private readonly flashes: Flash[] = [];
@@ -53,6 +58,7 @@ export class Vfx {
   private readonly cSmoke = new Color(C.scorch).lerp(new Color(0x444444), 0.6);
   private readonly cHeal = new Color(C.healFlash);
   private readonly tmp = new Color();
+  private readonly boost: number;
   // GD §6.5 cinematic boss light: always in the scene (constant light count), normally 0.
   readonly bossLight: PointLight;
   private holdIntensity = 0;
@@ -73,6 +79,13 @@ export class Vfx {
     this.sparks.addTo(scene);
     this.crowns.addTo(scene);
     this.burns.addTo(scene);
+    this.drops.addTo(scene);
+    this.decals.addTo(scene);
+    // 1.6 V1: the glow, spark and crown pools carry fire and embers only (the heal aura compensates).
+    this.boost = fireBoost();
+    this.glow.setBoost(this.boost);
+    this.sparks.setBoost(this.boost);
+    this.crowns.setBoost(this.boost);
     const geo = new RingGeometry(V.flash.innerRatio, 1, 48);
     geo.rotateX(-Math.PI / 2);
     for (let i = 0; i < V.flash.pool; i++) {
@@ -87,6 +100,7 @@ export class Vfx {
       new SphereGeometry(1, 16, 12),
       new MeshBasicMaterial({ color: C.flameCore, transparent: true, opacity: 0.95, depthWrite: false, blending: AdditiveBlending, toneMapped: false }),
     );
+    (this.orb.material as MeshBasicMaterial).color.multiplyScalar(this.boost);
     this.orb.renderOrder = 7;
     this.orb.visible = false;
     scene.add(this.orb);
@@ -103,6 +117,7 @@ export class Vfx {
     this.waveGeoRage = arc(CONFIG.cone.rageAngle);
     for (let i = 0; i < 2; i++) {
       const material = new MeshBasicMaterial({ color: C.fireballCore, transparent: true, depthWrite: false, blending: AdditiveBlending, side: DoubleSide, toneMapped: false });
+      material.color.multiplyScalar(this.boost);
       const mesh = new Mesh(this.waveGeoP1, material);
       mesh.renderOrder = 6;
       mesh.visible = false;
@@ -120,6 +135,8 @@ export class Vfx {
     this.orb.visible = this.orbHeld;
     this.orbHeld = false;
     this.burns.step(dt);
+    this.drops.step(dt);
+    this.decals.step(dt);
     for (const f of this.flashes) {
       if (!f.mesh.visible) continue;
       f.t += dt;
@@ -164,6 +181,69 @@ export class Vfx {
     this.burns.spawn(x, z, this.rng());
   }
 
+  /**
+   * 1.6 V4: the boss is hit — jelly droplets fly away from the blade (along dirX/dirZ, away from the
+   * player) in the boss's current body color, fall, and about half leave a glossy stain where they
+   * land (born when the droplet reaches the ground).
+   */
+  gelSplash(x: number, y: number, z: number, dirX: number, dirZ: number, heavy: boolean, color: Color): void {
+    const G = V.gel;
+    const r = this.rng;
+    const s = this.spec;
+    const n = heavy ? G.heavyDrops : G.drops;
+    const base = Math.atan2(dirX, dirZ);
+    for (let i = 0; i < n; i++) {
+      const a = base + (r() - 0.5) * 2.2;
+      const sp = this.range(G.speed) * (heavy ? 1.25 : 1);
+      s.x = x;
+      s.y = y;
+      s.z = z;
+      s.vx = Math.sin(a) * sp;
+      s.vz = Math.cos(a) * sp;
+      s.vy = this.range(G.up);
+      s.life = 1.6;
+      const size = this.range(G.size);
+      s.size0 = size;
+      s.size1 = size * 0.7;
+      s.gravity = G.gravity;
+      s.alpha = 0.95;
+      s.color.copy(color).lerp(this.tmp.setRGB(1, 1, 1), r() * 0.25);
+      this.drops.spawn(s);
+      if (r() < G.stainChance) {
+        // Ballistic landing time from y with vy up and gravity down.
+        const tl = (s.vy + Math.sqrt(s.vy * s.vy + 2 * G.gravity * Math.max(0, y - V.particles.floor))) / G.gravity;
+        this.decals.spawn(x + s.vx * tl, z + s.vz * tl, 0, this.range(G.stainRadius), G.stainLife, r(), s.color, tl);
+      }
+    }
+  }
+
+  /** 1.6 V5: one mark of the Flame Beam's molten scar. */
+  moltenAt(x: number, z: number): void {
+    const D = V.decals;
+    this.decals.spawn(x, z, 2, D.moltenRadius * (0.8 + 0.4 * this.rng()), D.moltenLife, this.rng());
+  }
+
+  /** 1.6 V5: thick smoke behind a hero meteor. */
+  meteorSmoke(x: number, y: number, z: number): void {
+    const r = this.rng;
+    const s = this.spec;
+    for (let i = 0; i < V.heroMeteor.smokePerStep; i++) {
+      s.x = x + (r() - 0.5) * 0.6;
+      s.y = y + (r() - 0.5) * 0.6;
+      s.z = z + (r() - 0.5) * 0.6;
+      s.vx = (r() - 0.5) * 0.8;
+      s.vy = 0.4 + r() * 0.6;
+      s.vz = (r() - 0.5) * 0.8;
+      s.life = 0.9 + r() * 0.6;
+      s.size0 = 0.7 + r() * 0.4;
+      s.size1 = 2.0 + r() * 0.8;
+      s.gravity = -0.5;
+      s.alpha = 0.55;
+      s.color.copy(this.cSmoke);
+      this.smoke.spawn(s);
+    }
+  }
+
   /** Reset: every particle, mark and flash removed. */
   clear(): void {
     this.glow.clear();
@@ -172,6 +252,8 @@ export class Vfx {
     this.crowns.clear();
     this.orb.visible = false;
     this.burns.clear();
+    this.drops.clear();
+    this.decals.clear();
     for (const f of this.flashes) f.mesh.visible = false;
     for (const w of this.waves) w.mesh.visible = false;
     this.bossLight.intensity = 0;
@@ -180,7 +262,7 @@ export class Vfx {
 
   /** Objects that are normally hidden (shader warm-up). */
   get scenePool(): readonly Mesh[] {
-    return [this.glow.mesh, this.smoke.mesh, this.sparks.mesh, this.crowns.mesh, this.orb, this.burns.scorch, this.burns.flames, ...this.flashes.map((f) => f.mesh), ...this.waves.map((w) => w.mesh)];
+    return [this.glow.mesh, this.smoke.mesh, this.sparks.mesh, this.crowns.mesh, this.orb, this.burns.scorch, this.burns.flames, this.drops.mesh, this.decals.mesh, ...this.flashes.map((f) => f.mesh), ...this.waves.map((w) => w.mesh)];
   }
 
   // --- emitters ------------------------------------------------------------------------------------
@@ -370,7 +452,7 @@ export class Vfx {
       s.size1 = 0;
       s.gravity = H.gravity;
       s.alpha = 1;
-      s.color.copy(this.cHeal).lerp(this.tmp.setRGB(1, 1, 1), r() * 0.4);
+      s.color.copy(this.cHeal).lerp(this.tmp.setRGB(1, 1, 1), r() * 0.4).multiplyScalar(1 / this.boost); // never blooms
       this.glow.spawn(s);
     }
     this.flash(x, z, H.ringFrom, H.ringTo, H.ringTime, this.cHeal, 0.8);

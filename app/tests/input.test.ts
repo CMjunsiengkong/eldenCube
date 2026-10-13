@@ -13,6 +13,11 @@ describe('input mapping (GAME_DESIGN §3)', () => {
     expect(edgesForKey('KeyR', false)).toEqual(['anyStart', 'flask']);
   });
 
+  it('Esc only toggles pause and never counts as any key (1.6)', () => {
+    expect(edgesForKey('Escape', false)).toEqual(['pause']);
+    expect(edgesForKey('Escape', true)).toEqual(['pause']);
+  });
+
   it('other keys only count as any key', () => {
     expect(edgesForKey('KeyW', false)).toEqual(['anyStart']);
     expect(edgesForKey('Enter', false)).toEqual(['anyStart']);

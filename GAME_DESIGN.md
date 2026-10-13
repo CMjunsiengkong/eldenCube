@@ -1,6 +1,6 @@
 # Game Design — The Elden Cube
 
-A one-on-one boss fight that parodies hard "souls-like" games. The hero is extremely clumsy, and the boss is a giant cube wearing a crown. **Three hits kill the player (a flask restores one). The cube takes 30 damage, about seven to eight full combos (changed from 20 on 2026-10-11).**
+A one-on-one boss fight that parodies hard "souls-like" games. The hero is extremely clumsy, and the boss is a giant cube wearing a crown. **Three hits kill the player (a flask restores one). The cube takes 36 damage, nine full combos (20 → 30 on 2026-10-11; 30 → 36 in 1.6 because the pillars help the player).**
 
 This document is the **complete gameplay specification**. Every value an implementer needs is here. Any value marked *(tune)* is a starting value that may change during playtesting. All tunable values must live in `app/src/config.ts` (see ARCHITECTURE.md §6), never hard-coded elsewhere.
 
@@ -54,7 +54,7 @@ This document is the **complete gameplay specification**. Every value an impleme
 **General rules**
 - **Reset** means: player back to spawn with 3 HP, full stamina and 3 flask charges, sword sheathed, boss back to spawn with full HP in Phase 1, all projectiles, debris and effects (particles, burn marks) removed, all timers cleared. **Never reload the page.**
 - **Attempt counter:** increases by 1 each time a fight starts. It is held in memory only and resets on page reload.
-- **Page loses focus** (window `blur` or tab hidden) during `FIGHT`: pause the simulation, clear all held keys and show a *"Paused — click to continue"* overlay. A click resumes play.
+- **Page loses focus** (window `blur` or tab hidden) during `FIGHT`: pause the simulation, clear all held keys and show a *"Paused — Esc or click to continue"* overlay. A click or `Esc` resumes play. Pressing `Esc` during `FIGHT` pauses the same way *(1.6)*.
 - Target length per attempt: **30–120 s**. Difficulty target *(changed 2026-10-12)*: **very hard to clear**. Most first-time players should not win; a skilled, patient player can.
 
 ## 2. Screens and HUD (HTML overlay on top of the canvas)
@@ -64,16 +64,17 @@ This document is the **complete gameplay specification**. Every value an impleme
 | Title text | TITLE | **THE ELDEN CUBE**: Cinzel 700, `min(9vw, 120px)`, gold `#E0B84C`, centered, 30% from top, dark text shadow |
 | Start prompt | TITLE | *"Press any key to begin"*: system sans-serif, 24px, white, blinking (opacity 1 ↔ 0.3, 1 s cycle) |
 | Controls box | TITLE | `WASD Move · Space Roll · Click Attack · R Flask · M Mute`: 18px, white, semi-transparent dark panel, bottom center |
-| Boss health bar | FIGHT, DYING, BOSS_DEFEATED | Bottom center, width `min(60vw, 640px)`, height 14px. Label above, left-aligned: **The Elden Cube** in Cinzel 700, 20px, white. 5 equal segments with a 4px gap; each segment holds 6 of the boss's 30 HP and drains from the right. Full = `#C1121F`, empty = `rgba(0,0,0,0.5)`. The part lost by a hit flashes white for 0.15 s before turning empty |
+| Boss health bar | FIGHT, DYING, BOSS_DEFEATED | Bottom center, width `min(60vw, 640px)`, height 14px. Label above, left-aligned: **The Elden Cube** in Cinzel 700, 20px, white. 6 equal segments with a 4px gap; each segment holds 6 of the boss's 36 HP and drains from the right. Full = `#C1121F`, empty = `rgba(0,0,0,0.5)`. The part lost by a hit flashes white for 0.15 s before turning empty |
 | Player HUD | FIGHT, DYING | Top-left, 24px from the edges. **HP:** 3 pips (22 × 22px squares, 6px gap, 2px white border; full `#C1121F`, empty `rgba(0,0,0,0.5)`); a lost pip flashes white for 0.15 s. **Flask counter** to the right of the pips: an amber `#F4A259` rounded rectangle 14 × 22px and `×N`, 18px, white. **Stamina bar** below the pips: 240 × 8px, full `#6BBF59`, empty `rgba(0,0,0,0.5)`, no numbers; it flashes white for 0.3 s when an action is refused for lack of stamina. The HUD fades with the boss health bar |
 | Controls hint | FIGHT | Bottom-left, 14px, 70% opacity: `WASD · Space · Click · R` |
 | Sound indicator | All | Top-right, 14px: `Sound: ON (M)` or `Sound: OFF (M)` |
 | Attempt counter | TITLE (only after the first fight) | Below the start prompt: `Attempts: N`, 18px, light grey |
+| Tip *(1.6)* | TITLE | One cryptic tip, centered just above the controls box: 16px italic, muted gold `#D9C79A`. A new random tip each time the title appears (never the same one twice in a row), from: "Old stone remembers how to stand in the way." · "The cube's anger breaks on stone… three times, at most." · "Stone stops a wave. Stone does not stop a charging king." · "Greedy blades are answered by the crown." · "When the cube crouches, it is not bowing." · "In its fury, the crown sometimes waits. Wait with it." · "A roll forgives everything, briefly." · "Fire spreads wide. Roll through it, not away from it." · "Two rolls for a doubled breath. Count your breath before it does." · "Drinking in front of a king is a bold choice." · "The cube has no patience for those who keep their distance." · "You died. The cube did not even notice." |
 | "YOU DIED" | DYING (from 0.6 s) | Full-screen black dim at 55% opacity, fades in over 0.5 s. Text: Cinzel 700, `min(10vw, 140px)`, color `#A4161A`, letter-spacing 0.1em, centered. It scales from 1.1 to 1.0 while fading in |
 | "CUBE FELLED" | VICTORY_SCREEN | Same layout as "YOU DIED", but the text color is gold `#E0B84C` and the dim is 40% |
 | Continue prompt | VICTORY_SCREEN | *"Click or press any key to continue"*: 20px, white. Appears only after the 1.0 s input lock ends |
 | Fade layer | TO_TITLE | Full-screen `#000000` layer above everything else, opacity driven by the return transition (§1) |
-| Pause overlay | Paused | Dim at 55% opacity plus *"Paused — click to continue"*, 28px |
+| Pause overlay | Paused | Dim at 55% opacity plus *"Paused — Esc or click to continue"*, 28px |
 | WebGL error | If WebGL is unavailable | Plain centered message: *"This game needs WebGL. Please use the latest Chrome."* |
 
 ## 3. Controls
@@ -87,14 +88,15 @@ This document is the **complete gameplay specification**. Every value an impleme
 | `F` | Attack | Alternative to clicking |
 | `R` | Drink a flask (§4.3c) | Only with HP below 3 and charges left; may be buffered (§4.3d) |
 | `M` | Toggle mute | Works in every state; never counts as "any key" |
+| `Esc` *(1.6)* | Pause / resume | Only during `FIGHT`; Esc or a click resumes. Never counts as "any key" and does nothing on other screens |
 
-- Read keys with `KeyboardEvent.code` (`KeyW`, `KeyA`, `KeyS`, `KeyD`, `Space`, `KeyF`, `KeyR`, `KeyM`), so the controls work on any keyboard layout.
+- Read keys with `KeyboardEvent.code` (`KeyW`, `KeyA`, `KeyS`, `KeyD`, `Space`, `KeyF`, `KeyR`, `KeyM`, `Escape`), so the controls work on any keyboard layout.
 - Ignore auto-repeated `keydown` events (`event.repeat`).
 - Call `preventDefault()` on `Space` so the page never scrolls.
 - Disable the right-click context menu on the canvas.
 - No pointer lock and no mouse-look. The camera is automatic (§7).
 - Diagonal input is normalized, so moving diagonally is not faster.
-- The click that starts the fight from the TITLE screen, and the click that resumes from Pause, must **not** also trigger an attack.
+- The click that starts the fight from the TITLE screen, and the click (or `Esc`) that resumes from Pause, must **not** also trigger an attack.
 
 ## 4. Player — "The Tarnished Intern"
 
@@ -317,7 +319,7 @@ The whole boss casts and receives shadows. The **hit box stays the 4 m box** of 
 
 | Property | Value *(tune)* |
 |---|---|
-| HP | 30 (the health bar shows 5 segments of 6; changed from 20 on 2026-10-11) |
+| HP | 36 (the health bar shows 6 segments of 6; 20 → 30 on 2026-10-11, 30 → 36 in 1.6) |
 | Spawn | Position `(0, 0, 0)`, facing +Z (toward the player's spawn) |
 | Grace period at fight start | 1.0 s before the first attack |
 | Idle bounce (visual) | Body bobs `0.08 × sin(2π × 1.2 Hz × t)` in Y |
@@ -326,18 +328,18 @@ The whole boss casts and receives shadows. The **hit box stays the 4 m box** of 
 | Attack cooldown | From the moment the boss is **free** (its own attack animation, including that attack's recovery or punish window, has ended) to the start of the next attack: **1.0 s** (Phase 1), **0.6 s** (rage). Hazards still in flight (shockwave rings, shards) do **not** delay it |
 | Body | Solid for the player (§4.2) whenever the boss is on the ground and not dashing |
 
-### 6.2a Royal Rebuke triggers (fair counter-play rules)
+### 6.2a Close-range defence triggers (fair counter-play rules)
 
-The boss punishes greed with its close-range **Royal Rebuke** (§6.5 D). Every trigger is readable.
+The boss punishes greed with a close-range **defence** *(1.6: one of three)*: **Royal Rebuke** (§6.5 D, 45), **Jelly Hop-Back** (§6.5 H, 25) or **Bounce Shove** (§6.5 I, 15). A triggered defence picks one of the three by these weights. Every trigger is readable.
 
 | Trigger | Rule *(tune)* |
 |---|---|
-| **Poise** (punishes mashing) | Damage taken **outside a punish window** (§6.5 A and B) adds to a poise counter. When it reaches **3**, the boss performs Rebuke as soon as it is free: immediately if waiting, otherwise right after its current attack. The counter then resets to 0. So outside a window, two hits are safe and the third triggers Rebuke |
-| **Close** (punishes hugging) *(changed 2026-10-12)* | No timer any more: when the cooldown ends with the player in the **extreme-close band (< 4.5 m)**, the weighted pick (§6.5) chooses Rebuke with **80%** probability |
-| **Window end** | When the Slam punish window ends with the player within 5.0 m: Rebuke |
+| **Poise** (punishes mashing) | Damage taken **outside a punish window** (§6.5 A and B) adds to a poise counter. When it reaches **3**, the boss performs a defence as soon as it is free: immediately if waiting, otherwise right after its current attack. The counter then resets to 0. So outside a window, two hits are safe and the third triggers a defence |
+| **Close** (punishes hugging) *(changed 2026-10-12)* | No timer any more: when the cooldown ends with the player in the **extreme-close band (< 4.5 m)**, the weighted pick (§6.5) chooses a defence with **85%** probability: Rebuke 45%, Hop-Back 25%, Shove 15% *(1.6; was Rebuke 80%)* |
+| **Window end** | When the Slam punish window ends with the player within 5.0 m: a defence |
 
-- Only one Rebuke runs at a time.
-- Rebuke is not part of the attack history (§6.5). Outside the extreme-close band it is never picked at random.
+- Only one defence runs at a time.
+- Defences are not part of the attack history (§6.5). Outside the extreme-close band they are never picked at random.
 - After its recovery the boss is free and the cooldown starts.
 
 ### 6.3 Hit reaction
@@ -355,8 +357,8 @@ All of these happen together when the boss is hit:
 
 | Phase | When | Changes |
 |---|---|---|
-| Phase 1 | HP 30–16 | Base values |
-| **Rage** | Immediately after the hit that brings HP to **15 or below** (50%; changed 2026-10-12) | **Transition (1.0 s, no attacks, boss cannot take damage):** starts in the same step as that hit, even mid-attack. The running attack is cancelled, and **all hazards** (shockwave rings, shards in flight, warning circles, the Rebuke ring) are removed with a small puff effect. Long sounds (`slam_rise`, `charge_windup`, `rebuke_windup`) stop. No other hit interrupts an attack (§5). The poise counter resets. Body color fades `#6A4C93` → `#D62828` over 0.5 s, the boss shakes ±0.1 m, `rage` sound plays, camera shake 0.2 m for 0.6 s. **The Meteor Shower (§6.5 G) starts at the beginning of the transition** (after the old hazards are cleared) and keeps falling for 10 s, while the boss fights normally once the transition ends. **When the transition ends**, the rage cooldown (0.6 s) starts. **Afterward:** all boss movement speeds (chase, dash, shockwave, shard flight) ×1.4; attack telegraph times ×0.6 (not the Rebuke tell, not the Slam punish window); cooldown 0.6 s |
+| Phase 1 | HP 36–19 | Base values |
+| **Rage** | Immediately after the hit that brings HP to **18 or below** (50%; changed 2026-10-12, 18 since HP 36 in 1.6) | **Transition (1.0 s, no attacks, boss cannot take damage):** starts in the same step as that hit, even mid-attack. The running attack is cancelled, and **all hazards** (shockwave rings, shards in flight, warning circles, the Rebuke ring) are removed with a small puff effect. Long sounds (`slam_rise`, `charge_windup`, `rebuke_windup`) stop. No other hit interrupts an attack (§5). The poise counter resets. Body color fades `#6A4C93` → `#D62828` over 0.5 s, the boss shakes ±0.1 m, `rage` sound plays, camera shake 0.2 m for 0.6 s. **The Meteor Shower (§6.5 G) starts at the beginning of the transition** (after the old hazards are cleared) and keeps falling for 10 s, while the boss fights normally once the transition ends. **When the transition ends**, the rage cooldown (0.6 s) starts. **Afterward:** all boss movement speeds (chase, dash, shockwave, shard flight) ×1.4; attack telegraph times ×0.6 (not the Rebuke tell, not the Slam punish window); cooldown 0.6 s |
 
 ### 6.5 Attacks
 
@@ -365,27 +367,31 @@ Every attack is **telegraphed**, and every attack hit costs the player **1 HP** 
 **Hazards.** Shockwave rings, shards and warning circles live on their own after they spawn. The boss can be free (and its cooldown can run) while they are still moving. They are all removed by the rage transition, by defeat, by the player's death and by reset.
 
 **Selection rule** *(changed 2026-10-12: distance-weighted probabilities)*: when the cooldown ends:
-1. If a Rebuke is pending (poise, Slam window end), do **Rebuke**.
+1. If a defence is pending (poise, Slam window end), do a **defence** (Rebuke 45 / Hop-Back 25 / Shove 15).
 2. Otherwise find the **distance band** of the player (horizontal distance to the boss center) and pick at random by the band's weights *(tune)*:
 
 | Move | Extreme close < 4.5 m | Close 4.5–8 m | Mid 8–16 m | Far > 16 m |
 |---|---|---|---|---|
-| **Phase 1** Royal Rebuke | **80** | – | – | – |
-| Cube Slam | 8 | 30 | 20 | 10 |
+| **Phase 1** Royal Rebuke | **45** | – | – | – |
+| Jelly Hop-Back *(1.6)* | **25** | – | – | – |
+| Bounce Shove *(1.6)* | **15** | – | – | – |
+| Cube Slam | 6 | 30 | 20 | 10 |
 | Royal Charge | – | 10 | 25 | 35 |
-| Crown Rain | 4 | 15 | 20 | 25 |
-| Cone Flame Breath | 8 | 45 | 25 | – |
+| Crown Rain | 3 | 15 | 20 | 25 |
+| Cone Flame Breath | 6 | 45 | 25 | – |
 | Flame Beam | – | 10 | 12 | 30 |
-| **Rage** Royal Rebuke | **80** | – | – | – |
-| Cube Slam | 6 | 20 | 15 | 5 |
+| **Rage** Royal Rebuke | **45** | – | – | – |
+| Jelly Hop-Back *(1.6)* | **25** | – | – | – |
+| Bounce Shove *(1.6)* | **15** | – | – | – |
+| Cube Slam | 4.5 | 20 | 15 | 5 |
 | Royal Charge | – | 10 | 20 | 25 |
-| Crown Rain | 4 | 15 | 15 | 20 |
-| Cone Flame Breath (double) | 10 | 55 | 30 | – |
+| Crown Rain | 3 | 15 | 15 | 20 |
+| Cone Flame Breath (double) | 7.5 | 55 | 30 | – |
 | Flame Beam | – | 10 | 15 | 50 |
 
    - Not allowed (weight 0): Charge within 6 m; Crown Rain while one of its shards is still in the air.
    - Repeats: an attack used last time keeps 25% of its weight; one used the last two times is not allowed. If nothing is allowed, the repeat rule is ignored.
-   - The weights of the allowed moves are renormalized before the roll, so in the extreme-close band Rebuke is exactly 80% and the other 20% is shared by the allowed attacks.
+   - The weights of the allowed moves are renormalized before the roll, so in the extreme-close band the defences are exactly 45 / 25 / 15% and the other 15% is shared by the allowed attacks (1.6).
 3. **After a Crown Rain** the cooldown is **0**: the next pick happens right away, while the shards are still falling.
 
 #### A. Cube Slam (the main punish window)
@@ -442,7 +448,7 @@ Why: the waves land 0.4 s apart, longer than the 0.35 s of roll i-frames, so one
 
 **How to survive:** leave the cage before wave 0 lands (or roll at the landing), step forward or back from the wall, and read the gaps in the scatter.
 
-#### D. Royal Rebuke (close-range defense; triggered by §6.2a, never random)
+#### D. Royal Rebuke (close-range defence; triggered by §6.2a or picked at extreme close)
 | Step | Both phases *(tune)* |
 |---|---|
 | Tell: the body squashes to `(1.1, 0.85, 1.1)`, the crown flashes white twice, `rebuke_windup` sound | 0.35 s (×1.3 with `?easy`; not scaled by rage) |
@@ -452,6 +458,28 @@ Why: the waves land 0.4 s apart, longer than the 0.35 s of roll i-frames, so one
 **Kill rule:** during the burst, the player is hit if their horizontal distance from the boss center is at most the spikes' current reach `+ 0.4` m (the reach grows from 2.0 to 4.5 m over the first 70% of the burst, ease-out, exactly as drawn; *2026-10-12*), so damage never arrives before the spikes.
 
 **How to survive:** roll on the tell (the 0.35 s of i-frames cover the whole 0.10 s burst), or be farther than 4.9 m away. A player stuck in a combo recovery can't react to the 0.35 s tell: that is the price of greed.
+
+#### D2. Feint Rebuke *(added in 1.6; rage only)*
+In rage, **30%** of Rebukes are feints *(tune)*: the tell plays exactly as usual (the `rebuke_windup` sound still ends on time), then the boss **holds** the full wind-up for another **0.3 s** (the body quivers, the crown flickers white, the spike tips stay out) before the burst. A player who rolls on reflex at the usual moment may still be inside the reach when the spikes come. Read the hold, then roll. Never in Phase 1.
+
+#### H. Jelly Hop-Back *(added in 1.6; close-range defence)*
+| Step | Both phases *(tune)* |
+|---|---|
+| Tell: the body squats low to `(1.18, 0.7, 1.18)` | 0.5 s (×1.3 with `?easy`; not scaled by rage) |
+| Jump: `hop_jump` sound, a dust puff; the boss leaps **9 m away from the player** (through its own center; if the arena wall is in the way it turns up to 90° toward the open side, landing at least 3 m inside the edge) on a 3.5 m high arc. Airborne: not solid, no turning, no knockback | 0.6 s (÷ rage speed ×1.4) |
+| Landing: `hop_land` sound, a splat, dust and embers, camera shake 0.25 m for 0.3 s. Whoever is under the body (within 2.0 + 0.4 m of the center, + 0.4 m player radius) is hit. A **splash ring** (the Slam's shockwave, rolled through the same way) expands from 2.2 m to **10 m** at **10 m/s** (×1.4 in rage) | — |
+| Recovery, then free | 0.5 s |
+
+**Purpose:** breaks "hug and mash" without killing on the spot. The fight moves to mid range, where the Charge, Cone and Beam are likely. **How to survive:** don't chase straight in; roll through the splash ring or stay farther than 10 m from the landing point.
+
+#### I. Bounce Shove *(added in 1.6; close-range defence; no damage)*
+| Step | Both phases *(tune)* |
+|---|---|
+| Tell: the body swells and jiggles faster and faster (±12%), the crown glows | 0.4 s (×1.3 with `?easy`; not scaled by rage) |
+| Burst: `shove` sound, dust, camera shake 0.18 m for 0.25 s; the body bulges wide and low and relaxes back. A player within **5.5 + 0.4 m** of the center is **pushed 5 m away** and **stumbles for 0.45 s** (a stagger: no actions), **with no damage** and no hurt invincibility. Once per Shove | 0.12 s |
+| Recovery, then free | 0.4 s |
+
+**Purpose:** a defence that costs time and position, not HP. **How to survive:** roll at the burst (any invincibility ignores the push), or be farther than 5.9 m away.
 
 #### E. Cone Flame Breath *(added 2026-10-12)*
 | Step | Phase 1 | Rage |
@@ -469,7 +497,7 @@ Why: the waves land 0.4 s apart, longer than the 0.35 s of roll i-frames, so one
 |---|---|---|
 | Charge: `beam_charge` sound; the boss turns toward the player; a thin red aiming line shows the path; sparks rush into a growing glowing orb at the boss's mouth and the screen edges darken. **0.3 s before firing the beam locks** onto the player, **aimed down at their feet** (ground distance clamped to 6–26 m): the aiming line stops following and flashes bright. A player who starts walking at the flash gets clear | 1.0 s | 0.7 s |
 | Fire *(reworked 2026-10-12, like Hyper Beam)*: `beam_fire` sound (lasts while firing), a short white flash, a hard camera shake and a low rumble. The beam slants from the boss's mouth down to the ground at the locked distance; its **front travels out at 60 m/s** (near-instant) (it is only dangerous up to its front). Where it meets the ground it explodes constantly and leaves a **trail of burning marks** (§6.5 C). A glowing stripe on the ground shows its path. **Sweep side:** decided once when it fires, from the player's sideways velocity across the boss→player line (above 1.0 m/s: the side the player moves to; otherwise random). The beam fires straight at where the player was and **starts sweeping once its front reaches the ground**; it then only sweeps that way, at up to **ω** toward the player, and **never reverses**. **Sprinting sideways from the lock flash only just outruns it** at about 10 m (easier closer, impossible farther: roll); rolling against the sweep also works. The boss faces the beam | 3.0 s, ω 0.62 rad/s | 2.0 s, ω 0.65 rad/s |
-| The beam stops at once if the player is hit, or if the boss takes damage | — | — |
+| The beam stops at once only if the boss takes damage. Hitting the player does **not** stop it *(changed 1.6)*: once the 1.0 s hurt invincibility ends, it can hit again | — | — |
 | Recovery (short, to reward the counter-roll; a punish window) | 0.5 s | 0.4 s |
 
 **Kill rule:** while firing, the player is hit if the beam (radius **1.0 m**, wider since 2026-10-12, from the boss's face to its front, at most the ground point) touches a hit sphere (horizontal distance from the sphere center to that segment ≤ 1.0 + 0.4 m).
@@ -478,7 +506,7 @@ Why: the waves land 0.4 s apart, longer than the 0.35 s of roll i-frames, so one
 #### G. Meteor Shower *(added 2026-10-12; once per fight)*
 - Starts at the beginning of the rage transition (§6.4) and lasts **10 s**. It is a hazard: the boss is free to fight normally while it falls.
 - About **12 meteors per second** (about 120 in total), at random positions over the whole arena (each target at least 2 m from the other live targets, inside the arena). Unaimed.
-- Each target shows a red warning circle (r **1.8**, the rage Crown Rain radius) **0.9 s** before impact; a fireball falls from the sky onto it and explodes, leaving a burning mark (§6.5 C). `shard_land` at impacts (at most every 0.15 s).
+- Each target shows a red warning circle (r **1.8**, the rage Crown Rain radius) **0.9 s** before impact; a fireball falls from the sky onto it and explodes, leaving a burning mark (§6.5 C). `explosion` at impacts (at most every 0.15 s; was `shard_land`, changed after the 1.6 playtest).
 - **Kill rule:** at impact, the player is hit if their horizontal distance to the target is under `1.8 + 0.4`.
 - Removed by the player's death, defeat and reset.
 
@@ -486,6 +514,11 @@ Why: the waves land 0.4 s apart, longer than the 0.35 s of roll i-frames, so one
 - **Boss light:** one orange point light that always exists (so the light count never changes) at the boss's mouth, normally off. It flares during the Flame Beam (sustained, flickering), each Cone blast and the Slam impact, lighting the arena orange.
 - **Blood moon:** during the Meteor Shower the sky, fog, moon and hemisphere light turn dark red (0.6 s in), and fade back over the last 1.5 s.
 - **Rage slow motion:** when rage starts, time runs at 0.3× for 0.5 s (real time), with a strong camera shake and the camera looking up toward the sky as the first meteors appear.
+- **Glow** *(1.6)*: see §8 (bloom on fire, beam and embers only).
+- **Impact screen effects** *(1.6)*: for 0.15 s a chromatic split and a radial blur centered on the impact, plus extra camera shake, when the **Flame Beam fires**, a **Cone blast** releases, the **Slam lands**, or a **meteor lands within 5 m of the player**. Not on the player's own hits, not on the rage transition.
+- **Gel splash** *(1.6)*: every hit on the boss throws 14 jelly droplets (22 on a finisher or the killing blow) out of the struck side in the boss's current color; about half leave a glossy stain on the ground that fades over 3 s.
+- **Flame Beam** *(1.6)*: a heat shimmer ripples the screen around the beam while it fires, and its ground point leaves a **molten scar** (orange, cooling to dark red over 2.5 s) along the swept path.
+- **Hero meteors** *(1.6)*: every 6th meteor of the Meteor Shower is drawn 2.4× bigger with a thick smoke trail and a bigger explosion (no crater decal: removed after the 1.6 playtest). Visual only: same warning circle and kill radius.
 - **Camera lift during the Flame Beam:** the lock-on camera rises to 6.5 m and pulls back to 7.5 m (smoothly) while the beam charges and fires, so the beam is seen from above instead of end-on. The beam fades out within 3 m of the camera.
 - Flashes are short (≤ 0.1 s) and soft; nothing strobes.
 
@@ -536,9 +569,10 @@ On the hit that brings HP to 0:
 
 | Item | Spec |
 |---|---|
-| Arena floor | Circle with radius 30 m and 64 segments, color `#6AB04C`, receives shadows. Vary the green ±6% per vertex using vertex colors (still no texture) |
+| Arena floor *(1.6: abandoned ruin)* | Circle with radius 30 m, one procedural shader (no textures): **concentric rings of stone slabs** (a round center stone of 2.2 m, rings 2.4 m wide, slabs about 2.6 m long, each ring offset) in the pillars' grey (`#8F9198`, dark `#5F6169`), worn slab edges, dark joints and a few thin cracks. **Grass covers about 30%** of the floor in random patches spread over the whole arena (so the fire attacks have something to burn), with thin grass in the joints and moss at the patch edges. Receives shadows |
 | Outer field | Circle with radius 200 m, color `#5E9E44`, 1 cm below the arena; it fades into the night fog |
-| Arena edge marker | Flat ring from radius 29.8 to 30.2 m, color `#4A7F35` (shows where the invisible wall is) |
+| Arena edge *(1.6)* | A worn **stone curb** from 29.8 to 30.6 m, 0.22 m high (outside the 29.6 m wall that holds the player), in the dark stone grey |
+| Ruin decoration *(1.6)* | 9 fallen column drums and 14 broken wall blocks scattered in the meadow 33.5–46 m from the center, clear of the torches. Visual only: never inside the play area. Two instanced meshes |
 | Sky | **Moonlit dusk, nearly dark:** background `#0B1020`; linear fog in the same color, from 35 m to 110 m |
 | Ambient | Hemisphere light (sky `#3B4A7A`, ground `#141A10`, intensity 0.9) |
 | Moon | Directional light `#A8B8FF` from `(−14, 26, 12)`, intensity 1.3, the **only** shadow caster: 1024² map, the shadow camera covers ±35 m around the origin, bias −0.0005 |
@@ -546,6 +580,22 @@ On the hit that brings HP to 0:
 | Rim light | Every character material adds a fresnel edge glow (player: cool `#9DB7FF`, strength 0.35; boss: a light tint of its body color, strength 0.45), so silhouettes read against the dark |
 | Tone mapping | ACES filmic, exposure 1.0. Telegraph and UI-like effects (warning circles, slam outline, shockwave, rebuke spikes' glow, particles) are unlit and not tone mapped, so they stay vivid |
 | Readability | Every telegraph is unlit or emissive, so it reads at night. Check on the booth laptop in a bright hall |
+| Glow *(1.6)* | A medium bloom makes **only fire, the Flame Beam and embers** glow (torch flames, fireballs and meteors, explosions, the Cone's flames, shockwave embers, burn-mark flames, the beam's molten scar). Nothing else glows: the moon, the boss, its white hit flash, the crown, the UI. Off with `?lowfx` |
+
+### 8a. Crown pillars *(added in 1.6)*
+Four stone pillars (≈ **2.2 m** wide — doubled after the 1.6 playtest — 5 m tall, a gold finial on top) stand on the diagonals **15 m** from the center. They are cover, not walls:
+
+| Rule | Spec *(tune)* |
+|---|---|
+| Solid | The player cannot walk or roll through a standing pillar |
+| Health *(1.6 playtest)* | **3 health.** Each boss hit costs 1: a Slam or Hop-Back ring, the Rebuke spikes, the Shove burst, a Cone blast, a Crown Rain fireball or meteor landing on it, or the boss's body walking or landing into it. One wave counts once (0.6 s per pillar). A hit pillar puffs dust, plays `pillar_hit`, darkens and leans 3° away from the hit. **The Charge and the Flame Beam knock it down at once** at any health |
+| Collapse | At 0 health it breaks into 8 tumbling stone chunks (rubble stays until the next attempt), with dust and the `pillar_break` sound |
+| Shield | Every hit from a **Slam/Hop ring, the Rebuke, the Shove or a Cone blast** blocks **that wave** for a player directly behind the pillar (the line from the attack's origin to the player passes within the pillar's radius + 0.2 m of its center), whether the pillar survives it or not. A pillar with health left therefore also shields the rage Cone's second blast. Rebuke 0.45 s, Shove 0.3 s, Cone 0.2 s; a ring for as long as it lives |
+| No shield | **Charge and Flame Beam** knock it down and go straight through; **Crown Rain and meteors** cost 1 health and still hit: hiding from them behind a pillar does not work |
+| Meteor Shower | Meteors do not avoid the pillars |
+| Reset | All four stand again at the start of every attempt |
+| Camera | A pillar between the camera and the player dithers to see-through |
+
 
 ## 9. Player death (HP reaches 0; state `DYING`, 2.0 s total)
 
@@ -580,10 +630,16 @@ The game must therefore be complete and fully audible with **no sound files at a
 | `charge_windup` | Charge telegraph starts |
 | `charge_dash` | Charge dash starts |
 | `shard_launch` | Shards launch |
-| `shard_land` | Shards land |
+| `shard_land` | Crown Rain shards land (Phase 1) |
+| `explosion` *(1.6)* | A Meteor Shower meteor or a rage Crown Rain fireball lands |
 | `rage` | Rage transition starts |
 | `rebuke_windup` | Royal Rebuke tell starts (stoppable) |
 | `rebuke_burst` | Royal Rebuke burst |
+| `pillar_hit` *(1.6)* | A crown pillar takes a hit and survives |
+| `pillar_break` *(1.6)* | A crown pillar collapses |
+| `hop_jump` *(1.6)* | Jelly Hop-Back take-off |
+| `hop_land` *(1.6)* | Jelly Hop-Back landing |
+| `shove` *(1.6)* | Bounce Shove burst |
 | `beam_charge` *(2026-10-12)* | Flame Beam charge starts (stoppable, lasts the charge) |
 | `beam_fire` *(2026-10-12)* | Flame Beam fires (stoppable, lasts while firing) |
 | `cone_blast` *(2026-10-12)* | Each Cone Breath release (shotgun-like) |
@@ -609,7 +665,8 @@ The game must therefore be complete and fully audible with **no sound files at a
 | Parameter | Effect |
 |---|---|
 | `?easy` | Boss movement speeds ×0.75, telegraph times ×1.3 (including the Rebuke tell), cooldowns ×1.3. A hidden helper for visitors who struggle |
-| `?debug` | Shows an FPS counter, the current state, the boss phase and attack, wireframe hitboxes (player spheres, boss box, blade points, shockwave band, shard spheres). Debug keys: `1`/`2`/`3` force Slam / Charge / Crown Rain next; `4` triggers a Rebuke now; `5`/`6` force Cone Breath / Flame Beam next; `7` starts a Meteor Shower; `K` deals 1 damage to the boss; `G` toggles player invulnerability (god mode). The debug text also shows the player action, combo hit and buffered input, i-frames, HP, stamina and flask charges, and the boss's poise counter, the player's distance band, the Meteor Shower state and punish-window time |
+| `?lowfx` *(1.6)* | No post-processing: no glow, no impact screen effects, no heat shimmer (the 1.5b look). A fallback for a weak laptop |
+| `?debug` | Shows an FPS counter, the current state, the boss phase and attack, wireframe hitboxes (player spheres, boss box, blade points, shockwave band, shard spheres). Debug keys: `1`/`2`/`3` force Slam / Charge / Crown Rain next; `4` forces a Rebuke next; `5`/`6` force Cone Breath / Flame Beam next; `7` starts a Meteor Shower; `8`/`9` force Jelly Hop-Back / Bounce Shove next; `0` forces a Feint Rebuke next (1.6); `K` deals 1 damage to the boss; `G` toggles player invulnerability (god mode). The debug text also shows the player action, combo hit and buffered input, i-frames, HP, stamina and flask charges, and the boss's poise counter, the player's distance band, the Meteor Shower state and punish-window time |
 
 These parameters can be combined. Without them, nothing from the debug mode is visible.
 
@@ -633,7 +690,7 @@ Do **not** build any of these:
 - [ ] The title input lock (0.5 s after the fade-in) and the victory input lock work; `M` never counts as "any key"
 - [ ] The title → fight camera blend is smooth
 - [ ] The attempt counter shows on the start screen after the first fight and increases with every fight
-- [ ] Losing focus pauses the game and clears held keys; clicking resumes
+- [ ] Losing focus or pressing `Esc` pauses the game and clears held keys; clicking or `Esc` resumes
 
 **Player**
 - [ ] Movement has visible acceleration, a sliding stop and lazy turning, with no input loss
@@ -648,17 +705,19 @@ Do **not** build any of these:
 - [ ] The boss stays busy: its cooldown starts when it is free, never while waiting for hazards; it chases beyond 5 m
 - [ ] Attack selection never repeats the same attack 3 times in a row; Charge is never chosen within 6 m; Crown Rain never overlaps itself
 - [ ] Slam opens a 2.0 s punish window that fits one full combo, followed by a Rebuke if the player is still close
-- [ ] Rebuke triggers on poise 3 (outside windows), as the 80% pick when extremely close (2026-10-12), and at the end of the Slam window, always with its 0.35 s tell
-- [ ] Rage starts when HP falls to 15 or below (50%), with its transition (cancelling the attack and all hazards) and the 10 s Meteor Shower; the boss dies at 0 HP (30 damage)
-- [ ] *(2026-10-12)* Moves follow the distance-weighted table (Rebuke 80% when extremely close); Crown Rain is followed immediately by another attack; the Cone Breath can only be rolled through (double in rage, 60 stamina); the Flame Beam sweeps after the player, never reverses and can be beaten by rolling against it; it stops when either side takes damage
+- [ ] A defence (Rebuke 45 / Hop-Back 25 / Shove 15) triggers on poise 3 (outside windows), as the 85% pick when extremely close (1.6), and at the end of the Slam window; each has its tell (Rebuke 0.35 s, Hop-Back 0.5 s, Shove 0.4 s); in rage 30% of Rebukes are feints that hold 0.3 s longer; the Shove never deals damage
+- [ ] Rage starts when HP falls to 18 or below (50%), with its transition (cancelling the attack and all hazards) and the 10 s Meteor Shower; the boss dies at 0 HP (36 damage)
+- [ ] *(2026-10-12)* Moves follow the distance-weighted table (defences 85% when extremely close, 1.6); Crown Rain is followed immediately by another attack; the Cone Breath can only be rolled through (double in rage, 60 stamina); the Flame Beam sweeps after the player, never reverses and can be beaten by rolling against it; it stops only when the boss takes damage (1.6)
 - [ ] Hit reactions (hit-stop, flash, squash, shake, sound, HUD) all play
 - [ ] With all `rageUpgrades` off (the default), rage behaves exactly as §6.5; with each upgrade switched on individually, it behaves as in §6.5a, including its tell
 
 **Feedback**
 - [ ] The player falls apart on death; the boss breaks into 8 cubes plus the crown on defeat
 - [ ] *(1.5b)* Elbows and knees bend in every animation; the sword is sheathed on the back when idle, drawn during Hit 1's wind-up and put away 0.4 s after the combo; the boss squashes, stretches and wobbles like jelly; the Slam splats; the Rebuke is a spike burst; Crown Rain shards are fireballs that leave fading burn marks; the flask shows a heal aura
-- [ ] *(1.5b)* The night arena is readable: every telegraph is clearly visible, the torches flicker, draw calls stay under 100
-- [ ] The player HUD (HP pips, flask counter, stamina bar) and the 30-HP boss bar read clearly
+- [ ] *(1.5b)* The night arena is readable: every telegraph is clearly visible, the torches flicker, draw calls stay under 100 (scene + post passes)
+- [ ] *(1.6)* Only fire, the beam and embers glow; impact effects on the Beam, Cone, Slam and near meteors; gel splash and stains on boss hits; the beam's heat shimmer and molten scar; hero meteors with smoke trails; meteors and rage Crown Rain fireballs play `explosion`; `?lowfx` turns the post-processing off
+- [ ] *(1.6)* Four crown pillars, 2.2 m wide with 3 health: solid; each boss wave costs 1 health, Charge and Beam knock one down at once; Slam/Hop rings, Rebuke, Shove and Cone blasts are blocked right behind it; Charge, Beam, Crown Rain and meteors go through; all four return on every attempt
+- [ ] The player HUD (HP pips, flask counter, stamina bar) and the 36-HP boss bar read clearly
 - [ ] All Must and Should sounds play (ASSETS.md §1); `M` mutes everything
 
 **Quality**

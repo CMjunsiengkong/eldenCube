@@ -103,8 +103,18 @@ Rules: follow `requirements.md` and `design.md`; git per `.kiro/steering/git.md`
 - [x] 1.6.2 Sound checks: empty `sfx/` → recipes; drop a test `hit.mp3` → file plays; remove → recipe again (test file not committed). _Req 18.10_
 - [x] 1.6.3 Performance on this Mac: `?debug` FPS steady 60; Chrome Performance trace during attacks/debris shows no long frames; draw calls < 100 (`renderer.info`). _Req 20.2_ — headless Chrome, full session: worst frame 16.8 ms, peak 59 draw calls (after the puff fix; was 105 during the rage cancel).
 - [x] 1.6.4 Console hygiene: full session title → 3 deaths → win with zero errors/warnings (MCP console read). _Req 20.1_
-- [ ] 1.6.5 **[User]** playtest with ≥ 3 first-time players; report attempts-to-win. Tune only *(tune)* values in `config.ts` per PP 1.6 order (i-frames, recovery, cooldowns, telegraphs; then rage upgrades one at a time). _Req 20.4_
+- [x] 1.6.5 **[User]** playtest with ≥ 3 first-time players; report attempts-to-win. Tune only *(tune)* values in `config.ts` per PP 1.6 order (i-frames, recovery, cooldowns, telegraphs; then rage upgrades one at a time). _Req 20.4_
 - [ ] 1.6.6 Fix every bug found (`fix/<name>` branches as needed). Found so far: debris puffs were one draw call per cube (up to 105 calls in the rage cancel) → one instanced mesh.
+- [x] 1.6.5a Playtest changes (2026-10-12; 3 testers: nobody cleared it, tuning fair; asked for less Rebuke spam, more spectacle, terrain):
+  - [x] Beam keeps firing after it hits the player (stops only when the boss takes damage); ESC pause; boss HP 36 (6 segments), rage ≤ 18.
+  - [x] Close-range defences: Jelly Hop-Back, Bounce Shove (no damage), rage Feint Rebuke (30%); extreme-close weights 45/25/15/15; triggers pick a defence; 3 sounds; debug keys 8/9/0; tests.
+  - [x] VFX: bloom on fire/beam/embers only (medium, half res, `?lowfx`), impact screen effects (Beam, Cone, Slam, near meteors), gel splash + stains, beam heat shimmer + molten scar, hero meteors with smoke and craters.
+  - [x] T1 crown pillars: solid, collapse at any boss hit, shield one wave (rings, Rebuke, Shove, one Cone blast), Charge/Beam/Rain/meteors go through; camera dither; `pillar_break` sound; tests.
+  - [x] Playtest 2: pillars 2× wider (radius 1.1 m) with 3 health (one wave = 1 health; Charge/Beam instant); `pillar_hit` sound; damage lean and darkening.
+  - [x] Playtest 3: meteor crater decal removed; new `explosion` sound for meteors and rage Crown Rain fireballs; user files for `explosion`, `pillar_hit`, `pillar_break` (Pixabay; trimmed, −17 dB RMS).
+  - [x] Title-screen tips: 12 cryptic tips, one at random per title (no immediate repeat) + test.
+  - [x] Arena as an abandoned ruin: concentric stone slabs in the pillars' grey, 30% random grass patches + grass in joints, stone curb, fallen column drums and wall blocks outside the wall; tests.
+  - [ ] **[User]** replay and judge the feel (Rebuke frequency, glow strength, pillars, difficulty with HP 36).
 - [x] 1.6.7 `npm run preview` → built game correct at `http://localhost:4173`. _Req 20.3_
 - [ ] 1.6.8 Walk the full GD §13 checklist on this Mac with evidence per item. _Req 20.5_
 - [ ] 1.6.9 Stage 1 report with every exit criterion. **Ask to merge.** Then start the `elden-cube-deploy` spec.

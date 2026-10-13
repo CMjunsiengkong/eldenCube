@@ -212,6 +212,9 @@ export class PlayerMotor {
   private knockX = 0;
   private knockZ = 0;
   private knockCovered = 0;
+  /** The current stagger's push distance and length (a hurt, or a Bounce Shove, 1.6). */
+  private knockDist: number = HU.knockback;
+  private staggerDur: number = HU.stagger;
   private footstepT = 0;
   private readonly contact = createSphereOBBResult();
   private readonly lowSphere: Vec3Like = { x: 0, y: P.hitSpheres[0].height, z: 0 };
@@ -295,8 +298,37 @@ export class PlayerMotor {
       dx = -Math.sin(this.yaw);
       dz = -Math.cos(this.yaw);
     }
+    this.beginStagger(dx, dz, HU.knockback, HU.stagger);
+    this.regenDelay = ST.regenDelay;
+    this.events.push('hurt');
+    return 'hurt';
+  }
+
+  /**
+   * GD §6.5 I (1.6): pushed `distance` m away from (sourceX, sourceZ) over a `duration` s stumble,
+   * without damage. Invincibility (roll, hurt, god mode) ignores it. Returns true if applied.
+   */
+  shove(sourceX: number, sourceZ: number, distance: number, duration: number): boolean {
+    if (this.isInvincible() || this.hp <= 0) return false;
+    let dx = this.x - sourceX;
+    let dz = this.z - sourceZ;
+    const d = Math.hypot(dx, dz);
+    if (d > 1e-6) {
+      dx /= d;
+      dz /= d;
+    } else {
+      dx = -Math.sin(this.yaw);
+      dz = -Math.cos(this.yaw);
+    }
+    this.beginStagger(dx, dz, distance, duration);
+    return true;
+  }
+
+  private beginStagger(dx: number, dz: number, distance: number, duration: number): void {
     this.knockX = dx;
     this.knockZ = dz;
+    this.knockDist = distance;
+    this.staggerDur = duration;
     this.knockCovered = 0;
     this.action = 'stagger';
     this.actionT = 0;
@@ -304,9 +336,6 @@ export class PlayerMotor {
     this.vz = 0;
     this.resetCombo();
     this.buffered = null;
-    this.regenDelay = ST.regenDelay;
-    this.events.push('hurt');
-    return 'hurt';
   }
 
   step(dt: number, input: MotorInput): void {
@@ -396,7 +425,7 @@ export class PlayerMotor {
       case 'drink':
         return FL.duration - this.actionT;
       case 'stagger':
-        return HU.stagger - this.actionT;
+        return this.staggerDur - this.actionT;
       default:
         return 0;
     }
@@ -620,7 +649,7 @@ export class PlayerMotor {
   /** GD §4.6: 3.0 m knockback on ease-out over the 0.5 s stagger. */
   private stepStagger(dt: number, input: MotorInput): void {
     this.actionT += dt;
-    const covered = HU.knockback * easeOut(Math.min(1, this.actionT / HU.stagger));
+    const covered = this.knockDist * easeOut(Math.min(1, this.actionT / this.staggerDur));
     const delta = covered - this.knockCovered;
     this.knockCovered = covered;
     this.x += this.knockX * delta;
@@ -628,7 +657,7 @@ export class PlayerMotor {
     this.vx = (this.knockX * delta) / dt;
     this.vz = (this.knockZ * delta) / dt;
     this.faceBoss(dt, input);
-    if (this.actionT >= HU.stagger - EPS) {
+    if (this.actionT >= this.staggerDur - EPS) {
       this.action = 'free';
       this.actionT = 0;
       this.vx = 0;

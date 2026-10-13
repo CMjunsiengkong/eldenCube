@@ -1,27 +1,31 @@
 import { describe, expect, it } from 'vitest';
 import { cooldownFor, parseFlags, rebukeTellFor, shardFlightTime, speedMult, telegraphMult, type Flags } from '../src/flags';
 
-const NONE: Flags = { easy: false, debug: false };
-const EASY: Flags = { easy: true, debug: false };
+const NONE: Flags = { easy: false, debug: false, lowfx: false };
+const EASY: Flags = { easy: true, debug: false, lowfx: false };
 
 describe('parseFlags (ARCHITECTURE §8)', () => {
   it('no parameters → no flags', () => {
-    expect(parseFlags('')).toEqual({ easy: false, debug: false });
-    expect(parseFlags('?')).toEqual({ easy: false, debug: false });
+    expect(parseFlags('')).toEqual({ easy: false, debug: false, lowfx: false });
+    expect(parseFlags('?')).toEqual({ easy: false, debug: false, lowfx: false });
   });
 
   it('?easy and ?debug individually', () => {
-    expect(parseFlags('?easy')).toEqual({ easy: true, debug: false });
-    expect(parseFlags('?debug')).toEqual({ easy: false, debug: true });
+    expect(parseFlags('?easy')).toEqual({ easy: true, debug: false, lowfx: false });
+    expect(parseFlags('?debug')).toEqual({ easy: false, debug: true, lowfx: false });
+  });
+
+  it('?lowfx (1.6)', () => {
+    expect(parseFlags('?lowfx&debug')).toEqual({ easy: false, debug: true, lowfx: true });
   });
 
   it('both combined, in any order and with values', () => {
-    expect(parseFlags('?easy&debug')).toEqual({ easy: true, debug: true });
-    expect(parseFlags('?debug=1&easy=yes')).toEqual({ easy: true, debug: true });
+    expect(parseFlags('?easy&debug')).toEqual({ easy: true, debug: true, lowfx: false });
+    expect(parseFlags('?debug=1&easy=yes')).toEqual({ easy: true, debug: true, lowfx: false });
   });
 
   it('unrelated parameters are ignored', () => {
-    expect(parseFlags('?foo=bar&easyish')).toEqual({ easy: false, debug: false });
+    expect(parseFlags('?foo=bar&easyish')).toEqual({ easy: false, debug: false, lowfx: false });
   });
 });
 
