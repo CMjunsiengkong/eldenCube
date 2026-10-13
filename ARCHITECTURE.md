@@ -379,6 +379,21 @@ Add npm scripts in `infra/package.json` (`diff`, `deploy`, `destroy`) that inclu
 
 Deployer permissions: an IAM identity that can assume the CDK bootstrap roles (e.g. AdministratorAccess on a personal or sandbox account).
 
+### 9.4 Deployed (Stage 2, 2026-10-13)
+
+| Item | Value |
+|---|---|
+| **GameUrl** | https://d376ckm5wji8ku.cloudfront.net |
+| Region / stack | `ap-southeast-1` / `EldenCubeStack` |
+| Distribution ID | `E3L0K2YFJ6W0VV` |
+| Bucket | `eldencubestack-sitebucket397a1860-ywg3uuujpicv` (private; CloudFront OAC only) |
+| Budget | `elden-cube-monthly`: USD 5/month; email at 80% actual and 100% forecast |
+| Deploy | `cd app && npm run build && cd ../infra && npm run deploy` (`cdk deploy --profile elden-personal`; the alert email comes from `cdk.json` context) |
+| Teardown | `cd infra && npm run destroy` (`cdk destroy --profile elden-personal`) |
+| Offline fallback | `cd app && npm run preview` → http://localhost:4173 |
+
+Verified on deploy: every `dist/assets` file is served with HTTP 200 and the same size as the local build; `index.html` is `no-cache` and hashed assets are `public, max-age=31536000, immutable`; `http://` → 301 to `https://`; HSTS, `nosniff` and `SAMEORIGIN` headers; the direct S3 object URL returns `AccessDenied`; a headless Chrome session against `GameUrl` (3 deaths, then a win) ran at 60 fps (worst frame 16.8 ms, ≤ 84 draw calls) with a clean console, and all 22 sound files plus the music decoded; `npm run diff` afterwards: no differences.
+
 ## 10. Cost estimate
 
 | Item | Estimate |
