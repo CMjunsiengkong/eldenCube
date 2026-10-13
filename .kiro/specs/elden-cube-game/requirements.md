@@ -38,7 +38,7 @@ Out of scope (never built): everything in GD §12 and AR §2 "Do not add". Stage
 2. Exit: `aws sts get-caller-identity --profile elden-personal` shows the personal account.
 3. The agent SHALL run `npx cdk bootstrap aws://<ACCOUNT_ID>/ap-southeast-1 --profile elden-personal` after explaining it.
 4. Exit: `npx cdk synth --profile elden-personal` (`npm run synth`) succeeds, with the email taken from `cdk.json`.
-5. Smoke deploy (PP 0.4, decision D5 — required): build the starter page, `npm run deploy`; exit: the starter page loads from `https://xxxx.cloudfront.net`, and the user confirms the budget alert email subscription (User step).
+5. Smoke deploy (PP 0.4, decision D5 — required): build the starter page, `npm run deploy`; exit: the starter page loads from `https://d376ckm5wji8ku.cloudfront.net`, and the user confirms the budget alert email subscription (User step).
 
 ---
 

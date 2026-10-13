@@ -18,7 +18,7 @@ A small, funny 3D boss fight in the browser: a clumsy hero ("The Tarnished Inter
 - 3D, simple geometric primitives (rounded where it helps) and small procedural effects; moonlit dusk; the arena is an abandoned stone ruin (concentric slabs, ~30% grass patches, a stone curb) with 4 crown pillars, a ring of torches and a few fallen ruin pieces outside the edge (1.6, 2026-10-13; was flat green grass in 1.5b).
 - No stored data: no leaderboard, accounts, scores. Each play is a one-time session.
 - AWS: static hosting only (S3 + CloudFront, CDK). No AWS or network calls at runtime.
-- Post-event hosting optional, only within ~USD 5/month.
+- Post-event hosting: **kept online** (decided 2026-10-13), within ~USD 5/month with the Budgets alert.
 - Code lives in `eldenCube/app` (game) and `eldenCube/infra` (CDK).
 - AWS: personal account, IAM user `junsiengAdmin`, CLI profile `elden-personal`. No secrets in any file.
 - Sound: files in `app/src/assets/sfx/` when present; otherwise (default) code-generated Web Audio recipes.

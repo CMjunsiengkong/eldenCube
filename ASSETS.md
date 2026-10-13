@@ -201,15 +201,15 @@ There are **no textures, 3D models or image files** in the game. Every visual is
 
 ## 4. Booth materials (made by hand; not part of the game build plan)
 
-| Item | Purpose | How / source | When |
+| Item | Purpose | How / source | Status (2026-10-13) |
 |---|---|---|---|
-| Architecture diagram | Explaining the AWS part | `eldencube.drawio`, sheet 1 (already drawn). Export as PNG/PDF from draw.io | Any time |
-| Booth event flow diagram | Your own guide for the booth loop | `eldencube.drawio`, sheet 2 (already drawn) | Any time |
-| Poster / signage | Draw visitors in: title, "Built with Kiro · Hosted on AWS", controls | Canva or Figma; print A3/A2. Use AWS and Kiro logos only according to their brand guidelines, or text only | Before the event |
-| QR code to `GameUrl` (optional) | Visitors can play later | Any free QR generator, only if the game stays hosted after the event | After game Stage 2 |
-| Backup gameplay video | Last-resort fallback | macOS screen recording (Cmd+Shift+5), 1–2 minutes: title → death → win | After game Stage 3 |
-| Kiro spec screenshots | "Plan before you build" proof during the Kiro intro | Captured while building the game in Kiro | During game Stage 1 |
-| Live demo `prepared/` folder | Live demo fallback | See `../liveDemo/LIVE_DEMO.md` | Before the event |
+| Architecture diagram | Explaining the AWS part | `eldencube.drawio`, sheet 1 (updated 2026-10-13: real `GameUrl`, budget alerts, current game facts). Export as PNG/PDF from draw.io | Up to date |
+| Booth event flow diagram | Your own guide for the booth loop | `eldencube.drawio`, sheet 2 (updated 2026-10-13: 3-hit invite, pygame live demo, Snake/Tetris fallbacks) | Up to date |
+| Poster / signage | Draw visitors in: title, "Built with Kiro · Hosted on AWS", controls | Canva or Figma; print A3/A2. Use AWS and Kiro logos only according to their brand guidelines, or text only | Done |
+| QR code to `GameUrl` (optional) | Visitors can play later | Any free QR generator → https://d376ckm5wji8ku.cloudfront.net (the game stays hosted after the event) | Optional |
+| Backup gameplay video | Last-resort fallback | macOS screen recording (Cmd+Shift+5), 1–2 minutes: title → death → win | Optional |
+| Kiro spec screenshots | "Plan before you build" proof during the Kiro intro | Captured while building the game in Kiro | Done |
+| Live demo fallback games | Live demo fallback | `~/Project/SnakeGame` and `~/Project/Tetris`, built with Kiro; see `../liveDemo/LIVE_DEMO.md` | Done |
 
 ## 5. Accounts, tools and hardware
 
@@ -221,6 +221,6 @@ There are **no textures, 3D models or image files** in the game. Every visual is
 | Personal AWS account, IAM user `junsiengAdmin` (admin), CLI profile `elden-personal` (ARCHITECTURE.md §13.4) | CDK deploy | Game Stage 0 (bootstrap), Stage 2 |
 | AWS CLI v2, configured profile | CDK authentication | Game Stage 0 |
 | Email address for budget alerts | `-c alertEmail=…` | Game Stage 0 / 2 |
-| Python 3 with tkinter | Live demo game | Live demo |
+| Python 3 with pygame (each demo game has its own `.venv`) | Live demo games | Live demo |
 | draw.io (web or desktop) | Diagrams | Booth materials |
 | Booth laptop, charger, mouse (plus spare batteries), HDMI adapter, optional speaker | Event day | Event day |

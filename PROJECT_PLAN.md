@@ -27,12 +27,12 @@ Setup       Game complete & debugged (local)    Deploy to AWS       Release & fr
 | 0.4 | **Recommended: smoke deploy.** Deploy the empty Vite starter page with the real CDK stack (ARCHITECTURE.md §9) and open the `GameUrl`. Confirm the budget alert email subscription. This surfaces account or permission problems early, while there is still time to fix them |
 
 **Exit criteria**
-- [ ] All tools in ARCHITECTURE.md §13.1 report a version
-- [ ] `/mcp` in `kiro-cli` shows the `aws-docs`, `aws-iac` and `chrome-devtools` MCP servers loaded
-- [ ] `aws sts get-caller-identity --profile elden-personal` shows the personal account
-- [ ] `npm run dev` shows the starter page locally
-- [ ] `npx cdk synth -c alertEmail=<email> --profile elden-personal` succeeds
-- [ ] *(if 0.4 was done)* the starter page loads from `https://xxxx.cloudfront.net`
+- [x] All tools in ARCHITECTURE.md §13.1 report a version
+- [x] `/mcp` in `kiro-cli` shows the `aws-docs`, `aws-iac` and `chrome-devtools` MCP servers loaded
+- [x] `aws sts get-caller-identity --profile elden-personal` shows the personal account
+- [x] `npm run dev` shows the starter page locally
+- [x] `npx cdk synth -c alertEmail=<email> --profile elden-personal` succeeds
+- [x] *(if 0.4 was done)* the starter page loads from `https://d376ckm5wji8ku.cloudfront.net`
 
 ---
 
@@ -52,12 +52,12 @@ Setup       Game complete & debugged (local)    Deploy to AWS       Release & fr
 | **1.6 Tests, tuning and bug bash** | Unit tests (ARCHITECTURE.md §8); **playtest with at least 3 first-time players**, watching without helping; tune `config.ts` toward **very hard to clear** (changed 2026-10-12: first-time players struggle, a practiced player can win); fix every bug found; console and performance checks on the booth laptop | All exit criteria below |
 
 **Exit criteria**
-- [ ] Every item in the GAME_DESIGN.md §13 acceptance checklist passes on the booth laptop
-- [ ] `npm run build` succeeds (type check, unit tests and build)
-- [ ] `npm run preview` runs the built game correctly (this is the offline fallback)
-- [ ] With `app/src/assets/sfx/` **empty**, every sound plays its code-generated version
-- [ ] With a test file dropped in (e.g. `hit.mp3`), that file plays instead; after removing it, the recipe plays again
-- [ ] No known bugs remain open
+- [x] Every item in the GAME_DESIGN.md §13 acceptance checklist passes on the booth laptop
+- [x] `npm run build` succeeds (type check, unit tests and build)
+- [x] `npm run preview` runs the built game correctly (this is the offline fallback)
+- [x] With `app/src/assets/sfx/` **empty**, every sound plays its code-generated version
+- [x] With a test file dropped in (e.g. `hit.mp3`), that file plays instead; after removing it, the recipe plays again
+- [x] No known bugs remain open
 
 **Cut order** if Stage 1 is at risk of not finishing in time (cut from the top first):
 1. The optional rage upgrades (GAME_DESIGN §6.5a). They are off by default anyway
@@ -109,16 +109,20 @@ Setup       Game complete & debugged (local)    Deploy to AWS       Release & fr
 | 3.1 | Final `npm run build` and `npm run deploy` (in `infra`, uses `--profile elden-personal`); tag the git commit `v1.0-event` |
 | 3.2 | Run the full GAME_DESIGN.md §13 checklist one last time against `GameUrl` |
 | 3.3 | Test the offline fallback with Wi-Fi off: `npm run preview` → play a full session |
-| 3.4 | Keep a copy of the built `app/dist/` on the booth laptop |
+| 3.4 | Keep a copy of the built `app/dist/` on the booth laptop (the booth laptop is the development Mac, so the repo's `app/dist/` is the copy) |
 | 3.5 | **Feature freeze.** From now on, only fix critical bugs. Every fix must rerun the §13 checklist before redeploying, and gets a new tag (`v1.0.1-event`, …) |
 
+**Status (2026-10-13):** `v1.0-event` tagged on `main` (`524f631`) and live at https://d376ckm5wji8ku.cloudfront.net. Online and offline (`npm run preview`, outside requests blocked) sessions passed in headless Chrome; the user checked the booth laptop. Feature freeze in effect.
+
 **Exit criteria**
-- [ ] `v1.0-event` is deployed and tagged
-- [ ] Online (`GameUrl`) and offline (`npm run preview`) versions both pass the checklist
+- [x] `v1.0-event` is deployed and tagged
+- [x] Online (`GameUrl`) and offline (`npm run preview`) versions both pass the checklist
 
 ---
 
 ## Stage 4 — Post-event (optional)
+
+**Decided 2026-10-13:** keep the game online after the event, with the Budgets alert in place (4.1 and 4.2).
 
 | # | Task |
 |---|---|
