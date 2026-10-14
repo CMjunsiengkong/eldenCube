@@ -1,7 +1,7 @@
 /**
  * The Elden Cube (GAME_DESIGN §6).
  *
- * - `BossBrain` is the pure core: HP (20, damage per hit), phase, mode, the cooldown that starts
+ * - `BossBrain` is the pure core: HP (36, damage per hit), phase, mode, the cooldown that starts
  *   when the boss is free, attack selection and the Royal Rebuke triggers (poise, close, window).
  *   The hit that starts rage cancels the running attack and every hazard in the same step.
  * - `Boss` is the view and motion: the gelatinous model (1.5b), idle bob, turning, chase, attack

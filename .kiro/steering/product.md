@@ -32,7 +32,7 @@ A small, funny 3D boss fight in the browser: a clumsy hero ("The Tarnished Inter
 - `ARCHITECTURE.md` — technical design, AWS stack, dev environment.
 - `ASSETS.md` — sounds, colors, font, favicon.
 - `PROJECT_PLAN.md` — stages 0–4, milestones, exit criteria, cut order.
-- `eldencube.drawio` and `../liveDemo/` are not part of the build.
+- The `*.drawio` diagrams, their PDF exports and `../liveDemo/` are not part of the build.
 
 ## Out of scope — never build (GAME_DESIGN §12, ARCHITECTURE §2)
 - Multiplayer, leaderboards, accounts, saving, analytics, any network calls.

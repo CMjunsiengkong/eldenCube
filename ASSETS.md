@@ -203,8 +203,8 @@ There are **no textures, 3D models or image files** in the game. Every visual is
 
 | Item | Purpose | How / source | Status (2026-10-13) |
 |---|---|---|---|
-| Architecture diagram | Explaining the AWS part | Audience version: `eldencube.drawio` (one sheet: AWS, Kiro and the game only) and its export `eldencube-architecture.pdf`. The full proposal version, with the booth details, is `../eldencube.drawio` | Up to date |
-| Booth event flow diagram | Your own guide for the booth loop | Sheet 2 of the proposal copy `../eldencube.drawio` (not in the audience version) | Up to date |
+| Architecture diagrams (booth TV) | Explaining the AWS and game parts | `eldencube-aws-architecture.drawio` (build → deploy → host on AWS → play, plus the request journey) and `eldencube-game-architecture.drawio` (the game's parts: entities, boss AI, level design, VFX, camera, audio, game loop). Both are 16:9 with real screenshots, each with a one-page PDF export. The full proposal version, with the booth details, is `../eventFlow.drawio`; the detailed developer module map is `../eldencube-gameExplaination.drawio` | Up to date |
+| Booth event flow diagram | Your own guide for the booth loop | Sheet 2 of the proposal copy `../eventFlow.drawio` (not in the audience versions) | Up to date |
 | Poster / signage | Draw visitors in: title, "Built with Kiro · Hosted on AWS", controls | Canva or Figma; print A3/A2. Use AWS and Kiro logos only according to their brand guidelines, or text only | Done |
 | QR code to `GameUrl` (optional) | Visitors can play later | Any free QR generator → https://d376ckm5wji8ku.cloudfront.net (the game stays hosted after the event) | Optional |
 | Backup gameplay video | Last-resort fallback | macOS screen recording (Cmd+Shift+5), 1–2 minutes: title → death → win | Optional |

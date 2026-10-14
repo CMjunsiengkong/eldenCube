@@ -59,7 +59,8 @@ The code lives **next to these documents**, inside `eldenCube/`. `app` and `infr
 
 ```
 eldenCube/
-├── README.md, GAME_DESIGN.md, ARCHITECTURE.md, ASSETS.md, PROJECT_PLAN.md, eldencube.drawio
+├── README.md, GAME_DESIGN.md, ARCHITECTURE.md, ASSETS.md, PROJECT_PLAN.md
+├── eldencube-aws-architecture.drawio/.pdf, eldencube-game-architecture.drawio/.pdf   # booth TV diagrams
 ├── .gitignore                      # node_modules, dist, cdk.out, .DS_Store
 ├── .kiro/settings/mcp.json         # MCP servers for Kiro (§13.2)
 ├── app/                            # the game
@@ -126,6 +127,8 @@ eldenCube/
     ├── bin/infra.ts
     └── lib/EldenCubeStack.ts
 ```
+
+**Where a module goes:** `entities/` holds only the **actors** with their own brain or input and state machine (Player, Boss). `game/` holds the **level and world** that `Game` owns and resets, whose state only other systems change (Arena, Ruins, Pillars). `attacks/` holds the boss moves and the `Hazards` they spawn. `systems/` and `fx/` are shared services and effects.
 
 ## 4. Game runtime design
 
@@ -379,7 +382,7 @@ Add npm scripts in `infra/package.json` (`diff`, `deploy`, `destroy`) that inclu
 
 Deployer permissions: an IAM identity that can assume the CDK bootstrap roles (e.g. AdministratorAccess on a personal or sandbox account).
 
-### 9.4 Deployed (Stage 2, 2026-10-13)
+### 9.4 Deployed (Stage 2: stack created 2026-10-09, last updated 2026-10-13)
 
 | Item | Value |
 |---|---|
@@ -416,7 +419,7 @@ Guardrail: the Budgets alert at USD 5. If it fires, run `cdk destroy`.
 
 - Keep a built copy of `app/dist/` on the booth laptop.
 - `cd app && npm run preview` serves it at `http://localhost:4173` with no internet needed. Everything, including the font and sounds, is bundled.
-- Bookmark both the `GameUrl` and `http://localhost:4173`.
+- Bookmark the `GameUrl`. `npm run preview` prints the local address (`http://localhost:4173`) in the terminal.
 
 ## 13. Development environment and agent tooling
 

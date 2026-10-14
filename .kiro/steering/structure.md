@@ -8,7 +8,8 @@ The code lives next to the documents inside `eldenCube/`. `app` and `infra` are 
 
 ```
 eldenCube/
-├── README.md, GAME_DESIGN.md, ARCHITECTURE.md, ASSETS.md, PROJECT_PLAN.md, eldencube.drawio
+├── README.md, GAME_DESIGN.md, ARCHITECTURE.md, ASSETS.md, PROJECT_PLAN.md
+├── eldencube-aws-architecture.drawio/.pdf, eldencube-game-architecture.drawio/.pdf   # booth TV diagrams
 ├── .gitignore                      # node_modules, dist, cdk.out, .DS_Store
 ├── .kiro/settings/mcp.json         # MCP servers (aws-docs, aws-iac, chrome-devtools)
 ├── .kiro/steering/                 # product.md, tech.md, structure.md, rules.md

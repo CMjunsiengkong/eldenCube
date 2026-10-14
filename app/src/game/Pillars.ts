@@ -1,11 +1,13 @@
 /**
  * Crown pillars (GD §8a, 1.6 T1): four stone pillars on the diagonals, 15 m from the center.
  *
- * - `PillarField` is the pure rule set (tested): which pillars stand, the circle push-out for the
- *   player, and the "shadows". Any boss hit collapses a pillar at once (no health). A collapse by a
- *   shieldable wave (Slam/Hop ring, Rebuke, Shove, Cone) leaves a shadow for that wave's short life:
- *   a hit from the same origin is blocked when the pillar stood between the origin and the player.
- *   Charge, Beam, Crown Rain and meteors collapse it and go straight through.
+ * - `PillarField` is the pure rule set (tested): which pillars stand, their health, the circle
+ *   push-out for the player, and the "shadows". Each pillar has 3 health (1.6 playtest); a boss hit
+ *   costs 1 (one wave counts once per hit cooldown), and the Charge and the Flame Beam knock it down
+ *   at once. A hit by a shieldable wave (Slam/Hop ring, Rebuke, Shove, Cone) leaves a shadow for that
+ *   wave's short life, whether the pillar survives or not: a hit from the same origin is blocked when
+ *   the pillar stood between the origin and the player. Charge, Beam, Crown Rain and meteors never
+ *   shield.
  * - `PillarView` draws the standing pillars as one InstancedMesh (dithered see-through when one hides
  *   the player from the camera) and the rubble as another (debris physics, settles until reset).
  */
